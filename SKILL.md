@@ -1,15 +1,22 @@
 ---
 name: pain-point-finder
 description: >-
-  Discover pain points, frustrations, and unmet needs on Reddit using PullPush API.
-  No API keys required. Use to find startup ideas backed by real user complaints.
+  Discover pain points, frustrations, and unmet needs on Reddit, Hacker News, Product Hunt,
+  Google, G2/Capterra, Kickstarter, and the Play Store. No API keys required for most sources.
+  Use to find startup ideas backed by real user complaints.
 metadata: {"clawdbot":{"emoji":"🔬","requires":{"bins":["node"]}}
 }
 ---
 
 # Pain Point Finder
 
-Discover validated pain points on Reddit. Searches for frustrations, complaints, and unmet needs, then analyzes comment threads for agreement signals, emotional intensity, willingness-to-pay evidence, and failed solutions. Powered by PullPush API — no API keys needed.
+Discover validated pain points across multiple platforms. Searches for frustrations, complaints, and unmet needs, then analyzes comment threads for agreement signals, emotional intensity, willingness-to-pay evidence, and failed solutions.
+
+**Entry point**: `pain-points <source> <command> [options]`
+
+Available sources: `api` (Reddit/PullPush), `browser` (Reddit/Puppeteer), `hn` (Hacker News), `google` (Google autocomplete), `ph` (Product Hunt), `reviews` (G2/Capterra), `kickstarter` (Kickstarter), `appstore` (Google Play), `all` (all sources in parallel).
+
+See [README.md](README.md) for full source documentation and flag reference.
 
 ## Workflow
 
@@ -20,21 +27,45 @@ Follow these 7 phases in order. Phases 1-3 are script-driven data collection. Ph
 Find the right subreddits for the user's domain.
 
 ```bash
-node {baseDir}/scripts/pain-points.mjs discover --domain "<user's domain>" --limit 8
+pain-points api discover --domain "<user's domain>" --limit 8
 ```
 
 Take the top 3-5 subreddits from the output for phase 2.
 
 ### Phase 2: Scan for Pain Points
 
-Broad search across discovered subreddits.
+**Quick option — run everything at once:**
+```bash
+pain-points all scan --domain "<domain>" --limit 50
+```
+
+Or run sources individually for more control. Start with Reddit:
 
 ```bash
-node {baseDir}/scripts/pain-points.mjs scan \
+pain-points api scan \
   --subreddits "<sub1>,<sub2>,<sub3>" \
   --domain "<domain>" \
   --days 90 \
   --limit 20
+```
+
+Optionally supplement with other sources:
+
+```bash
+# Hacker News (good for B2B/developer domains)
+pain-points hn scan --domain "<domain>" --limit 20
+
+# Google autocomplete (surface how people phrase their problems)
+pain-points google scan --domain "<domain>"
+
+# Low-star software reviews (dense pain language)
+pain-points reviews scan --domain "<domain>" --sources g2,capterra
+
+# Kickstarter backer comments (hardware / physical product spaces)
+pain-points kickstarter scan --domain "<domain>"
+
+# Google Play 1-2 star reviews (mobile app pain points)
+pain-points appstore scan --domain "<domain>"
 ```
 
 Review the scored posts. Posts with high `painScore`, high `num_comments`, `wtpSignals`, and high `intensity` are the best candidates for deep analysis.
@@ -45,13 +76,15 @@ Analyze comment threads of top posts for agreement, money trail, and intensity s
 
 Single post:
 ```bash
-node {baseDir}/scripts/pain-points.mjs deep-dive --post <post_id>
+pain-points api deep-dive --post <post_id>
 ```
 
 Top N from scan output:
 ```bash
-node {baseDir}/scripts/pain-points.mjs deep-dive --from-scan <scan_output.json> --top 5
+pain-points api deep-dive --from-scan <scan_output.json> --top 5
 ```
+
+For browser-scraped posts use `pain-points browser deep-dive`. For HN posts use `pain-points hn deep-dive`.
 
 Key fields in the output:
 - **validationStrength**: strong / moderate / weak / anecdotal
@@ -121,40 +154,32 @@ For each validated pain point, present a structured proposal:
 
 End with a ranked list of all pains by build-worthiness.
 
-## Browser Mode (Alternative Data Source)
+## Browser Mode (Alternative Reddit Source)
 
-When PullPush is unavailable, rate-limited, or you want real-time data from a logged-in Reddit session, use the browser-based mode. It scrapes old.reddit.com via Puppeteer, reusing an existing Chrome session (e.g. from puppeteer-mcp-server).
+When PullPush is unavailable, rate-limited, or you want real-time data, use the browser source. It scrapes old.reddit.com via Puppeteer, reusing an existing Chrome session (e.g. from puppeteer-mcp-server).
 
 **Prerequisites**: Chrome running with remote debugging (puppeteer-mcp-server does this automatically). Install deps: `npm install` in the skill directory.
 
 ### Browser Scan
 
 ```bash
-node {baseDir}/scripts/browser-scan.mjs scan \
+pain-points browser scan \
   --subreddits "<sub1>,<sub2>,<sub3>" \
   --domain "<domain>" \
   --time year \
   --limit 20
 ```
 
-This searches old.reddit.com with pain-oriented queries (frustration, desire, cost keywords) and scrapes the results. It auto-detects the Chrome instance.
-
 ### Browser Deep-Dive
 
 ```bash
-node {baseDir}/scripts/browser-scan.mjs deep-dive --post <url_or_id>
+pain-points browser deep-dive --post <url_or_id>
+pain-points browser deep-dive --from-scan <scan_output.json> --top 5
 ```
-
-Or from scan output:
-```bash
-node {baseDir}/scripts/browser-scan.mjs deep-dive --from-scan <scan_output.json> --top 5
-```
-
-Scrapes the actual comment thread from old.reddit.com and runs the same analysis (agreement, intensity, money trail, solution attempts) as the API mode.
 
 ### When to use browser mode vs API mode
 
-| | API mode (pain-points.mjs) | Browser mode (browser-scan.mjs) |
+| | API mode (`api`) | Browser mode (`browser`) |
 |---|---|---|
 | **Speed** | Faster (API calls) | Slower (page loads) |
 | **Data freshness** | Archive (may lag hours/days) | Real-time |
@@ -167,13 +192,15 @@ Output format is identical between modes — both produce `{ ok: true, data: { p
 
 ## Options Reference
 
-### discover
+For the full flag reference for all sources, see [README.md](README.md).
+
+### api discover
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--domain` | required | Domain to explore |
 | `--limit` | 10 | Max subreddits to return |
 
-### scan
+### api scan
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--subreddits` | required | Comma-separated subreddit list |
@@ -184,7 +211,7 @@ Output format is identical between modes — both produce `{ ok: true, data: { p
 | `--limit` | 30 | Max posts to return |
 | `--pages` | 2 | Pages per query (more = deeper, slower) |
 
-### deep-dive
+### api deep-dive
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--post` | | Single post ID or Reddit URL |
@@ -193,25 +220,12 @@ Output format is identical between modes — both produce `{ ok: true, data: { p
 | `--top` | 10 | How many posts to analyze from scan |
 | `--maxComments` | 200 | Max comments to fetch per post |
 
-### browser-scan scan
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--subreddits` | required | Comma-separated subreddit list |
-| `--domain` | | Domain for relevance boosting |
-| `--time` | year | Time filter: hour, day, week, month, year, all |
-| `--minComments` | 3 | Min comment count filter |
-| `--limit` | 30 | Max posts to return |
-| `--ws-url` | auto | Chrome WebSocket URL |
-| `--port` | auto | Chrome debug port |
+### browser scan / deep-dive
+Same flags as above plus:
 
-### browser-scan deep-dive
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--post` | | Post URL or ID |
-| `--from-scan` | | Path to scan output JSON |
-| `--stdin` | | Read scan JSON from stdin |
-| `--top` | 10 | How many posts to analyze from scan |
-| `--maxComments` | 200 | Max comments to scrape per post |
+| `--time` | year | Time filter: hour, day, week, month, year, all |
 | `--ws-url` | auto | Chrome WebSocket URL |
 | `--port` | auto | Chrome debug port |
 

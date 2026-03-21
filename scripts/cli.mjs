@@ -5,6 +5,7 @@
  *
  * Usage:
  *   pain-points <source> <command> [options]
+ *   pain-points report --files file1.json,file2.json [--format md|json]
  *
  * Sources:
  *   api       PullPush API (historical Reddit data)
@@ -15,6 +16,7 @@
  *   pain-points api scan --subreddits projectmanagement,SaaS --days 90
  *   pain-points browser scan --subreddits PokemonTCG --domain "pokemon tcg"
  *   pain-points browser deep-dive --post <url>
+ *   pain-points report --files reddit-scan.json,hn-scan.json --format md
  */
 
 import { normalizeArgs, log } from './lib/utils.mjs';
@@ -39,8 +41,23 @@ async function loadSource(name) {
 const SOURCE_ALIASES = {
   api: 'reddit-api',
   browser: 'reddit-browser',
+  google: 'google-autocomplete',
+  hn: 'hackernews',
+  hackernews: 'hackernews',
+  reviews: 'reviews',
+  ph: 'producthunt',
+  producthunt: 'producthunt',
+  kickstarter: 'crowdfunding',
+  crowdfunding: 'crowdfunding',
+  appstore: 'appstore',
+  all: 'coordinator',
+  coordinator: 'coordinator',
   'reddit-api': 'reddit-api',
   'reddit-browser': 'reddit-browser',
+  'google-autocomplete': 'google-autocomplete',
+  'reviews': 'reviews',
+  'crowdfunding': 'crowdfunding',
+  'appstore': 'appstore',
 };
 
 // ─── main ────────────────────────────────────────────────────────────────────
@@ -48,34 +65,67 @@ const SOURCE_ALIASES = {
 async function main() {
   const argv = process.argv.slice(2);
 
+  // Top-level `report` command — delegate to report.mjs directly
+  if (argv[0] === 'report') {
+    const { createRequire } = await import('node:module');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, resolve } = await import('node:path');
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    // Re-launch report.mjs as a child process so process.argv is set correctly
+    const { spawn } = await import('node:child_process');
+    const reportPath = resolve(__dirname, 'report.mjs');
+    const child = spawn(process.execPath, [reportPath, ...argv.slice(1)], {
+      stdio: 'inherit',
+    });
+    child.on('exit', code => process.exit(code ?? 0));
+    return;
+  }
+
   if (argv.length === 0 || (argv.length === 1 && (argv[0] === '--help' || argv[0] === 'help'))) {
     const apiSource = await loadSource('reddit-api');
     const browserSource = await loadSource('reddit-browser');
 
     log(`
-pain-points — Reddit pain point discovery
+pain-points — Multi-source pain point discovery
 
 Usage:
   pain-points <source> <command> [options]
+  pain-points report --files file1.json,file2.json [--format md|json]
 
 Sources:
-  api       PullPush API — historical data, no browser needed
-  browser   Puppeteer — real-time scraping via old.reddit.com
+  all       Coordinator — run ALL sources in parallel (recommended)
+  api       PullPush API — historical Reddit data, no browser needed
+  browser   Puppeteer — real-time Reddit scraping via old.reddit.com
+  google    Google autocomplete / People Also Ask
+  hn        Hacker News
+  reviews   G2 / Capterra / Trustpilot review scraper
+  ph        Product Hunt
+  crowdfunding  Kickstarter / Indiegogo
+  appstore  App Store / Play Store reviews
 
 Commands by source:
+  all:      scan
   api:      discover, scan, deep-dive
   browser:  scan, deep-dive
 
+Report command (Phases 4-7 synthesis):
+  pain-points report --files reddit-scan.json,hn-scan.json [--format md|json]
+
 Examples:
+  pain-points all scan --domain "project management"
+  pain-points all scan --domain "SaaS billing" --limit 50
   pain-points api discover --domain "project management" --limit 8
   pain-points api scan --subreddits projectmanagement,SaaS --days 90 --limit 20
   pain-points api deep-dive --post 1inyk7o
   pain-points browser scan --subreddits PokemonTCG --domain "pokemon tcg" --time year
   pain-points browser deep-dive --post https://old.reddit.com/r/PokemonTCG/comments/1k9vcj5/
+  pain-points report --files reddit.json,hn.json,reviews.json
 
 For source-specific help:
+  pain-points all --help
   pain-points api --help
   pain-points browser --help
+  pain-points report --help
 `);
     process.exit(0);
   }
