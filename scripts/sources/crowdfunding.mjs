@@ -80,6 +80,16 @@ async function connectBrowser(args) {
   fail('No Chrome browser found. Start puppeteer-mcp-server, or pass --ws-url / --port');
 }
 
+const REALISTIC_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36';
+
+/**
+ * Strip query parameters from a URL, keeping only the path.
+ */
+function stripQuery(url) {
+  try { return new URL(url).origin + new URL(url).pathname; }
+  catch { return url.split('?')[0]; }
+}
+
 // ─── scraping helpers ────────────────────────────────────────────────────────
 
 /**
@@ -115,67 +125,104 @@ async function scrapeKickstarterSearch(page, query) {
   const url = `${KICKSTARTER}/discover/advanced?term=${encodedQuery}&sort=most_backed`;
   log(`[crowdfunding] search: ${url}`);
 
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await sleep(2000);
+  // networkidle2 is required — domcontentloaded fires before React renders cards
+  await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+  await sleep(1500);
 
-  // Scroll to trigger lazy loads
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
-  await sleep(1000);
+  // Scroll to trigger lazy-loaded cards below the fold
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await sleep(1500);
 
   return await page.evaluate(() => {
     var projects = [];
-    // Kickstarter renders project cards with various selectors depending on layout
-    var cards = document.querySelectorAll('[data-pid], .js-react-proj-card, .project-card');
-    if (cards.length === 0) {
-      // Try the newer React-rendered grid
-      cards = document.querySelectorAll('[class*="ProjectCard"], [class*="project-card"]');
+    // Primary selector: [data-pid] divs contain a data-project JSON attribute
+    // with all project fields pre-populated by the server
+    var cards = document.querySelectorAll('[data-pid]');
+
+    for (var j = 0; j < cards.length; j++) {
+      var card = cards[j];
+
+      // Try to extract rich data from the embedded JSON first
+      var projectJson = null;
+      try {
+        var raw = card.getAttribute('data-project');
+        if (raw) projectJson = JSON.parse(raw);
+      } catch (e) { /* ignore parse errors */ }
+
+      // Find the canonical project URL (strip tracking query params)
+      var a = card.querySelector('a.project-card__title, a[href*="/projects/"]');
+      if (!a) continue;
+      var href = a.href.split('?')[0];
+      var m = href.match(/\/projects\/([^/]+)\/([^/?#]+)/);
+      if (!m) continue;
+
+      var creator = m[1];
+      var slug = m[2];
+      var canonicalUrl = 'https://www.kickstarter.com/projects/' + creator + '/' + slug;
+
+      // Extract title — prefer JSON, fall back to link text or blurb element
+      var name = '';
+      if (projectJson && projectJson.name) {
+        name = projectJson.name;
+      } else {
+        var titleEl = card.querySelector('a.project-card__title, h3, h2');
+        name = titleEl ? titleEl.textContent.trim() : slug;
+      }
+
+      // Extract blurb / short description
+      var description = '';
+      if (projectJson && projectJson.blurb) {
+        description = projectJson.blurb;
+      } else {
+        var blurbEl = card.querySelector('.project-card__blurb, [class*="blurb"], p');
+        description = blurbEl ? blurbEl.textContent.trim() : '';
+      }
+
+      // Backer count from JSON
+      var backerCount = 0;
+      if (projectJson && projectJson.backers_count) {
+        backerCount = parseInt(projectJson.backers_count, 10) || 0;
+      }
+
+      // Funding amount from JSON (in cents → dollars)
+      var fundingAmount = 0;
+      if (projectJson && projectJson.pledged) {
+        fundingAmount = Math.round(parseFloat(projectJson.pledged) || 0);
+      }
+
+      projects.push({
+        creator,
+        slug,
+        url: canonicalUrl,
+        name: name.substring(0, 120),
+        description: description.substring(0, 300),
+        backerCount,
+        fundingAmount,
+      });
     }
-    if (cards.length === 0) {
-      // Fallback: any anchor whose href contains /projects/
+
+    // Fallback: if [data-pid] yielded nothing, try project link anchors
+    if (projects.length === 0) {
       var links = document.querySelectorAll('a[href*="/projects/"]');
       var seen = new Set();
       for (var i = 0; i < links.length; i++) {
-        var href = links[i].href;
-        var m = href.match(/\/projects\/([^/]+)\/([^/?#]+)/);
-        if (m && !seen.has(m[0])) {
-          seen.add(m[0]);
+        var lhref = links[i].href.split('?')[0];
+        var lm = lhref.match(/\/projects\/([^/]+)\/([^/?#]+)/);
+        if (lm && !seen.has(lm[0])) {
+          seen.add(lm[0]);
           projects.push({
-            creator: m[1],
-            slug: m[2],
-            url: 'https://www.kickstarter.com/projects/' + m[1] + '/' + m[2],
-            name: links[i].textContent.trim().substring(0, 120) || m[2],
+            creator: lm[1],
+            slug: lm[2],
+            url: 'https://www.kickstarter.com/projects/' + lm[1] + '/' + lm[2],
+            name: links[i].textContent.trim().substring(0, 120) || lm[2],
             description: '',
             backerCount: 0,
             fundingAmount: 0,
           });
         }
       }
-      return projects;
     }
 
-    for (var j = 0; j < cards.length; j++) {
-      var card = cards[j];
-      var a = card.querySelector('a[href*="/projects/"]');
-      if (!a) continue;
-      var href2 = a.href;
-      var m2 = href2.match(/\/projects\/([^/]+)\/([^/?#]+)/);
-      if (!m2) continue;
-
-      var nameEl = card.querySelector('h3, h2, [class*="title"], [class*="name"]');
-      var descEl = card.querySelector('p, [class*="desc"], [class*="blurb"]');
-      var backerEl = card.querySelector('[class*="backer"], [class*="Backer"]');
-      var fundEl = card.querySelector('[class*="percent"], [class*="fund"], [class*="raised"]');
-
-      projects.push({
-        creator: m2[1],
-        slug: m2[2],
-        url: 'https://www.kickstarter.com/projects/' + m2[1] + '/' + m2[2],
-        name: nameEl ? nameEl.textContent.trim().substring(0, 120) : m2[2],
-        description: descEl ? descEl.textContent.trim().substring(0, 300) : '',
-        backerCount: backerEl ? parseInt(backerEl.textContent.replace(/,/g, '').match(/\d+/)?.[0] || '0', 10) : 0,
-        fundingAmount: 0,
-      });
-    }
     return projects;
   });
 }
@@ -186,13 +233,16 @@ async function scrapeKickstarterSearch(page, query) {
  * Scrape the main project page for description and funding stats.
  */
 async function scrapeProjectPage(page, projectUrl) {
-  await page.goto(projectUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.goto(projectUrl, { waitUntil: 'networkidle2', timeout: 45000 });
   await sleep(1500);
 
   return await page.evaluate(() => {
-    // Description
-    var descEl = document.querySelector('#description-and-risks .full-description, [class*="description"] p, .story-content p');
-    var description = descEl ? descEl.textContent.trim() : '';
+    // Description — try multiple selectors in priority order
+    var description = '';
+    var descEl = document.querySelector('.story-content p, #description-and-risks .full-description');
+    if (descEl) {
+      description = descEl.textContent.trim();
+    }
     if (!description) {
       var paras = document.querySelectorAll('.story p');
       var parts = [];
@@ -202,20 +252,49 @@ async function scrapeProjectPage(page, projectUrl) {
       description = parts.join(' ');
     }
 
-    // Backer count
-    var backerEl = document.querySelector('[class*="backers-count"], [data-backers-count], .num-backers, [class*="backer"] b');
-    var backerText = backerEl ? backerEl.textContent.trim() : '';
+    // Stats block: ".NS_campaigns__spotlight_stats" contains
+    // "<b>N backers</b> pledged <span class="money">$X</span>"
+    var statsEl = document.querySelector('.NS_campaigns__spotlight_stats');
+    var statsText = statsEl ? statsEl.textContent.trim() : '';
 
-    // Funding amount
-    var fundEl = document.querySelector('[class*="pledged"], [data-pledged], .money.pledged, [class*="raised"]');
-    var fundText = fundEl ? fundEl.textContent.trim() : '';
+    // Backer count — parse from stats text "2,511 backers pledged..."
+    var backerText = '';
+    var backerM = statsText.match(/([\d,]+)\s+backers?/i);
+    if (backerM) backerText = backerM[1];
+    // Fallback to individual selectors
+    if (!backerText) {
+      var backerEl = document.querySelector(
+        '[data-backers-count], .num-backers, [class*="backers-count"]'
+      );
+      backerText = backerEl ? backerEl.textContent.trim() : '';
+    }
 
-    // Comment count hint (shown in tab)
-    var commentTabEl = document.querySelector('a[href*="/comments"] span, [class*="comments-count"]');
-    var commentCountText = commentTabEl ? commentTabEl.textContent.trim() : '0';
+    // Funding amount — parse from stats text "pledged $403,437"
+    var fundText = '';
+    var fundM = statsText.match(/pledged\s+[\$£€]?([\d,]+(?:\.\d+)?(?:[KMkm])?)/i);
+    if (fundM) fundText = fundM[1];
+    if (!fundText) {
+      var fundEl = document.querySelector('.money.pledged, [data-pledged]');
+      fundText = fundEl ? fundEl.textContent.trim() : '';
+    }
+
+    // Comment count from nav tab data attribute (most reliable)
+    var commentCountText = '0';
+    var commentTabEl = document.querySelector(
+      'a[data-comments-count], a.project-nav__link--comments'
+    );
+    if (commentTabEl) {
+      commentCountText = commentTabEl.getAttribute('data-comments-count')
+        || commentTabEl.textContent.trim();
+    }
+    if (commentCountText === '0') {
+      // Fallback to span inside comments tab link
+      var spanEl = document.querySelector('a[href*="/comments"] span');
+      if (spanEl) commentCountText = spanEl.textContent.trim();
+    }
 
     // Project title
-    var titleEl = document.querySelector('h1.project-name, h1[class*="title"], h1');
+    var titleEl = document.querySelector('h1.project-name, h1');
     var title = titleEl ? titleEl.textContent.trim() : '';
 
     return { description, backerText, fundText, commentCountText, title };
@@ -229,17 +308,31 @@ async function scrapeProjectPage(page, projectUrl) {
  * Scrolls to load more comments (Kickstarter uses infinite scroll).
  */
 async function scrapeProjectComments(page, projectUrl, maxComments = 60) {
-  const commentsUrl = projectUrl.replace(/\/$/, '') + '/comments';
+  // Strip all query params — search ref params break the /comments URL
+  const cleanUrl = stripQuery(projectUrl).replace(/\/$/, '');
+  const commentsUrl = cleanUrl + '/comments';
   log(`[crowdfunding] comments: ${commentsUrl}`);
 
-  await page.goto(commentsUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.goto(commentsUrl, { waitUntil: 'networkidle2', timeout: 45000 });
   await sleep(2000);
 
-  // Scroll to load additional comments
+  // Kickstarter's comments section is React-rendered. Navigating to /comments
+  // loads the page shell; the actual comment list is injected by clicking the tab.
+  try {
+    await page.evaluate(() => {
+      const link = document.querySelector('a.js-load-project-comments, a[data-content="comments"]');
+      if (link) link.click();
+    });
+    await sleep(3000);
+  } catch (err) {
+    log(`[crowdfunding] comments tab click failed: ${err.message}`);
+  }
+
+  // Scroll to load additional batches (infinite scroll)
   let prevCount = 0;
   for (let scroll = 0; scroll < 5; scroll++) {
     const count = await page.evaluate(() =>
-      document.querySelectorAll('[class*="comment"], .comment').length
+      document.querySelectorAll('#react-project-comments li').length
     );
     if (count >= maxComments || count === prevCount) break;
     prevCount = count;
@@ -249,15 +342,12 @@ async function scrapeProjectComments(page, projectUrl, maxComments = 60) {
 
   return await page.evaluate((maxC) => {
     var comments = [];
-    var els = document.querySelectorAll('[class*="comment"], .comment');
+    // Comments are rendered as <li> items inside #react-project-comments
+    var els = document.querySelectorAll('#react-project-comments li');
     for (var i = 0; i < Math.min(els.length, maxC); i++) {
-      var el = els[i];
-      // Skip reply wrappers — look for actual text nodes
-      var bodyEl = el.querySelector('[class*="body"], [class*="text"], p');
-      var body = bodyEl ? bodyEl.textContent.trim() : el.textContent.trim();
-      body = body.substring(0, 500);
+      var body = els[i].textContent.trim().substring(0, 500);
       if (!body || body.length < 10) continue;
-      comments.push({ body: body, score: 1 });
+      comments.push({ body, score: 1 });
     }
     return comments;
   }, maxComments);
@@ -290,6 +380,8 @@ async function cmdScan(args) {
 
   const browser = await connectBrowser(args);
   const page = await browser.newPage();
+  // Set realistic UA once — avoids Cloudflare bot detection without repeated protocol calls
+  await page.setUserAgent(REALISTIC_UA);
 
   try {
     const queries = buildSearchQueries(domain);
@@ -315,6 +407,10 @@ async function cmdScan(args) {
     log(`[crowdfunding-scan] ${projectsBySlug.size} unique projects found`);
 
     // Phase 2: enrich top candidates with project page + comments
+    // Ensure all URLs are canonical (no query params) before fetching
+    for (const [slug, stub] of projectsBySlug) {
+      stub.url = stripQuery(stub.url);
+    }
     const stubs = [...projectsBySlug.values()].slice(0, Math.min(15, projectsBySlug.size));
     const enriched = [];
 

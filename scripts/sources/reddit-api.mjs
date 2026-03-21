@@ -247,13 +247,21 @@ async function cmdDiscover(args) {
 
 async function cmdScan(args) {
   const subreddits = args.subreddits;
-  if (!subreddits || !subreddits.length) fail('--subreddits is required');
+  const domain = args.domain || '';
+
+  // --subreddits is required unless --domain is provided (coordinator mode: global domain search)
+  if ((!subreddits || !subreddits.length) && !domain) {
+    fail('--subreddits or --domain is required');
+  }
+
   const days = args.days || 365;
   const minScore = args.minScore || 1;
   const minComments = args.minComments || 3;
   const limit = args.limit || 30;
   const pages = args.pages || 2;
-  const domain = args.domain || '';
+
+  // Domain-only mode: no subreddits — search globally using domain-focused queries
+  const globalMode = !subreddits || !subreddits.length;
 
   let effectiveNow;
   try {
@@ -262,29 +270,46 @@ async function cmdScan(args) {
   } catch { effectiveNow = unixNow(); }
   const after = effectiveNow - days * 86400;
 
-  log(`[scan] subreddits=${subreddits.join(',')}, days=${days}`);
+  if (globalMode) {
+    log(`[scan] global domain mode: domain="${domain}", days=${days}`);
+  } else {
+    log(`[scan] subreddits=${subreddits.join(',')}, days=${days}`);
+  }
 
   const queries = [];
-  for (const cat of Object.keys(SCAN_QUERIES)) {
-    for (const q of SCAN_QUERIES[cat]) queries.push({ q, category: cat });
-  }
-  if (domain) {
-    queries.push({ q: `${domain} frustrated`, category: 'domain' });
-    queries.push({ q: `${domain} terrible`, category: 'domain' });
-    queries.push({ q: `${domain} alternative`, category: 'domain' });
+  if (globalMode) {
+    // In global mode, use quoted-phrase queries so PullPush matches the full domain phrase,
+    // preventing false positives from individual words like "management" matching unrelated posts.
+    const q = `"${domain}"`;
+    queries.push({ q: `${q} frustrated`, category: 'domain' });
+    queries.push({ q: `${q} terrible`, category: 'domain' });
+    queries.push({ q: `${q} alternative`, category: 'domain' });
+    queries.push({ q: `${q} broken`, category: 'domain' });
+    queries.push({ q: `${q} hate`, category: 'domain' });
+    queries.push({ q: `${q} overpriced`, category: 'domain' });
+  } else {
+    for (const cat of Object.keys(SCAN_QUERIES)) {
+      for (const q of SCAN_QUERIES[cat]) queries.push({ q, category: cat });
+    }
+    if (domain) {
+      queries.push({ q: `${domain} frustrated`, category: 'domain' });
+      queries.push({ q: `${domain} terrible`, category: 'domain' });
+      queries.push({ q: `${domain} alternative`, category: 'domain' });
+    }
   }
 
   const postsById = new Map();
   let queriesRun = 0;
 
-  for (const sub of subreddits) {
+  if (globalMode) {
+    // Global search: no subreddit filter
     for (const { q, category } of queries) {
-      log(`[scan] r/${sub} q=${q} (${category})`);
+      log(`[scan] global q=${q} (${category})`);
       queriesRun++;
       let posts;
       try {
         posts = await paginateSubmissions({
-          q, subreddit: sub, score: `>${minScore}`,
+          q, score: `>${minScore}`,
           sort: 'desc', sort_type: 'num_comments', after,
         }, pages);
       } catch (err) {
@@ -293,6 +318,26 @@ async function cmdScan(args) {
       }
       for (const p of posts) {
         if (!postsById.has(p.id)) postsById.set(p.id, p);
+      }
+    }
+  } else {
+    for (const sub of subreddits) {
+      for (const { q, category } of queries) {
+        log(`[scan] r/${sub} q=${q} (${category})`);
+        queriesRun++;
+        let posts;
+        try {
+          posts = await paginateSubmissions({
+            q, subreddit: sub, score: `>${minScore}`,
+            sort: 'desc', sort_type: 'num_comments', after,
+          }, pages);
+        } catch (err) {
+          if (err.statusCode === 403) break;
+          log(`[scan] failed: ${err.message}`); continue;
+        }
+        for (const p of posts) {
+          if (!postsById.has(p.id)) postsById.set(p.id, p);
+        }
       }
     }
   }
@@ -309,9 +354,16 @@ async function cmdScan(args) {
 
   scored.sort((a, b) => b.painScore - a.painScore);
   ok({
-    mode: 'api',
+    mode: globalMode ? 'api-global' : 'api',
     posts: scored.slice(0, limit),
-    stats: { subreddits: subreddits.length, queries_run: queriesRun, api_calls: rateLimiter.count, raw_posts: postsById.size, after_filter: Math.min(scored.length, limit) },
+    stats: {
+      subreddits: globalMode ? 0 : subreddits.length,
+      global_mode: globalMode,
+      queries_run: queriesRun,
+      api_calls: rateLimiter.count,
+      raw_posts: postsById.size,
+      after_filter: Math.min(scored.length, limit),
+    },
   });
 }
 
@@ -405,8 +457,8 @@ discover options:
   --limit <n>           Max subreddits (default: 10)
 
 scan options:
-  --subreddits <list>   Comma-separated subreddits (required)
-  --domain <str>        Domain for extra queries
+  --subreddits <list>   Comma-separated subreddits (required unless --domain is given)
+  --domain <str>        Domain for targeted queries; used alone for global Reddit search
   --days <n>            Search last N days (default: 365)
   --minScore <n>        Min post score (default: 1)
   --minComments <n>     Min comments (default: 3)

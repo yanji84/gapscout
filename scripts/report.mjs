@@ -17,7 +17,7 @@
  *   --format json Structured JSON for downstream processing
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readSync } from 'node:fs';
 import { log, normalizeArgs } from './lib/utils.mjs';
 
 // ─── constants ────────────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ function loadStdin() {
   const buf = Buffer.alloc(65536);
   let n;
   try {
-    while ((n = require('fs').readSync(fd, buf, 0, buf.length, null)) > 0) {
+    while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) {
       chunks.push(buf.slice(0, n).toString());
     }
   } catch {
@@ -163,14 +163,24 @@ function classifyDepth(posts) {
   const hasHighIntensity = analyses.some(a =>
     a.intensityLevel === 'high' || a.intensityLevel === 'extreme');
 
+  // Fall back to post-level wtpSignals when no deep-dive analysis is available
+  const postLevelWtpCount = analyses.length === 0
+    ? posts.reduce((s, p) => s + (p.wtpSignals || []).length, 0)
+    : 0;
+  const postLevelIntensityHigh = analyses.length === 0
+    ? posts.some(p => (p.intensity || 0) >= 2)
+    : false;
+
+  const effectiveMoneyTrail = totalMoneyTrail + postLevelWtpCount;
+
   const hasDesireSignals = posts.some(p =>
     (p.painCategories || []).includes('desire') ||
     (p.painSignals || []).some(s => ['looking for', 'alternative to', 'switched from', 'is there a'].includes(s)));
 
-  if (totalMoneyTrail >= 3 || (hasStrongValidation && hasHighIntensity)) {
+  if (effectiveMoneyTrail >= 3 || (hasStrongValidation && hasHighIntensity)) {
     return 'urgent';
   }
-  if (hasStrongValidation || hasDesireSignals || totalMoneyTrail >= 1) {
+  if (hasStrongValidation || hasDesireSignals || effectiveMoneyTrail >= 1 || postLevelIntensityHigh) {
     return 'active';
   }
   return 'surface';
@@ -191,21 +201,26 @@ function computeMatrix(posts, crossSources) {
   const analyses = posts.map(p => p._analysis).filter(Boolean);
 
   let intensityScore = 0;
+  let intensityThreshold = 2.0;
   if (analyses.length > 0) {
     const intensityMap = { extreme: 4, high: 3, moderate: 2, low: 1 };
     const avg = analyses.reduce((s, a) => s + (intensityMap[a.intensityLevel] || 1), 0) / analyses.length;
     intensityScore = avg;
+    // deep-dive scale: low=1, moderate=2, high=3, extreme=4; threshold at moderate
+    intensityThreshold = 2.0;
   } else {
-    // Fall back to post-level intensity field
+    // Fall back to post-level intensity field (0-3 count of intensity keyword matches)
     const postIntensities = posts.map(p => p.intensity || 0);
     if (postIntensities.length > 0) {
       intensityScore = postIntensities.reduce((s, i) => s + i, 0) / postIntensities.length;
     }
+    // Post-level scale is 0-3; lower threshold than deep-dive scale
+    intensityThreshold = 1.0;
   }
 
-  // Thresholds: frequency >= 4 = frequent, intensity >= 2.0 = intense
+  // Thresholds: frequency >= 4 = frequent, intensity >= threshold = intense
   const isFrequent = frequency >= 4;
-  const isIntense = intensityScore >= 2.0;
+  const isIntense = intensityScore >= intensityThreshold;
 
   let position;
   if (isFrequent && isIntense) position = 'primary';
@@ -245,6 +260,8 @@ function aggregateMoneyTrail(posts) {
 
 /**
  * Extract unspoken/underlying pain patterns from top quotes and solution attempts.
+ * Returns structured objects: { surface, underlying, evidence } when derivable,
+ * or raw quote strings for inclusion in the report.
  */
 function extractUnspokenPain(posts) {
   const hints = [];
@@ -253,21 +270,30 @@ function extractUnspokenPain(posts) {
     const analysis = p._analysis;
     if (!analysis) continue;
 
-    // Look for pattern signals in solution attempts — "workaround" or "i built my own"
+    // Look for failed workarounds — signals that existing solutions are inadequate
     for (const sol of (analysis.solutionAttempts || []).slice(0, 3)) {
       const body = (sol.body || '').toLowerCase();
-      if (body.includes('workaround') || body.includes('built my own') || body.includes('hack')) {
+      if (body.includes('workaround') || body.includes('built my own') || body.includes('hack') ||
+          body.includes('still') || body.includes('but ') || body.includes('failed') ||
+          body.includes("doesn't work") || body.includes("didn't work")) {
         hints.push(sol.body);
       }
     }
 
-    // Top quotes with intensity signals
+    // High-score quotes that hint at a deeper need (score >= 10 = widely agreed on)
     for (const q of (analysis.topQuotes || []).slice(0, 2)) {
-      if ((q.score || 0) >= 5) hints.push(q.body);
+      if ((q.score || 0) >= 10) hints.push(q.body);
     }
   }
 
-  return hints.slice(0, 3);
+  // Deduplicate by content prefix
+  const seen = new Set();
+  return hints.filter(h => {
+    const key = h.slice(0, 40);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 3);
 }
 
 // ─── competitive landscape ────────────────────────────────────────────────────
@@ -431,6 +457,48 @@ function synthesize(groups, allPosts) {
   reportGroups.sort((a, b) => b.buildScore - a.buildScore);
 
   return reportGroups;
+}
+
+// ─── opportunity text builder ─────────────────────────────────────────────────
+
+/**
+ * Build a specific, data-driven opportunity statement for a pain group.
+ * Uses existing tools, solution attempts, money trail, and depth to avoid
+ * a generic "gap remains unaddressed" fallback.
+ */
+function buildOpportunityText(g) {
+  const categoryName = g.category.replace(/-/g, ' ');
+
+  // Identify the gap from failed solution attempts
+  const hasSolutionAttempts = g.solutionAttempts.length > 0;
+  const hasTools = g.tools.length > 0;
+  const toolList = g.tools.slice(0, 3).join(', ');
+
+  let gapClause = '';
+  if (hasSolutionAttempts) {
+    const firstAttempt = (g.solutionAttempts[0]?.body || '').replace(/\n/g, ' ').slice(0, 100);
+    gapClause = `Existing attempts (e.g., "${firstAttempt}...") fall short. `;
+  } else if (hasTools) {
+    gapClause = `Despite tools like ${toolList} being available, users still express the pain — suggesting a quality or accessibility gap. `;
+  }
+
+  // Money trail signal
+  let wtpClause = '';
+  if (g.moneyTrail.strength === 'strong' || g.moneyTrail.strength === 'moderate') {
+    wtpClause = `Users are already spending money on workarounds (${g.moneyTrail.totalCount} signals), indicating real WTP. `;
+  }
+
+  // Urgency framing
+  let urgencyClause = '';
+  if (g.depth === 'urgent') {
+    urgencyClause = `This is an urgent, unresolved pain — users need a better solution now.`;
+  } else if (g.depth === 'active') {
+    urgencyClause = `Users are actively seeking solutions; first-mover with a focused product could capture this segment.`;
+  } else {
+    urgencyClause = `Low urgency — validate further before building.`;
+  }
+
+  return `${gapClause}${wtpClause}${urgencyClause}`;
 }
 
 // ─── markdown renderer ────────────────────────────────────────────────────────
@@ -597,7 +665,7 @@ function renderMarkdown(groups, meta) {
       lines.push('');
     }
 
-    lines.push(`**11. Opportunity:** The gap between what users desperately need and what current solutions provide around ${g.category.replace(/-/g, ' ')} remains unaddressed. A focused product solving this specific friction point could capture paying users.`);
+    lines.push(`**11. Opportunity:** ${buildOpportunityText(g)}`);
     lines.push('');
 
     if (g.representativePosts.length > 0) {

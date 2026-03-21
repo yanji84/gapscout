@@ -102,12 +102,26 @@ async function fetchItem(itemId) {
 
 // ─── normalizers ─────────────────────────────────────────────────────────────
 
+/** Decode common HTML entities returned by Algolia HN API */
+function decodeHtmlEntities(str) {
+  if (!str) return str;
+  return str
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, '/')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x2B;/g, '+')
+    .replace(/&#x3D;/g, '=');
+}
+
 function normalizePost(hit) {
   const isAskHN = (hit.title || '').toLowerCase().startsWith('ask hn');
   return {
     id: hit.objectID,
     title: hit.title || '',
-    selftext: hit.story_text || '',
+    selftext: decodeHtmlEntities(hit.story_text || ''),
     subreddit: 'hackernews',
     url: hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`,
     score: hit.points || 0,
@@ -118,13 +132,21 @@ function normalizePost(hit) {
   };
 }
 
-/** Recursively flatten nested HN comment children into a flat list */
+/** Recursively flatten nested HN comment children into a flat list.
+ *  HN Algolia items API returns points: null for comments — treat as 0.
+ *  score is set to 1 (non-zero) so topQuotes threshold of >= 2 doesn't drop them all.
+ */
 function flattenComments(node) {
   const results = [];
   const children = node.children || [];
   for (const child of children) {
     if (child.type === 'comment' && child.text) {
-      results.push({ body: child.text, score: child.points || 0 });
+      results.push({
+        body: decodeHtmlEntities(child.text),
+        // HN Algolia items API always returns null for comment points.
+        // Use 2 so downstream >= 2 score filters include HN comments in topQuotes.
+        score: child.points != null ? child.points : 2,
+      });
     }
     results.push(...flattenComments(child));
   }
@@ -134,12 +156,16 @@ function flattenComments(node) {
 // ─── commands ────────────────────────────────────────────────────────────────
 
 const PAIN_QUERIES = [
-  (domain) => `Ask HN: ${domain} frustrated`,
-  (domain) => `Ask HN: ${domain} alternative`,
-  (domain) => `${domain} terrible`,
-  (domain) => `${domain} broken`,
-  (domain) => `${domain} hate`,
-  (domain) => `${domain} looking for`,
+  // Ask HN pain queries — scoped to ask_hn tag
+  { fn: (domain) => `${domain} frustrated`, tag: 'ask_hn' },
+  { fn: (domain) => `${domain} alternative`, tag: 'ask_hn' },
+  { fn: (domain) => `${domain} terrible`, tag: 'ask_hn' },
+  { fn: (domain) => `${domain} hate`, tag: 'ask_hn' },
+  // Story queries — covers blog posts, launch HN, etc.
+  { fn: (domain) => `${domain} broken`, tag: 'story' },
+  { fn: (domain) => `${domain} terrible`, tag: 'story' },
+  { fn: (domain) => `${domain} hate`, tag: 'story' },
+  { fn: (domain) => `${domain} alternative`, tag: 'story' },
 ];
 
 async function cmdScan(args) {
@@ -152,13 +178,11 @@ async function cmdScan(args) {
 
   const postsById = new Map();
 
-  for (const queryFn of PAIN_QUERIES) {
-    const query = queryFn(domain);
+  for (const { fn, tag } of PAIN_QUERIES) {
+    const query = fn(domain);
     let hits;
     try {
-      // Try ask_hn tag first; for non-"Ask HN" queries also search story tag
-      const isAskQuery = query.startsWith('Ask HN:');
-      hits = await searchHN(query, isAskQuery ? 'ask_hn' : 'story,ask_hn');
+      hits = await searchHN(query, tag);
     } catch (err) {
       log(`[scan] query failed: ${err.message}`);
       continue;
@@ -172,10 +196,21 @@ async function cmdScan(args) {
 
   log(`[scan] ${postsById.size} unique posts`);
 
+  // Build domain word set for relevance filtering
+  const domainWords = domain.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+
   const scored = [];
   for (const hit of postsById.values()) {
     if ((hit.num_comments || 0) < minComments) continue;
     const post = normalizePost(hit);
+
+    // Hard domain relevance filter: at least one domain word must appear in title+body.
+    // HN Algolia returns false positives (posts matching pain words but not the domain)
+    // because our queries use pain keywords as the primary signal, not the domain.
+    const fullText = ((post.title || '') + ' ' + (post.selftext || '')).toLowerCase();
+    const hasDomainMatch = domainWords.some(w => fullText.includes(w));
+    if (!hasDomainMatch) continue;
+
     const enriched = enrichPost(post, domain);
     if (enriched) scored.push(enriched);
   }
@@ -237,21 +272,22 @@ async function cmdDeepDive(args) {
       continue;
     }
 
+    const comments = flattenComments(item);
     const post = {
       id: String(item.id),
       title: item.title || '',
-      selftext: item.text || '',
+      selftext: decodeHtmlEntities(item.text || ''),
       subreddit: 'hackernews',
       url: item.url || `https://news.ycombinator.com/item?id=${item.id}`,
       score: item.points || 0,
-      num_comments: item.children ? item.children.length : 0,
+      // Use total flattened comment count (all nesting levels), not just top-level children
+      num_comments: comments.length,
       upvote_ratio: 0,
       flair: (item.title || '').toLowerCase().startsWith('ask hn') ? 'ask_hn' : 'story',
       created_utc: item.created_at_i || 0,
     };
 
     const postPainCats = getPostPainCategories(post);
-    const comments = flattenComments(item);
     const analysis = analyzeComments(comments, postPainCats);
 
     results.push({

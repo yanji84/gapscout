@@ -3,10 +3,19 @@
  *
  * Scrapes producthunt.com via Puppeteer. Connects to an existing Chrome
  * instance (e.g. from puppeteer-mcp-server) or accepts --ws-url / --port.
+ * Falls back to launching its own Chrome when none is found.
  *
- * Searches for products related to a --domain, scrapes product pages,
- * and extracts pain-signal comments (feature requests, complaints,
- * switching mentions).
+ * Strategy:
+ *   1. Navigate to PH homepage and type in search box to trigger GraphQL
+ *      search, then intercept the response.
+ *   2. Alternatively, use known category slug URL for fixed domains.
+ *   3. For each product: navigate to /products/<slug>/reviews and scrape
+ *      review text for pain signals.
+ *
+ * Selectors updated for PH's 2024/2025 React app structure:
+ *   - Products on listing pages: data-test="post-item-*" + links to /products/
+ *   - Product page: data-test="header", h1, /products/<slug>/reviews
+ *   - Reviews: data-test contains "review"
  */
 
 import puppeteer from 'puppeteer-core';
@@ -17,21 +26,58 @@ import { enrichPost } from '../lib/scoring.mjs';
 // ─── constants ───────────────────────────────────────────────────────────────
 
 const PH_BASE = 'https://www.producthunt.com';
-const PAGE_DELAY_MS = 3000;
+const PAGE_DELAY_MS = 1500;
 
-async function politeDelay() {
-  await sleep(PAGE_DELAY_MS);
+// Well-known PH category slugs for common domains
+const DOMAIN_TO_CATEGORY = {
+  'project management': 'project-management',
+  'task management': 'task-management',
+  'productivity': 'productivity',
+  'email': 'email-clients',
+  'crm': 'crm',
+  'analytics': 'analytics',
+  'marketing': 'marketing',
+  'design': 'design-tools',
+  'developer tools': 'developer-tools',
+  'ai': 'artificial-intelligence',
+  'chatbot': 'chatbots',
+  'writing': 'writing',
+  'sales': 'sales',
+  'customer support': 'customer-support',
+  'finance': 'finance',
+  'hr': 'hr-tools',
+  'note taking': 'note-taking',
+};
+
+async function politeDelay(ms = PAGE_DELAY_MS) {
+  await sleep(ms);
 }
 
 // ─── browser connection ──────────────────────────────────────────────────────
-// Copied from reddit-browser.mjs — connects to an existing Chrome instance.
+
+const CHROME_EXECUTABLES = [
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/chromium',
+  '/usr/local/bin/chromium',
+];
+
+async function findChromeExecutable() {
+  const { existsSync } = await import('node:fs').then(m => m.default || m);
+  for (const exe of CHROME_EXECUTABLES) {
+    if (existsSync(exe)) return exe;
+  }
+  return null;
+}
 
 async function findChromeWSEndpoint() {
   const fs = await import('node:fs');
   const path = await import('node:path');
   const os = await import('node:os');
   const tmpdir = os.default.tmpdir();
-  const entries = fs.default.readdirSync(tmpdir);
+  let entries;
+  try { entries = fs.default.readdirSync(tmpdir); } catch { return null; }
   for (const entry of entries) {
     if (entry.startsWith('puppeteer_dev_chrome_profile')) {
       const portFile = path.default.join(tmpdir, entry, 'DevToolsActivePort');
@@ -42,8 +88,20 @@ async function findChromeWSEndpoint() {
           const port = lines[0].trim();
           const wsPath = lines[1].trim();
           const wsUrl = `ws://127.0.0.1:${port}${wsPath}`;
-          log(`[ph] found Chrome at ${wsUrl}`);
-          return wsUrl;
+          // Verify it's alive
+          try {
+            await new Promise((resolve, reject) => {
+              http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
+                let body = '';
+                res.on('data', c => body += c);
+                res.on('end', () => {
+                  try { JSON.parse(body); resolve(); } catch { reject(new Error('bad json')); }
+                });
+              }).on('error', reject);
+            });
+            log(`[ph] found Chrome at ${wsUrl}`);
+            return wsUrl;
+          } catch { continue; }
         }
       }
     }
@@ -64,6 +122,8 @@ function getWSFromPort(port) {
   });
 }
 
+let _launchedBrowser = null;
+
 async function connectBrowser(args) {
   if (args.wsUrl) {
     log(`[ph] connecting to ${args.wsUrl}`);
@@ -79,133 +139,413 @@ async function connectBrowser(args) {
     try { return await puppeteer.connect({ browserWSEndpoint: wsUrl }); }
     catch (err) { log(`[ph] auto-detect failed: ${err.message}`); }
   }
-  fail('No Chrome browser found. Start puppeteer-mcp-server, or pass --ws-url / --port');
+  // Fall back to launching our own Chrome
+  const execPath = await findChromeExecutable();
+  if (!execPath) {
+    fail('No Chrome browser found. Install Google Chrome or pass --ws-url / --port');
+  }
+  log(`[ph] launching Chrome: ${execPath}`);
+  _launchedBrowser = await puppeteer.launch({
+    executablePath: execPath,
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--window-size=1280,900',
+    ],
+  });
+  return _launchedBrowser;
 }
 
-// ─── scraping helpers ────────────────────────────────────────────────────────
+// ─── realistic browser helpers ───────────────────────────────────────────────
+
+async function preparePage(browser) {
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.setUserAgent(
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+    '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+  );
+  await page.setExtraHTTPHeaders({
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  });
+  return page;
+}
 
 /**
- * Search producthunt.com for products matching a query.
+ * Navigate to a URL and wait for React to hydrate.
+ * Handles Cloudflare challenge page by waiting extra time.
+ * Returns true if page loaded with real content, false if blocked.
+ */
+async function navigateAndWait(page, url, waitMs = 2500) {
+  log(`[ph] navigate: ${url}`);
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  } catch (err) {
+    log(`[ph] navigation error: ${err.message}`);
+    return false;
+  }
+  await sleep(waitMs);
+  // Check for Cloudflare / error
+  const blocked = await page.evaluate(() => {
+    const title = document.title.toLowerCase();
+    const body = document.body.textContent.toLowerCase();
+    return title.includes('just a moment') ||
+      title.includes('checking your browser') ||
+      body.includes('cf-browser-verification') ||
+      document.querySelector('iframe[src*="recaptcha"]') !== null;
+  });
+  if (blocked) {
+    log(`[ph] Cloudflare challenge detected — waiting 8s...`);
+    await sleep(8000);
+    const stillBlocked = await page.evaluate(() => {
+      return document.title.toLowerCase().includes('just a moment');
+    });
+    if (stillBlocked) {
+      log(`[ph] still blocked by Cloudflare`);
+      return false;
+    }
+  }
+  return true;
+}
+
+// ─── product discovery via search interception ───────────────────────────────
+
+/**
+ * Use the PH search input to type a query and intercept the GraphQL response.
  * Returns an array of { slug, name, tagline, url, upvotes }.
  */
-async function scrapeSearchResults(page, query) {
-  const url = `${PH_BASE}/search?q=${encodeURIComponent(query)}`;
-  log(`[ph] searching: ${url}`);
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await sleep(2000);
+async function searchViaInputAndIntercept(page, query) {
+  const results = [];
+  const searchDataReceived = [];
 
-  return await page.evaluate((base) => {
-    var results = [];
-    // Product Hunt search renders product cards with data-test or role attributes.
-    // We look for links that point to /posts/<slug>.
-    var links = document.querySelectorAll('a[href^="/posts/"]');
-    var seen = new Set();
-    for (var i = 0; i < links.length; i++) {
-      var a = links[i];
-      var href = a.getAttribute('href');
-      if (!href || seen.has(href)) continue;
-      // Skip links that are just comment anchors or pagination
-      if (href.includes('#') || href.split('/').length > 3) continue;
-      seen.add(href);
-
-      var slug = href.replace('/posts/', '').replace(/\/$/, '');
-      // Try to find name — look for a heading or strong text near the link
-      var card = a.closest('[class*="card"], [class*="item"], [class*="post"], li, article') || a;
-      var nameEl = card.querySelector('h2, h3, strong, [class*="name"], [class*="title"]');
-      var name = nameEl ? nameEl.textContent.trim() : a.textContent.trim();
-      var taglineEl = card.querySelector('p, [class*="tagline"], [class*="description"]');
-      var tagline = taglineEl ? taglineEl.textContent.trim() : '';
-      // Upvote count
-      var upvoteEl = card.querySelector('[class*="vote"], [class*="count"]');
-      var upvotes = 0;
-      if (upvoteEl) {
-        var m = upvoteEl.textContent.match(/([\d,]+)/);
-        if (m) upvotes = parseInt(m[1].replace(/,/g, ''), 10);
+  // Set up response interception BEFORE navigating
+  const interceptHandler = async (resp) => {
+    const url = resp.url();
+    if (!url.includes('graphql')) return;
+    try {
+      const text = await resp.text();
+      const opMatch = url.match(/operationName=([^&]+)/);
+      const op = opMatch ? decodeURIComponent(opMatch[1]) : '';
+      // Look for search operations or post/product lists
+      if (op.toLowerCase().includes('search') || text.includes('"posts"') ||
+          text.includes('"products"') || text.includes('"post"')) {
+        searchDataReceived.push({ op, text });
       }
-      if (name && slug) {
-        results.push({ slug: slug, name: name, tagline: tagline, url: base + href, upvotes: upvotes });
+    } catch { /* ignore */ }
+  };
+  page.on('response', interceptHandler);
+
+  // Navigate to homepage
+  const loaded = await navigateAndWait(page, PH_BASE + '/', 3000);
+  if (!loaded) {
+    page.off('response', interceptHandler);
+    return results;
+  }
+
+  // Find and click the search input
+  const searchSel = '[data-test="header-search-input"], input[name="q"], input[placeholder*="Search"]';
+  const searchInput = await page.$(searchSel).catch(() => null);
+  if (!searchInput) {
+    log(`[ph-search] search input not found`);
+    page.off('response', interceptHandler);
+    return results;
+  }
+
+  await searchInput.click();
+  await sleep(500);
+  await page.keyboard.type(query, { delay: 60 });
+  await sleep(3000); // Wait for GraphQL search response
+
+  page.off('response', interceptHandler);
+
+  // Parse GraphQL responses
+  for (const { op, text } of searchDataReceived) {
+    try {
+      const data = JSON.parse(text);
+      // Navigate through common PH GraphQL response shapes
+      const nodes = data?.data?.search?.edges
+        || data?.data?.posts?.edges
+        || data?.data?.searchProducts?.edges
+        || [];
+      for (const edge of nodes) {
+        const node = edge?.node || edge;
+        if (!node) continue;
+        const slug = node.slug || node.name?.toLowerCase().replace(/\s+/g, '-');
+        if (!slug) continue;
+        const url = node.url || `${PH_BASE}/products/${slug}`;
+        results.push({
+          slug,
+          name: node.name || node.tagline || slug,
+          tagline: node.tagline || node.description || '',
+          url: url.startsWith('http') ? url : `${PH_BASE}${url}`,
+          upvotes: node.votesCount || node.upvotesCount || 0,
+        });
+      }
+    } catch { /* skip malformed */ }
+  }
+
+  // Also scrape any spotlight results rendered in the DOM
+  const domResults = await page.evaluate((base) => {
+    const items = [];
+    // Spotlight result items
+    const spotlightItems = document.querySelectorAll('[data-test^="spotlight-result-product"]');
+    for (let i = 0; i < spotlightItems.length; i++) {
+      const el = spotlightItems[i];
+      const dt = el.getAttribute('data-test') || '';
+      // Extract product slug from thumbnail data-test, e.g. "Notion-thumbnail"
+      const thumbEl = el.querySelector('[data-test*="thumbnail"]');
+      const thumbText = thumbEl ? thumbEl.getAttribute('data-test').replace('-thumbnail', '') : '';
+      const link = el.querySelector('a[href*="/products/"]');
+      const href = link ? link.getAttribute('href') : null;
+      const nameEl = el.querySelector('a, span, div');
+      const name = nameEl ? nameEl.textContent.trim().substring(0, 80) : thumbText;
+      if (href) {
+        const parts = href.split('/products/');
+        const slug = parts[1] ? parts[1].replace(/\/$/, '').split('/')[0] : '';
+        if (slug) {
+          items.push({
+            slug,
+            name: name || slug,
+            tagline: '',
+            url: href.startsWith('http') ? href : base + href,
+            upvotes: 0,
+          });
+        }
       }
     }
+    return items;
+  }, PH_BASE);
+
+  for (const r of domResults) {
+    if (!results.find(e => e.slug === r.slug)) results.push(r);
+  }
+
+  log(`[ph-search] query="${query}" → ${results.length} via interception, ${domResults.length} via DOM`);
+  return results;
+}
+
+/**
+ * Scrape product listing from a category or search results page.
+ * Returns array of { slug, name, tagline, url, upvotes }.
+ */
+async function scrapeProductListing(page, listingUrl) {
+  const loaded = await navigateAndWait(page, listingUrl, 4000);
+  if (!loaded) return [];
+
+  return await page.evaluate((base) => {
+    const results = [];
+    const seen = new Set();
+
+    // PH 2024/2025: product cards on category/listing pages use data-test="product:<slug>"
+    const productCards = document.querySelectorAll('[data-test^="product:"]');
+    for (let i = 0; i < productCards.length; i++) {
+      const el = productCards[i];
+      const dt = el.getAttribute('data-test');
+      const slug = dt.replace('product:', '');
+      if (!slug || seen.has(slug)) continue;
+      seen.add(slug);
+      const nameEl = el.querySelector('h2, h3, [class*="name"], [class*="title"]') ||
+        el.querySelector('a');
+      const name = nameEl ? nameEl.textContent.trim().replace(/^\d+\.\s*/, '') : slug;
+      const taglineEl = el.querySelector('p, [class*="tagline"], [class*="description"]');
+      const tagline = taglineEl ? taglineEl.textContent.trim() : '';
+      const ratingEl = el.querySelector('[data-test^="star"]');
+      results.push({
+        slug,
+        name,
+        tagline,
+        url: base + '/products/' + slug,
+        upvotes: 0,
+      });
+    }
+
+    // Also collect from post-item cards (daily launches feed)
+    const postItems = document.querySelectorAll('[data-test^="post-item"]');
+    for (let i = 0; i < postItems.length; i++) {
+      const el = postItems[i];
+      const productLinks = Array.from(el.querySelectorAll('a[href*="/products/"]'));
+      const nameEl = el.querySelector('[data-test^="post-name"]');
+      for (const a of productLinks) {
+        const href = a.getAttribute('href');
+        if (!href) continue;
+        const parts = href.split('/products/');
+        if (parts.length < 2) continue;
+        const slug = parts[1].replace(/\/$/, '').split('/')[0];
+        if (!slug || seen.has(slug) || slug === 'undefined') continue;
+        seen.add(slug);
+        const name = nameEl ? nameEl.textContent.trim().replace(/^\d+\.\s*/, '') : slug;
+        const voteEl = el.querySelector('[data-test="vote-button"]');
+        const upvotes = voteEl ? parseInt(voteEl.textContent.trim().replace(/[^0-9]/g, ''), 10) || 0 : 0;
+        results.push({
+          slug,
+          name,
+          tagline: '',
+          url: href.startsWith('http') ? href : base + href,
+          upvotes,
+        });
+      }
+    }
+
+    // Fallback: any /products/ links
+    if (results.length === 0) {
+      const allLinks = document.querySelectorAll('a[href*="/products/"]');
+      for (let i = 0; i < allLinks.length && results.length < 20; i++) {
+        const a = allLinks[i];
+        const href = a.getAttribute('href') || '';
+        // Skip review/alternative subpages
+        if (href.includes('/reviews') || href.includes('/alternatives') ||
+            href.includes('/launches') || href.includes('/customers')) continue;
+        const parts = href.split('/products/');
+        if (parts.length < 2) continue;
+        const slug = parts[1].replace(/\/$/, '').split('/')[0];
+        if (!slug || seen.has(slug)) continue;
+        seen.add(slug);
+        results.push({
+          slug,
+          name: a.textContent.trim().substring(0, 60) || slug,
+          tagline: '',
+          url: href.startsWith('http') ? href : base + href,
+          upvotes: 0,
+        });
+      }
+    }
+
     return results;
   }, PH_BASE);
 }
 
+// ─── product page scraping ───────────────────────────────────────────────────
+
 /**
- * Scrape a single product page for description and comments.
+ * Scrape a product's overview + reviews page for name, tagline, description,
+ * upvote count, and review comments.
  * Returns { name, tagline, description, upvotes, comments: [{body, score}] }
  */
-async function scrapeProductPage(page, productUrl, maxComments = 100) {
-  log(`[ph] scraping product: ${productUrl}`);
-  await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await sleep(2000);
+async function scrapeProductPage(page, slug, maxComments = 80) {
+  const productUrl = `${PH_BASE}/products/${slug}`;
+  const reviewsUrl = `${PH_BASE}/products/${slug}/reviews`;
 
-  return await page.evaluate((maxC) => {
-    // Product name
-    var nameEl = document.querySelector('h1');
-    var name = nameEl ? nameEl.textContent.trim() : '';
+  log(`[ph] scraping product overview: ${productUrl}`);
+  const loadedOverview = await navigateAndWait(page, productUrl, 2000);
 
-    // Tagline — typically an h2 or subtitle near the header
-    var taglineEl = document.querySelector('h2, [class*="tagline"], [class*="subtitle"]');
-    var tagline = taglineEl ? taglineEl.textContent.trim() : '';
+  const overview = await page.evaluate(() => {
+    // Name
+    const h1 = document.querySelector('h1');
+    const name = h1 ? h1.textContent.trim() : '';
 
-    // Description — look for a large text block in the "about" section
-    var descEl = document.querySelector('[class*="description"], [class*="about"], [data-test*="description"]');
-    var description = descEl ? descEl.textContent.trim() : '';
-
-    // Upvote count
-    var upvotes = 0;
-    var upvoteEls = document.querySelectorAll('[class*="vote"] [class*="count"], [data-test*="vote"] span, button[class*="vote"] span');
-    for (var i = 0; i < upvoteEls.length; i++) {
-      var m = upvoteEls[i].textContent.match(/([\d,]+)/);
-      if (m) { upvotes = parseInt(m[1].replace(/,/g, ''), 10); break; }
+    // Tagline — the subtitle beneath the product name; skip metadata lines
+    const taglineCandidates = Array.from(document.querySelectorAll('[data-test="header"] p, h1 + p, h1 ~ p'));
+    let tagline = '';
+    for (const el of taglineCandidates) {
+      const t = el.textContent.trim();
+      // Skip metadata lines like "262 followers", "5.0 • 37 reviews"
+      if (/\d+\s*(followers|reviews|K followers)/i.test(t) || /^\d+\.?\d*\s*[•]/.test(t)) continue;
+      if (t.length > 5 && t.length < 200) { tagline = t; break; }
     }
-    // Fallback: any element that looks like an upvote number
-    if (!upvotes) {
-      var allButtons = document.querySelectorAll('button');
-      for (var j = 0; j < allButtons.length; j++) {
-        var btn = allButtons[j];
-        if (/upvote|vote/i.test(btn.getAttribute('aria-label') || '')) {
-          var countEl = btn.querySelector('span, div');
-          if (countEl) {
-            var mv = countEl.textContent.match(/(\d+)/);
-            if (mv) { upvotes = parseInt(mv[1], 10); break; }
-          }
-        }
+
+    // Description / about text
+    const descEls = document.querySelectorAll('[data-test*="description"], [class*="about"] p, main p');
+    let description = '';
+    for (let i = 0; i < descEls.length; i++) {
+      const t = descEls[i].textContent.trim();
+      if (t.length > 80) { description = t.substring(0, 600); break; }
+    }
+
+    // Upvotes — vote button on product header
+    let upvotes = 0;
+    const voteBtn = document.querySelector('[data-test="vote-button"], button[class*="vote"]');
+    if (voteBtn) {
+      const m = voteBtn.textContent.match(/([\d,]+)/);
+      if (m) upvotes = parseInt(m[1].replace(/,/g, ''), 10);
+    }
+
+    // Rating stars info
+    const ratingEl = document.querySelector('[class*="rating"], [class*="stars"]');
+    const ratingText = ratingEl ? ratingEl.textContent.trim().substring(0, 30) : '';
+
+    return { name, tagline, description, upvotes, ratingText };
+  });
+
+  // Now get reviews
+  log(`[ph] scraping reviews: ${reviewsUrl}`);
+  const loadedReviews = await navigateAndWait(page, reviewsUrl, 2500);
+
+  const comments = await page.evaluate((maxC) => {
+    const results = [];
+    const seen = new Set();
+
+    // PH reviews page uses data-test="review-*" or similar patterns
+    // Try several known selectors
+    const reviewSelectors = [
+      '[data-test^="review"]',
+      '[class*="reviewCard"]',
+      '[class*="ReviewCard"]',
+      '[class*="review-item"]',
+      '[class*="reviewItem"]',
+    ];
+
+    let reviewEls = [];
+    for (const sel of reviewSelectors) {
+      reviewEls = Array.from(document.querySelectorAll(sel));
+      if (reviewEls.length > 0) break;
+    }
+
+    // Fallback: look for substantial text blocks in main content
+    if (reviewEls.length === 0) {
+      const main = document.querySelector('main');
+      if (main) {
+        const divs = Array.from(main.querySelectorAll('div, article, section'));
+        reviewEls = divs.filter(el => {
+          const t = el.textContent.trim();
+          return t.length > 60 && t.length < 2000 && !el.querySelector('nav');
+        }).slice(0, maxC);
       }
     }
 
-    // Comments — Product Hunt renders them in a discussion section
-    var comments = [];
-    // Try multiple selectors that PH has used historically
-    var commentEls = document.querySelectorAll(
-      '[class*="comment"], [data-test*="comment"], [class*="review"], [class*="discussion"] > div'
-    );
-    for (var k = 0; k < Math.min(commentEls.length, maxC); k++) {
-      var el = commentEls[k];
-      // Skip tiny/empty nodes
-      var text = el.textContent.trim();
-      if (!text || text.length < 20) continue;
-      // Try to find a score/upvote on the comment
-      var scoreEl = el.querySelector('[class*="vote"] span, [class*="count"] span');
-      var score = 1;
+    for (let k = 0; k < Math.min(reviewEls.length, maxC); k++) {
+      const el = reviewEls[k];
+      const text = el.textContent.trim();
+      if (!text || text.length < 25 || text.length > 3000) continue;
+      if (seen.has(text.substring(0, 50))) continue;
+      seen.add(text.substring(0, 50));
+
+      // Try to find a score/upvote on the review
+      const scoreEl = el.querySelector('[class*="vote"] span, [class*="count"] span, [data-test*="vote"]');
+      let score = 1;
       if (scoreEl) {
-        var sm = scoreEl.textContent.match(/(\d+)/);
+        const sm = scoreEl.textContent.match(/(\d+)/);
         if (sm) score = parseInt(sm[1], 10);
       }
-      comments.push({ body: text.substring(0, 500), score: score });
+      // Star rating on the review
+      const starText = el.querySelector('[class*="rating"], [class*="star"]');
+      const starVal = starText ? parseInt(starText.textContent.trim()[0] || '0', 10) : 0;
+
+      results.push({
+        body: text.substring(0, 500),
+        score,
+        stars: starVal,
+      });
     }
 
-    return {
-      name: name,
-      tagline: tagline,
-      description: description,
-      upvotes: upvotes,
-      comments: comments,
-    };
+    return results;
   }, maxComments);
+
+  log(`[ph] product "${overview.name}" — upvotes:${overview.upvotes}, reviews:${comments.length}`);
+
+  return {
+    name: overview.name,
+    tagline: overview.tagline,
+    description: overview.description,
+    upvotes: overview.upvotes,
+    comments,
+  };
 }
 
-// ─── pain-focused comment filter ────────────────────────────────────────────
+// ─── pain-focused comment filter ─────────────────────────────────────────────
 
 const PAIN_PATTERNS = [
   /i wish (this|it) (did|had|could|would)/i,
@@ -231,23 +571,35 @@ const PAIN_PATTERNS = [
   /stopped using/i,
   /still missing/i,
   /would be better if/i,
+  /not great/i,
+  /disappointed/i,
+  /lacking/i,
+  /needs improvement/i,
+  /room for improvement/i,
+  /could be better/i,
+  /limitation/i,
+  /bug|crash|broken/i,
+  /slow|laggy/i,
+  /confus/i,
+  /hard to (use|understand|navigate)/i,
 ];
 
 function hasPainSignal(text) {
   return PAIN_PATTERNS.some(p => p.test(text));
 }
 
-// ─── normalize to common post shape ─────────────────────────────────────────
+// ─── normalize to common post shape ──────────────────────────────────────────
 
 function buildPost(productData, slug, productUrl) {
   const { name, tagline, description, upvotes, comments } = productData;
 
-  // Filter to pain-focused comments only
+  // Separate pain-focused comments (for reference) vs all reviews
   const painComments = comments.filter(c => hasPainSignal(c.body));
 
-  // Concatenate description + pain comments as selftext
-  const commentTexts = painComments.map(c => c.body).join('\n\n');
-  const selftext = [description, commentTexts].filter(Boolean).join('\n\n---\n\n');
+  // Use ALL review text as selftext so enrichPost can run its own signal detection.
+  // Truncate to avoid runaway selftext.
+  const allCommentTexts = comments.map(c => c.body).join('\n\n');
+  const selftext = [description, allCommentTexts].filter(Boolean).join('\n\n---\n\n').substring(0, 6000);
 
   return {
     id: slug,
@@ -260,7 +612,6 @@ function buildPost(productData, slug, productUrl) {
     upvote_ratio: 0,
     flair: '',
     created_utc: 0,
-    // Carry raw pain comments for analysis
     _painComments: painComments,
     _allComments: comments,
   };
@@ -273,65 +624,76 @@ async function cmdScan(args) {
   if (!domain) fail('--domain is required for producthunt scan');
 
   const limit = args.limit || 20;
-  const maxComments = args.maxComments || 100;
+  const maxComments = args.maxComments || 80;
 
   log(`[ph-scan] domain="${domain}", limit=${limit}`);
 
   const browser = await connectBrowser(args);
-  const page = await browser.newPage();
+  const page = await preparePage(browser);
 
   try {
-    // Build search queries focused on the domain
-    const queries = [
-      domain,
-      `${domain} alternative`,
-      `${domain} tool`,
-    ];
-
     const productsBySlug = new Map();
 
-    for (const query of queries) {
-      log(`[ph-scan] query="${query}"`);
-      let results;
-      try {
-        results = await scrapeSearchResults(page, query);
-      } catch (err) {
-        log(`[ph-scan] search failed: ${err.message}`);
-        await politeDelay();
-        continue;
-      }
+    // Strategy 1: Use PH category page if domain maps to a known category
+    const domainLower = domain.toLowerCase();
+    const categorySlug = Object.entries(DOMAIN_TO_CATEGORY).find(
+      ([key]) => domainLower.includes(key) || key.includes(domainLower)
+    )?.[1];
 
-      log(`[ph-scan] found ${results.length} products for query "${query}"`);
-      for (const r of results) {
+    if (categorySlug) {
+      log(`[ph-scan] using category page: /categories/${categorySlug}`);
+      const catUrl = `${PH_BASE}/categories/${categorySlug}`;
+      const catResults = await scrapeProductListing(page, catUrl);
+      log(`[ph-scan] category page: ${catResults.length} products`);
+      for (const r of catResults) {
         if (!productsBySlug.has(r.slug)) productsBySlug.set(r.slug, r);
       }
       await politeDelay();
     }
 
-    log(`[ph-scan] ${productsBySlug.size} unique products after dedup`);
+    // Strategy 2: Use homepage feed + search input interception
+    if (productsBySlug.size < limit) {
+      log(`[ph-scan] searching via input interception...`);
+      const searchResults = await searchViaInputAndIntercept(page, domain);
+      for (const r of searchResults) {
+        if (!productsBySlug.has(r.slug)) productsBySlug.set(r.slug, r);
+      }
+      await politeDelay();
+    }
+
+    // Strategy 3: If still not enough, try homepage products filtered by domain keywords
+    if (productsBySlug.size < 3) {
+      log(`[ph-scan] falling back to homepage listing...`);
+      const homeResults = await scrapeProductListing(page, PH_BASE + '/');
+      for (const r of homeResults) {
+        if (!productsBySlug.has(r.slug)) productsBySlug.set(r.slug, r);
+      }
+      await politeDelay();
+    }
+
+    log(`[ph-scan] ${productsBySlug.size} unique products after discovery`);
 
     const scored = [];
     let count = 0;
     for (const product of productsBySlug.values()) {
-      if (count >= limit * 2) break; // Fetch more than needed, filter below
-      log(`[ph-scan] scraping ${product.url}`);
+      if (count >= limit + 5) break; // Fetch a few extras for filter buffer
       try {
-        const data = await scrapeProductPage(page, product.url, maxComments);
-        // Merge upvotes from search result if page didn't return one
+        const data = await scrapeProductPage(page, product.slug, maxComments);
+        // Merge fields from search result if page scrape was incomplete
         if (!data.upvotes && product.upvotes) data.upvotes = product.upvotes;
         if (!data.name) data.name = product.name;
         if (!data.tagline) data.tagline = product.tagline;
 
-        const post = buildPost(data, product.slug, product.url);
+        const productUrl = `${PH_BASE}/products/${product.slug}`;
+        const post = buildPost(data, product.slug, productUrl);
         const enriched = enrichPost(post, domain);
         if (enriched) {
-          // Attach pain comment count for reference
           enriched.ph_pain_comments = post._painComments.length;
           enriched.ph_total_comments = post._allComments.length;
           scored.push(enriched);
         }
       } catch (err) {
-        log(`[ph-scan] failed for ${product.url}: ${err.message}`);
+        log(`[ph-scan] failed for ${product.slug}: ${err.message}`);
       }
       count++;
       await politeDelay();
@@ -342,22 +704,26 @@ async function cmdScan(args) {
       mode: 'producthunt',
       posts: scored.slice(0, limit),
       stats: {
-        queries: queries.length,
         products_found: productsBySlug.size,
         products_scraped: count,
         after_filter: Math.min(scored.length, limit),
       },
     });
   } finally {
-    await page.close();
+    await page.close().catch(() => {});
+    // Only close browser if we launched it
+    if (_launchedBrowser) {
+      await _launchedBrowser.close().catch(() => {});
+      _launchedBrowser = null;
+    }
   }
 }
 
-// ─── source export ───────────────────────────────────────────────────────────
+// ─── source export ────────────────────────────────────────────────────────────
 
 export default {
   name: 'producthunt',
-  description: 'Product Hunt — scrape product launches and comments for pain signals',
+  description: 'Product Hunt — scrape product launches and reviews for pain signals',
   commands: ['scan'],
   async run(command, args) {
     switch (command) {
@@ -374,11 +740,12 @@ Commands:
 scan options:
   --domain <str>        Domain / topic to search for (required)
   --limit <n>           Max products to return (default: 20)
-  --maxComments <n>     Max comments per product page (default: 100)
+  --maxComments <n>     Max reviews per product page (default: 80)
 
 Connection options:
   --ws-url <url>        Chrome WebSocket URL (auto-detected if omitted)
   --port <n>            Chrome debug port (auto-detected if omitted)
+                        Falls back to launching its own Chrome when none found.
 
 Examples:
   pain-points ph scan --domain "project management"

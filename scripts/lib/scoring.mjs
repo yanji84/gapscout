@@ -22,12 +22,16 @@ export const PAIN_SIGNALS = {
     'terrible', 'awful', 'broken', 'buggy', 'unusable',
     'horrible', 'worst', 'garbage', 'trash', 'joke',
     'hate', 'ruining', 'killing', 'destroying',
+    'not working', 'keeps breaking', 'keeps crashing',
   ],
   desire: [
     'wish there was', 'looking for', 'alternative to',
     'switched from', 'better than', 'anything else',
     'does anyone know', 'recommendations for',
     'is there a', 'need something',
+    'alternatives to', 'replace this', 'replacement for',
+    'substitute for', 'switch from', 'switching from',
+    'move away from',
   ],
   cost: [
     'too expensive', 'price hike', 'overpriced', 'not worth',
@@ -116,6 +120,43 @@ export const NON_PAIN_TITLE_SIGNALS = [
   'just got into', 'first booster', 'look what i got', 'so happy',
   'my collection', 'haul', 'writeup', 'meta thoughts', 'random thoughts',
   'not terrible', 'convert this', 'convert me',
+  // Educational/informational queries (appear in autocomplete but not pain signals)
+  'and solutions', 'solutions pdf', 'problem solving', 'problem statement',
+  'problem tree', 'techniques', 'examples', 'template', ' pdf',
+  'definition', 'what is', 'overview', 'introduction', 'certification',
+  'training', 'courses', 'course', 'degree', 'salary', 'jobs', 'career',
+  'alternative names', 'alternative titles', 'alternative words',
+  'alternative analysis', 'alternative jobs',
+  // R4: SaaS/startup advice and success stories (not pain)
+  'validating', 'roast my', 'we got acquired', 'got acquired', 'the advice i',
+  'advice i wish', 'stop paying', 'the process i used', 'i used to grow',
+  'top free tools', 'top tools', 'free tools', 'here\'s what no one tells',
+  'what no one tells', 'no one tells you', 'not as easy as',
+  'it\'s not as easy', 'success story', 'we sold', 'we launched',
+  'lessons learned', 'postmortem', 'how i grew', 'how we grew',
+  'my journey', 'our journey', 'things i learned', 'the truth about',
+  'sharing my experience', 'behind the scenes', 'ama:', 'ask me anything',
+  'vibe your way', 'your way to', 'ways to scale', 'ways to grow',
+  'things you need to do', 'how to promote', 'how to scale',
+  'how to market', 'how to launch', 'how to get', 'step by step',
+  'the 10 things', 'the 5 things', 'the 7 things', 'things to do',
+  // R5: analysis/insight posts misidentified as pain (common in SaaS/PM subs)
+  'i spent', 'i analyzed', 'i analysed', 'i researched', 'i studied',
+  'i built an', 'i built a', 'i created a', 'i created an', 'i made a',
+  "i've built", "i've built 30", "i've built 10",
+  'here\'s what i learned', 'here are the', "here's the", 'here is what',
+  'is terrible advice', 'is bad advice', 'is wrong advice',
+  'is killing your', 'is ruining your', 'is destroying your',
+  'stop doing', 'you should stop', 'most people get', 'everyone gets',
+  "the truth nobody", 'nobody tells you', 'the real reason',
+  'foundation truths', 'product truths', 'startup advice',
+  'we hit', 'reached ', 'crossed ', 'our mrr', 'our arr', 'monthly recurring',
+  // R6: founder story / journey posts (not user pain)
+  'i sold my', 'i sold ', 'lost everything', 'then i typed', 'then i built',
+  'the founders who succeed', 'the founders who', 'who succeed are',
+  'mvp myth', 'myth is', 'change my mind',
+  'i\'ve been building', "i've been building", 'i launched', 'we launched',
+  'my first startup', 'our first startup', 'first saas', 'bootstrap story',
 ];
 
 export const NON_PAIN_FLAIRS = new Set([
@@ -125,8 +166,13 @@ export const NON_PAIN_FLAIRS = new Set([
 ]);
 
 export const WTP_STRONG = new Set([
-  'would pay', "i'd pay", 'happy to pay', 'shut up and take my money',
-  'take my money', 'worth paying', 'gladly pay', 'budget for',
+  "i'd pay", 'happy to pay', 'shut up and take my money',
+  'take my money', 'worth paying', 'gladly pay',
+]);
+
+// WTP that needs both first-person context AND pain/solution context to count
+export const WTP_FIRST_PERSON = new Set([
+  'would pay', 'budget for',
 ]);
 
 // Generic commerce words — only count as WTP when near pain/solution context
@@ -204,6 +250,17 @@ export function matchSignalsWeighted(text, category) {
   return { keywords, weight: totalWeight };
 }
 
+// ─── WTP first-person check (R4) ────────────────────────────────────────────
+
+const FIRST_PERSON_WORDS = ["i'd", "i would", "i'll", "i am", "i'm", 'i need', 'i want', 'i have', 'we need', 'we want', 'we have', "we'd", 'our budget', 'my budget'];
+
+export function isWtpFirstPerson(text, kwIndex) {
+  if (!text) return false;
+  const start = Math.max(0, kwIndex - 60);
+  const window = text.slice(start, kwIndex + 20).toLowerCase();
+  return FIRST_PERSON_WORDS.some(w => window.includes(w));
+}
+
 // ─── WTP context check (R2) ────────────────────────────────────────────────
 
 export function isWtpContextual(text, kwIndex) {
@@ -272,7 +329,7 @@ export function computePainScore(post) {
   const flair = (post.flair || '').toLowerCase();
   if (PAIN_FLAIRS.has(flair)) score += 1.5;
 
-  // WTP: context-aware (R2)
+  // WTP: context-aware (R2) + first-person check (R4)
   const wtpMatches = matchSignals(fullText, 'willingness_to_pay');
   const effectiveWtpMatches = [];
   for (const kw of wtpMatches) {
@@ -281,6 +338,15 @@ export function computePainScore(post) {
     if (WTP_STRONG.has(kw)) {
       score += 3.0 * sentMult;
       effectiveWtpMatches.push(kw);
+    } else if (WTP_FIRST_PERSON.has(kw)) {
+      // R4: 'would pay'/'budget for' only count when first-person + contextual
+      if (isWtpFirstPerson(fullText, idx) && isWtpContextual(fullText, idx)) {
+        score += 2.0 * sentMult;
+        effectiveWtpMatches.push(kw);
+      } else if (isWtpContextual(fullText, idx)) {
+        score += 0.5 * sentMult;
+        effectiveWtpMatches.push(kw);
+      }
     } else if (WTP_GENERIC.has(kw)) {
       if (isWtpContextual(fullText, idx)) {
         score += 0.5 * sentMult;
@@ -364,6 +430,17 @@ export function analyzeComments(comments, postPainCategories = []) {
         'UI', 'UX', 'PR', 'CI', 'CD', 'HTTP', 'SSH', 'CSS', 'HTML',
         'Honestly', 'Actually', 'Basically', 'Generally', 'Recently',
         'Unfortunately', 'Personally', 'Obviously', 'Apparently',
+        // Common sentence starters misidentified as tool names
+        'Maybe', 'Perhaps', 'Sometimes', 'Often', 'Always', 'Never',
+        'Well', 'Now', 'Then', 'When', 'What', 'Who', 'Where', 'Why', 'How',
+        'Yes', 'No', 'Ok', 'Okay', 'Sure', 'Thanks', 'Thank', 'Sorry',
+        'Some', 'Many', 'Most', 'All', 'Few', 'Each', 'Both', 'Any',
+        'There', 'Here', 'Today', 'Still', 'Even', 'Same', 'Different',
+        'At', 'In', 'On', 'To', 'With', 'By', 'From', 'About', 'Of', 'An',
+        'Their', 'Its', 'Our', 'His', 'Her', 'He', 'She',
+        'Good', 'Great', 'Better', 'Best', 'Bad', 'Worse', 'Worst',
+        'New', 'Old', 'Free', 'Paid', 'Plus', 'One', 'Two', 'Three',
+        'SaaS', 'B2B', 'B2C', 'PM', 'SLA', 'KPI', 'OKR', 'MVP',
       ]);
       const lower = body.toLowerCase();
       for (const kw of solutionMatches) {
@@ -485,9 +562,15 @@ export function enrichPost(post, domain = '') {
   const wtpSignals = matchSignals(fullText, 'willingness_to_pay');
   const intensity = computeIntensity(fullText);
 
-  // Hard pain filter (R2)
+  // Hard pain filter (R2/R4)
   const hasStrongWtp = wtpSignals.some(kw => WTP_STRONG.has(kw));
-  if (allPainSignals.length === 0 && !hasStrongWtp) return null;
+  // R4: WTP_FIRST_PERSON keywords only count when first-person + contextual
+  const hasFirstPersonWtp = wtpSignals.some(kw => {
+    if (!WTP_FIRST_PERSON.has(kw)) return false;
+    const idx = fullText.toLowerCase().indexOf(kw);
+    return isWtpFirstPerson(fullText, idx) && isWtpContextual(fullText, idx);
+  });
+  if (allPainSignals.length === 0 && !hasStrongWtp && !hasFirstPersonWtp) return null;
 
   // R3: "looking for" alone without frustration/cost = skip
   if (allPainSignals.length === 1 && allPainSignals[0] === 'looking for') {
@@ -496,8 +579,14 @@ export function enrichPost(post, domain = '') {
     if (!hasFrustration && !hasCost) return null;
   }
 
-  // R3: minimum engagement floor
-  if ((post.score || 0) < 5 && (post.num_comments || 0) < 10) {
+  // R3: minimum engagement floor (skip for non-Reddit sources like google-autocomplete)
+  const NON_REDDIT_SUBREDDITS = new Set(['hackernews', 'kickstarter', 'crowdfunding', 'producthunt', 'appstore', 'reviews']);
+  const isRedditSource = !post.subreddit || (
+    !post.subreddit.startsWith('google-') &&
+    !post.subreddit.startsWith('hn-') &&
+    !NON_REDDIT_SUBREDDITS.has(post.subreddit)
+  );
+  if (isRedditSource && (post.score || 0) < 5 && (post.num_comments || 0) < 10) {
     if (allPainSignals.length < 2) return null;
   }
 
@@ -512,14 +601,18 @@ export function enrichPost(post, domain = '') {
   const painSubcategories = [];
   const ftLower = fullText.toLowerCase();
   if (/scalp|sold out|out of stock|restock|can't find|wiped out/.test(ftLower)) painSubcategories.push('product-availability');
-  if (/expensive|overpriced|price|cost|ripoff|goug/.test(ftLower)) painSubcategories.push('pricing');
-  if (/scam|fake|counterfeit|reseal|tamper/.test(ftLower)) painSubcategories.push('fraud');
+  // R4/R5/R6: tightened subcategory regexes to reduce false positives
+  if (/too expensive|overpriced|price hike|price increase|ripoff|rip off|goug|hidden fee|not worth the/.test(ftLower)) painSubcategories.push('pricing');
+  if (/\bscam\b|counterfeit|reseal|tamper/.test(ftLower)) painSubcategories.push('fraud');
   if (/toxic|rude|harass|threaten|bully|cheat/.test(ftLower)) painSubcategories.push('community-toxicity');
   if (/pokemon company|tpc|tpci|nintendo|print run|reprint/.test(ftLower)) painSubcategories.push('company-policy');
-  if (/shipping|damage|lost|fedex|ups|usps/.test(ftLower)) painSubcategories.push('shipping');
-  if (/grading|psa|cgc|beckett|tag |slab/.test(ftLower)) painSubcategories.push('grading');
-  if (/app|ptcg live|client|online|digital/.test(ftLower)) painSubcategories.push('digital-platform');
-  if (/quit|leaving|done with|burnout|burnt out|burn out|giving up/.test(ftLower)) painSubcategories.push('hobby-burnout');
+  if (/shipping issue|damaged in shipping|lost in mail|shipping damage|fedex|ups|usps/.test(ftLower)) painSubcategories.push('shipping');
+  // R6: \bgrading\b prevents matching 'degrading'
+  if (/\bgrading\b|psa |cgc |beckett|\bslab\b/.test(ftLower)) painSubcategories.push('grading');
+  // R6: narrowed digital-platform — requires explicit app/software problem context
+  if (/ptcg live|software client|the client crash|app keeps crash|app is broken|app doesn.t work|digital tool/.test(ftLower)) painSubcategories.push('digital-platform');
+  // R5: renamed from 'hobby-burnout' to 'burnout' — applies to user/customer churn context too
+  if (/\bquit\b|\bquitting\b|done with|burnout|burnt out|burn out|\bgiving up\b/.test(ftLower)) painSubcategories.push('burnout');
 
   painScore = Math.round(painScore * 10) / 10;
 

@@ -17,6 +17,33 @@ import { log, ok, fail } from '../lib/utils.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// ─── source name aliases (mirrors cli.mjs SOURCE_ALIASES) ───────────────────
+
+const SOURCE_ALIASES = {
+  api: 'reddit-api',
+  browser: 'reddit-browser',
+  google: 'google-autocomplete',
+  hn: 'hackernews',
+  hackernews: 'hackernews',
+  reviews: 'reviews',
+  ph: 'producthunt',
+  producthunt: 'producthunt',
+  kickstarter: 'crowdfunding',
+  crowdfunding: 'crowdfunding',
+  appstore: 'appstore',
+  'reddit-api': 'reddit-api',
+  'reddit-browser': 'reddit-browser',
+  'google-autocomplete': 'google-autocomplete',
+};
+
+/**
+ * Resolve a possibly-aliased source name to its canonical module basename.
+ * e.g. 'hn' -> 'hackernews', 'api' -> 'reddit-api'
+ */
+function resolveSourceName(name) {
+  return SOURCE_ALIASES[name] || name;
+}
+
 // ─── source discovery ───────────────────────────────────────────────────────
 
 /**
@@ -40,8 +67,12 @@ async function discoverSources(allowList = null) {
 
     const sourceName = basename(file, '.mjs');
 
-    // If an explicit allowlist is provided, skip sources not in it
-    if (allowList && !allowList.includes(sourceName)) continue;
+    // If an explicit allowlist is provided, skip sources not in it.
+    // Resolve aliases: 'hn' -> 'hackernews', 'api' -> 'reddit-api', etc.
+    if (allowList) {
+      const resolvedAllowList = allowList.map(resolveSourceName);
+      if (!resolvedAllowList.includes(sourceName)) continue;
+    }
 
     let mod;
     try {

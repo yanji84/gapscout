@@ -79,7 +79,7 @@ async function connectBrowser(args) {
     try { return await puppeteer.connect({ browserWSEndpoint: wsUrl }); }
     catch (err) { log(`[browser] auto-detect failed: ${err.message}`); }
   }
-  fail('No Chrome browser found. Start puppeteer-mcp-server, or pass --ws-url / --port');
+  throw new Error('No Chrome browser found. Start puppeteer-mcp-server, or pass --ws-url / --port');
 }
 
 // ─── ID hashing ──────────────────────────────────────────────────────────────
@@ -248,12 +248,59 @@ function makePost({ text, source, position, queryPattern }) {
   };
 }
 
+// ─── shared scoring/output helper ────────────────────────────────────────────
+
+function scoreAndOutput({ rawPosts, domain, limit, queryPatterns }) {
+  log(`[google-autocomplete] ${rawPosts.length} raw items, scoring...`);
+  const scored = [];
+  for (const post of rawPosts) {
+    const enriched = enrichPost(post, domain);
+    if (enriched) scored.push(enriched);
+  }
+  scored.sort((a, b) => b.painScore - a.painScore);
+  ok({
+    mode: 'google-autocomplete',
+    posts: scored.slice(0, limit),
+    stats: {
+      query_patterns: queryPatterns.length,
+      raw_items: rawPosts.length,
+      after_filter: Math.min(scored.length, limit),
+    },
+  });
+}
+
+// ─── API-only scan (no browser required) ─────────────────────────────────────
+
+async function cmdScanApiOnly({ domain, limit, queryPatterns }) {
+  const rawPosts = [];
+  const seenIds = new Set();
+
+  for (const pattern of queryPatterns) {
+    log(`[google-autocomplete] API autocomplete: "${pattern}"`);
+    const suggestions = await fetchAutocompleteAPI(pattern);
+    log(`[google-autocomplete]   ${suggestions.length} suggestions`);
+    for (let i = 0; i < suggestions.length; i++) {
+      const text = suggestions[i];
+      if (!text || text === pattern) continue;
+      const post = makePost({ text, source: 'google-autocomplete', position: i, queryPattern: pattern });
+      if (!seenIds.has(post.id)) {
+        seenIds.add(post.id);
+        rawPosts.push(post);
+      }
+    }
+    await politeDelay();
+  }
+
+  scoreAndOutput({ rawPosts, domain, limit, queryPatterns });
+}
+
 // ─── main scan command ────────────────────────────────────────────────────────
 
 async function cmdScan(args) {
   if (!args.domain) fail('--domain is required');
   const domain = args.domain;
   const limit = args.limit || 50;
+  const apiOnly = args.apiOnly || args['api-only'] || false;
 
   const queryPatterns = [
     `why is ${domain} so`,
@@ -267,8 +314,21 @@ async function cmdScan(args) {
 
   log(`[google-autocomplete] domain="${domain}", ${queryPatterns.length} query patterns`);
 
-  const browser = await connectBrowser(args);
-  const page = await browser.newPage();
+  // API-only mode: skip browser entirely
+  if (apiOnly) {
+    log(`[google-autocomplete] --api-only mode: using suggestqueries HTTP API`);
+    return cmdScanApiOnly({ domain, limit, queryPatterns });
+  }
+
+  // Try to connect browser; fall back to API-only if unavailable
+  let browser, page;
+  try {
+    browser = await connectBrowser(args);
+    page = await browser.newPage();
+  } catch (err) {
+    log(`[google-autocomplete] browser unavailable (${err.message}), falling back to HTTP API`);
+    return cmdScanApiOnly({ domain, limit, queryPatterns });
+  }
 
   // Set a real user-agent to reduce bot detection
   await page.setUserAgent(
@@ -321,27 +381,9 @@ async function cmdScan(args) {
       await politeDelay();
     }
 
-    log(`[google-autocomplete] ${rawPosts.length} raw items, scoring...`);
-
-    const scored = [];
-    for (const post of rawPosts) {
-      const enriched = enrichPost(post, domain);
-      if (enriched) scored.push(enriched);
-    }
-
-    scored.sort((a, b) => b.painScore - a.painScore);
-
-    ok({
-      mode: 'google-autocomplete',
-      posts: scored.slice(0, limit),
-      stats: {
-        query_patterns: queryPatterns.length,
-        raw_items: rawPosts.length,
-        after_filter: Math.min(scored.length, limit),
-      },
-    });
+    scoreAndOutput({ rawPosts, domain, limit, queryPatterns });
   } finally {
-    await page.close();
+    try { await page.close(); } catch { /* ignore if already closed */ }
   }
 }
 
@@ -366,8 +408,9 @@ Commands:
 scan options:
   --domain <str>    Domain or product name to investigate (required)
   --limit <n>       Max results (default: 50)
+  --api-only        Use suggestqueries HTTP API only, skip browser entirely
 
-Connection options:
+Connection options (browser mode):
   --ws-url <url>    Chrome WebSocket URL (auto-detected if omitted)
   --port <n>        Chrome debug port (auto-detected if omitted)
 

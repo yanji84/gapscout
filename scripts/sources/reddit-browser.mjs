@@ -27,12 +27,30 @@ async function politeDelay() {
 
 // ─── browser connection ─────────────────────────────────────────────────────
 
+async function probePort(port) {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try {
+          const info = JSON.parse(body);
+          resolve(info.webSocketDebuggerUrl || null);
+        } catch { resolve(null); }
+      });
+    });
+    req.setTimeout(2000, () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
+  });
+}
+
 async function findChromeWSEndpoint() {
   const fs = await import('node:fs');
   const path = await import('node:path');
   const os = await import('node:os');
   const tmpdir = os.default.tmpdir();
   const entries = fs.default.readdirSync(tmpdir);
+  const candidates = [];
   for (const entry of entries) {
     if (entry.startsWith('puppeteer_dev_chrome_profile')) {
       const portFile = path.default.join(tmpdir, entry, 'DevToolsActivePort');
@@ -40,14 +58,19 @@ async function findChromeWSEndpoint() {
         const content = fs.default.readFileSync(portFile, 'utf8').trim();
         const lines = content.split('\n');
         if (lines.length >= 2) {
-          const port = lines[0].trim();
-          const wsPath = lines[1].trim();
-          const wsUrl = `ws://127.0.0.1:${port}${wsPath}`;
-          log(`[browser] found Chrome at ${wsUrl}`);
-          return wsUrl;
+          candidates.push({ port: lines[0].trim(), wsPath: lines[1].trim() });
         }
       }
     }
+  }
+  // Validate each candidate by probing the HTTP endpoint
+  for (const { port, wsPath } of candidates) {
+    const wsUrl = await probePort(parseInt(port, 10));
+    if (wsUrl) {
+      log(`[browser] found Chrome at ws://127.0.0.1:${port}${wsPath}`);
+      return wsUrl;
+    }
+    log(`[browser] Chrome port ${port} not responding, skipping`);
   }
   return null;
 }
@@ -90,6 +113,16 @@ async function scrapeSearchResults(page, url) {
   await sleep(1000);
 
   return await page.evaluate(() => {
+    // Parse relative time string (e.g. "3 hours ago", "2 days ago") to approximate unix timestamp
+    function relativeToUnix(text) {
+      var m = text.match(/(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago/i);
+      if (!m) return 0;
+      var n = parseInt(m[1], 10);
+      var unit = m[2].toLowerCase();
+      var secs = { second: 1, minute: 60, hour: 3600, day: 86400, week: 604800, month: 2592000, year: 31536000 }[unit] || 0;
+      return Math.floor(Date.now() / 1000) - n * secs;
+    }
+
     var posts = [];
     var els = document.querySelectorAll('.search-result-link');
     for (var i = 0; i < els.length; i++) {
@@ -101,6 +134,13 @@ async function scrapeSearchResults(page, url) {
       var pointsMatch = metaText.match(/([\d,]+)\s+point/);
       var commentsMatch = metaText.match(/([\d,]+)\s+comment/);
       var subredditMatch = metaText.match(/to\s+r\/(\w+)/);
+      // Extract flair from search result
+      var flairEl = el.querySelector('.linkflair-text, .search-result-flair');
+      var flair = flairEl ? flairEl.textContent.trim() : '';
+      // Extract relative time from <time> element
+      var timeEl = el.querySelector('time');
+      var relTime = timeEl ? timeEl.textContent.trim() : '';
+      var createdUtc = relativeToUnix(relTime);
       var href = a ? a.href : '';
       var idMatch = href.match(/\/comments\/([a-z0-9]+)/i);
       posts.push({
@@ -112,8 +152,8 @@ async function scrapeSearchResults(page, url) {
         score: pointsMatch ? parseInt(pointsMatch[1].replace(/,/g, ''), 10) : 0,
         num_comments: commentsMatch ? parseInt(commentsMatch[1].replace(/,/g, ''), 10) : 0,
         upvote_ratio: 0,
-        flair: '',
-        created_utc: 0,
+        flair: flair,
+        created_utc: createdUtc,
       });
     }
     return posts;
@@ -164,38 +204,61 @@ async function scrapePostPage(page, postUrl, maxComments = 200) {
 
 async function cmdScan(args) {
   const subreddits = args.subreddits;
-  if (!subreddits || !subreddits.length) fail('--subreddits is required');
   const domain = args.domain || '';
+
+  // --subreddits is required unless --domain is provided (coordinator mode: global Reddit search)
+  if ((!subreddits || !subreddits.length) && !domain) {
+    fail('--subreddits or --domain is required');
+  }
+
   const limit = args.limit || 30;
   const timeFilter = args.time || 'year';
   const minComments = args.minComments || 3;
+  const globalMode = !subreddits || !subreddits.length;
 
-  log(`[browser-scan] subreddits=${subreddits.join(',')}, domain="${domain}", time=${timeFilter}`);
+  if (globalMode) {
+    log(`[browser-scan] global domain mode: domain="${domain}", time=${timeFilter}`);
+  } else {
+    log(`[browser-scan] subreddits=${subreddits.join(',')}, domain="${domain}", time=${timeFilter}`);
+  }
 
   const browser = await connectBrowser(args);
   const page = await browser.newPage();
   let pagesLoaded = 0;
 
   try {
-    const searchQueries = [
-      'frustrated OR annoying OR terrible OR hate OR overpriced',
-      'alternative OR switched OR wish OR looking for',
-      'expensive OR ripoff OR gouging OR not worth',
-      'nightmare OR broken OR unusable OR giving up',
-      'scam OR fake OR counterfeit OR resealed OR tampered',
-      'shipping damage OR damaged OR lost in mail',
-      'quit OR quitting OR done with OR leaving the hobby',
-      'scalper OR scalping OR sold out OR out of stock',
-    ];
-    if (domain) {
-      searchQueries.push(`${domain} frustrated OR terrible OR hate`);
-      searchQueries.push(`${domain} alternative OR switched OR wish`);
-    }
-    const sortModes = ['comments', 'relevance'];
+    const searchQueries = [];
 
+    if (globalMode) {
+      // In global mode, use domain-focused queries only
+      if (domain) {
+        searchQueries.push(`${domain} frustrated OR terrible OR hate`);
+        searchQueries.push(`${domain} alternative OR switched OR wish`);
+        searchQueries.push(`${domain} expensive OR overpriced OR not worth`);
+        searchQueries.push(`${domain} broken OR unusable OR giving up`);
+      }
+    } else {
+      searchQueries.push(
+        'frustrated OR annoying OR terrible OR hate OR overpriced',
+        'alternative OR switched OR wish OR looking for',
+        'expensive OR ripoff OR gouging OR not worth',
+        'nightmare OR broken OR unusable OR giving up',
+        'worst OR garbage OR awful OR horrible',
+        'quit OR quitting OR done with OR leaving',
+      );
+      if (domain) {
+        searchQueries.push(`${domain} frustrated OR terrible OR hate`);
+        searchQueries.push(`${domain} alternative OR switched OR wish`);
+        searchQueries.push(`${domain} expensive OR overpriced OR not worth`);
+        searchQueries.push(`${domain} broken OR unusable OR nightmare`);
+      }
+    }
+
+    const sortModes = ['comments', 'relevance'];
     const postsById = new Map();
 
-    for (const sub of subreddits) {
+    if (globalMode) {
+      // Global Reddit search — no subreddit restriction
       for (const sortMode of sortModes) {
         for (const query of searchQueries) {
           if (pagesLoaded >= MAX_PAGES_PER_RUN) {
@@ -203,8 +266,8 @@ async function cmdScan(args) {
             break;
           }
           const encodedQuery = encodeURIComponent(query);
-          const url = `${OLD_REDDIT}/r/${sub}/search?q=${encodedQuery}&restrict_sr=on&sort=${sortMode}&t=${timeFilter}`;
-          log(`[browser-scan] r/${sub} sort=${sortMode} q="${query.substring(0, 40)}..."`);
+          const url = `${OLD_REDDIT}/search?q=${encodedQuery}&sort=${sortMode}&t=${timeFilter}`;
+          log(`[browser-scan] global sort=${sortMode} q="${query.substring(0, 40)}..."`);
           try {
             const posts = await scrapeSearchResults(page, url);
             pagesLoaded++;
@@ -216,6 +279,31 @@ async function cmdScan(args) {
             log(`[browser-scan]   failed: ${err.message}`);
           }
           await politeDelay();
+        }
+      }
+    } else {
+      for (const sub of subreddits) {
+        for (const sortMode of sortModes) {
+          for (const query of searchQueries) {
+            if (pagesLoaded >= MAX_PAGES_PER_RUN) {
+              log(`[browser-scan] max pages reached (${MAX_PAGES_PER_RUN})`);
+              break;
+            }
+            const encodedQuery = encodeURIComponent(query);
+            const url = `${OLD_REDDIT}/r/${sub}/search?q=${encodedQuery}&restrict_sr=on&sort=${sortMode}&t=${timeFilter}`;
+            log(`[browser-scan] r/${sub} sort=${sortMode} q="${query.substring(0, 40)}..."`);
+            try {
+              const posts = await scrapeSearchResults(page, url);
+              pagesLoaded++;
+              for (const p of posts) {
+                if (p.id && !postsById.has(p.id)) postsById.set(p.id, p);
+              }
+              log(`[browser-scan]   found ${posts.length} posts (${postsById.size} total unique)`);
+            } catch (err) {
+              log(`[browser-scan]   failed: ${err.message}`);
+            }
+            await politeDelay();
+          }
         }
       }
     }
@@ -231,9 +319,15 @@ async function cmdScan(args) {
 
     scored.sort((a, b) => b.painScore - a.painScore);
     ok({
-      mode: 'browser',
+      mode: globalMode ? 'browser-global' : 'browser',
       posts: scored.slice(0, limit),
-      stats: { subreddits: subreddits.length, pages_loaded: pagesLoaded, raw_posts: postsById.size, after_filter: Math.min(scored.length, limit) },
+      stats: {
+        subreddits: globalMode ? 0 : subreddits.length,
+        global_mode: globalMode,
+        pages_loaded: pagesLoaded,
+        raw_posts: postsById.size,
+        after_filter: Math.min(scored.length, limit),
+      },
     });
   } finally {
     await page.close();

@@ -169,16 +169,27 @@ async function scrapeAppReviews(page, appUrl, appName, packageId, targetStars = 
   await page.goto(appUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await sleep(2000);
 
-  // Try clicking "See all reviews" button
+  // Click "See all reviews" — Play Store uses a button with text "See all reviews"
   try {
-    const seeAllBtn = await page.$('[data-g-id="see-all-reviews"], a[href*="reviews"], button[aria-label*="review" i]');
-    if (seeAllBtn) {
-      log('[appstore] clicking "See all reviews"');
-      await seeAllBtn.click();
+    const clicked = await page.evaluate(() => {
+      var btns = Array.from(document.querySelectorAll('button, [role="button"]'));
+      for (var b of btns) {
+        var txt = b.textContent.trim();
+        if (txt === 'See all reviews' || (b.getAttribute('aria-label') || '').toLowerCase().includes('see all reviews')) {
+          b.click();
+          return true;
+        }
+      }
+      return false;
+    });
+    if (clicked) {
+      log('[appstore] clicked "See all reviews"');
       await sleep(2000);
+    } else {
+      log('[appstore] no "See all reviews" button found');
     }
   } catch (err) {
-    log(`[appstore] no "See all reviews" button: ${err.message}`);
+    log(`[appstore] "See all reviews" click failed: ${err.message}`);
   }
 
   // Scrape reviews for each target star rating
@@ -187,74 +198,84 @@ async function scrapeAppReviews(page, appUrl, appName, packageId, targetStars = 
   for (const stars of targetStars) {
     log(`[appstore] filtering for ${stars}-star reviews`);
     try {
-      // Try clicking the star filter chip
-      await page.evaluate((starCount) => {
-        // Look for rating filter buttons/chips
-        var buttons = document.querySelectorAll(
-          'button, [role="button"], [role="tab"]'
-        );
-        for (var i = 0; i < buttons.length; i++) {
-          var btn = buttons[i];
-          var text = btn.textContent.trim();
-          // Match "1" or "1 star" or "1 Star" patterns
-          if (text === String(starCount) || text.startsWith(starCount + ' star')) {
-            btn.click();
-            return true;
+      // Play Store uses a dropdown: aria-label="Star rating" div[role="button"]
+      // Use puppeteer's native click (not evaluate) so the menu stays open,
+      // then find and click the menu option.
+      const starDropdown = await page.$('[aria-label="Star rating"]');
+      if (starDropdown) {
+        await starDropdown.click();
+        await sleep(800);
+        // Find the menu item for this star count (e.g. "1-star")
+        const label = `${stars}-star`;
+        const menuItem = await page.evaluateHandle((lbl) => {
+          var items = Array.from(document.querySelectorAll('[role="menuitem"]'));
+          for (var item of items) {
+            if (item.textContent.trim() === lbl) return item;
           }
+          return null;
+        }, label);
+        const menuEl = menuItem.asElement();
+        if (menuEl) {
+          await menuEl.click();
+          log(`[appstore] selected ${stars}-star filter`);
+          await sleep(2000);
+        } else {
+          log(`[appstore] could not find "${label}" in dropdown menu`);
+          // Close dropdown by pressing Escape
+          await page.keyboard.press('Escape');
+          await sleep(300);
         }
-        return false;
-      }, stars);
-      await sleep(2000);
+      } else {
+        log('[appstore] star rating dropdown not found');
+      }
     } catch (err) {
       log(`[appstore] star filter click failed: ${err.message}`);
     }
 
-    // Extract reviews currently visible
-    const reviews = await page.evaluate((starFilter, pkgId, appNameStr) => {
+    // Extract reviews using current Play Store DOM structure (2025):
+    // Cards: div.EGFGHd
+    // Name:  .X5PpBb (inside header.c1bOId)
+    // Rating: .iXRFPc[aria-label*="Rated"] (inside .Jx4nYe, inside header.c1bOId)
+    // Text:  div.h3YV2d (sibling of header, child of .EGFGHd)
+    // Thumbs: div.AJTPZc ("N people found this review helpful")
+    const reviews = await page.evaluate((starFilter) => {
       var results = [];
-      // Common review card selectors on Play Store
-      var reviewEls = document.querySelectorAll(
-        '[data-g-id="reviews"] [jscontroller], ' +
-        '[jsmodel*="review" i], ' +
-        'div[class*="RHo1pe"], ' +
-        'div[jscontroller][data-p]'
-      );
 
-      // Fallback: look for elements with star rating + review text pattern
-      if (!reviewEls || reviewEls.length === 0) {
-        reviewEls = document.querySelectorAll('div[aria-label*="star" i]');
+      // Primary: EGFGHd cards (current Play Store structure)
+      var cards = Array.from(document.querySelectorAll('div.EGFGHd'));
+
+      // Fallback to older selectors if primary yields nothing
+      if (cards.length === 0) {
+        cards = Array.from(document.querySelectorAll('div[class*="RHo1pe"]'));
       }
 
-      for (var i = 0; i < reviewEls.length; i++) {
-        var el = reviewEls[i];
+      for (var card of cards) {
+        // Reviewer name
+        var nameEl = card.querySelector('.X5PpBb') ||
+                     card.querySelector('[class*="X43Kjb"]') ||
+                     card.querySelector('[class*="rpg45e"]');
+        var reviewerName = nameEl ? nameEl.textContent.trim() : 'Anonymous';
 
-        // Get star rating
-        var ratingEl = el.querySelector('[aria-label*="star" i], [class*="iXRFPc"], [class*="Jx4nYe"]');
-        var ratingText = ratingEl ? ratingEl.getAttribute('aria-label') || ratingEl.textContent : '';
-        var ratingMatch = ratingText.match(/(\d)/);
+        // Star rating — inside .Jx4nYe or .iXRFPc
+        var ratingEl = card.querySelector('.iXRFPc[aria-label], .Jx4nYe [aria-label*="Rated"], [aria-label*="Rated"]');
+        var ratingText = ratingEl ? (ratingEl.getAttribute('aria-label') || '') : '';
+        var ratingMatch = ratingText.match(/Rated (\d)/);
         var rating = ratingMatch ? parseInt(ratingMatch[1], 10) : 0;
 
         // Filter by desired star count
         if (starFilter > 0 && rating !== starFilter) continue;
 
-        // Get reviewer name
-        var nameEl = el.querySelector('[class*="X43Kjb"], [class*="rpg45e"], [class*="T1Ut0e"]');
-        var reviewerName = nameEl ? nameEl.textContent.trim() : 'Anonymous';
-
-        // Get review text
-        var textEl = el.querySelector('[class*="h3YV2d"], [class*="review-body"], span[jsname]');
+        // Review text — div.h3YV2d is a direct child of EGFGHd, sibling of header
+        var textEl = card.querySelector('div.h3YV2d') ||
+                     card.querySelector('[class*="review-body"]');
         var reviewText = textEl ? textEl.textContent.trim() : '';
-        if (!reviewText) {
-          // Try full text of the container minus irrelevant nodes
-          var cloned = el.cloneNode(true);
-          var meta = cloned.querySelectorAll('button, [aria-label*="helpful" i]');
-          meta.forEach(function(m) { m.remove(); });
-          reviewText = cloned.textContent.trim().substring(0, 1000);
-        }
+
         if (!reviewText || reviewText.length < 5) continue;
 
-        // Get thumbs up count
-        var thumbsEl = el.querySelector('[class*="jUL89d"], [aria-label*="helpful" i], [class*="ny2Vod"]');
+        // Thumbs up — div.AJTPZc contains "N people found this review helpful"
+        var thumbsEl = card.querySelector('div.AJTPZc') ||
+                       card.querySelector('[class*="jUL89d"]') ||
+                       card.querySelector('[class*="ny2Vod"]');
         var thumbsText = thumbsEl ? thumbsEl.textContent.trim() : '0';
         var thumbsMatch = thumbsText.match(/([\d,]+)/);
         var thumbsUp = thumbsMatch ? parseInt(thumbsMatch[1].replace(/,/g, ''), 10) : 0;
@@ -267,7 +288,7 @@ async function scrapeAppReviews(page, appUrl, appName, packageId, targetStars = 
         });
       }
       return results;
-    }, stars, packageId, appName);
+    }, stars);
 
     log(`[appstore] found ${reviews.length} ${stars}-star reviews`);
     allReviews.push(...reviews);
@@ -291,14 +312,18 @@ function hasPainLanguage(text) {
 
 function reviewToPost(review, appName, packageId, appUrl, reviewIndex) {
   const starLabel = `${review.rating} star`;
+  // Embed rating in the title so pain signals from review text can score without
+  // needing the engagement gate (score/num_comments) that Reddit posts use.
+  // Reviews are standalone signals — set num_comments=10 so enrichPost's
+  // low-engagement hard filter doesn't drop them.
   return {
     id: `${packageId}_r${reviewIndex}`,
-    title: `${appName} - ${review.rating} star`,
+    title: `${appName} - ${review.rating} star review`,
     selftext: review.reviewText,
     subreddit: 'playstore',
     url: appUrl,
-    score: review.thumbsUp,
-    num_comments: 0,
+    score: Math.max(review.thumbsUp, 1),
+    num_comments: 10,
     upvote_ratio: 0,
     created_utc: 0,
     flair: starLabel,

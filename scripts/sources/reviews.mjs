@@ -94,14 +94,30 @@ async function searchG2Products(page, domain, maxProducts = MAX_PRODUCTS) {
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await sleep(2000);
 
+    // Check for anti-bot block on the search page itself
+    const searchBlocked = await page.evaluate(() => {
+      var body = document.body ? document.body.textContent.toLowerCase() : '';
+      var title = document.title.toLowerCase();
+      return title.includes('blocked') || body.includes('access is temporarily restricted') ||
+             body.includes('unusual activity') || body.includes('you have been blocked') ||
+             body.includes('captcha');
+    });
+
+    if (searchBlocked) {
+      log(`[reviews] G2 search page is blocked by anti-bot protection`);
+      return [];
+    }
+
     const products = await page.evaluate((maxP) => {
       var results = [];
-      // Product links in search results
+      // Product links in search results — try multiple selector patterns for G2's evolving markup
       var selectors = [
         'a[href*="/products/"][href*="/reviews"]',
+        'a[href*="g2.com/products/"]',
         '.product-listing__product-name a',
         '[data-testid="product-listing"] a',
         '.product-name a',
+        '[class*="product"] a[href*="/products/"]',
       ];
       var seen = new Set();
       for (var sel of selectors) {
@@ -109,9 +125,11 @@ async function searchG2Products(page, domain, maxProducts = MAX_PRODUCTS) {
         for (var i = 0; i < els.length && results.length < maxP; i++) {
           var el = els[i];
           var href = el.href || '';
-          var match = href.match(/\/products\/([^/]+)(?:\/reviews)?/);
+          var match = href.match(/\/products\/([^/?#]+)/);
           if (!match) continue;
           var slug = match[1];
+          // Skip non-product slugs
+          if (['search', 'categories', 'compare', 'software'].includes(slug)) continue;
           if (seen.has(slug)) continue;
           seen.add(slug);
           var name = el.textContent.trim() || slug;
@@ -127,10 +145,8 @@ async function searchG2Products(page, domain, maxProducts = MAX_PRODUCTS) {
     }, maxProducts);
 
     if (products.length === 0) {
-      log(`[reviews] no products found via selectors, trying URL-based fallback`);
-      // Fallback: build a direct product URL from the domain
-      const slug = domain.toLowerCase().replace(/\s+/g, '-');
-      return [{ name: domain, slug, url: `https://www.g2.com/products/${slug}/reviews` }];
+      log(`[reviews] no G2 products found via selectors (G2 blocked or DOM changed)`);
+      return [];
     }
 
     log(`[reviews] found ${products.length} G2 products`);
@@ -163,15 +179,18 @@ async function scrapeG2Reviews(page, productUrl, productName, maxPages = MAX_REV
       await sleep(1500);
 
       // Check for anti-bot / captcha
-      const isBlocked = await page.evaluate(() => {
+      const blockStatus = await page.evaluate(() => {
         var title = document.title.toLowerCase();
         var body = document.body ? document.body.textContent.toLowerCase() : '';
-        return title.includes('captcha') || title.includes('blocked') ||
-               body.includes('access denied') || body.includes('verify you are human');
+        if (title.includes('captcha') || body.includes('captcha')) return 'captcha';
+        if (title.includes('blocked') || body.includes('you have been blocked')) return 'cloudflare';
+        if (body.includes('access is temporarily restricted') || body.includes('unusual activity')) return 'g2-restricted';
+        if (body.includes('access denied') || body.includes('verify you are human')) return 'access-denied';
+        return null;
       });
 
-      if (isBlocked) {
-        log(`[reviews]   anti-bot detected on page ${pageNum}, skipping product`);
+      if (blockStatus) {
+        log(`[reviews]   anti-bot detected (${blockStatus}) on page ${pageNum}, skipping product`);
         break;
       }
 
@@ -319,6 +338,20 @@ async function scrapeCapterraReviews(page, domain, maxProducts = 3) {
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await sleep(2000);
 
+    // Check for anti-bot block on Capterra search page
+    const searchBlocked = await page.evaluate(() => {
+      var body = document.body ? document.body.textContent.toLowerCase() : '';
+      var title = document.title.toLowerCase();
+      return title.includes('blocked') || body.includes('you have been blocked') ||
+             body.includes('unusual activity') || body.includes('access denied') ||
+             body.includes('captcha');
+    });
+
+    if (searchBlocked) {
+      log(`[reviews] Capterra search page is blocked by anti-bot protection`);
+      return allReviews;
+    }
+
     const products = await page.evaluate((maxP) => {
       var results = [];
       var seen = new Set();
@@ -353,11 +386,14 @@ async function scrapeCapterraReviews(page, domain, maxProducts = 3) {
 
         const isBlocked = await page.evaluate(() => {
           var title = document.title.toLowerCase();
-          return title.includes('captcha') || title.includes('blocked');
+          var body = document.body ? document.body.textContent.toLowerCase() : '';
+          return title.includes('captcha') || title.includes('blocked') ||
+                 body.includes('you have been blocked') || body.includes('unusual activity') ||
+                 body.includes('access denied') || body.includes('verify you are human');
         });
 
         if (isBlocked) {
-          log(`[reviews]   Capterra blocked, skipping`);
+          log(`[reviews]   Capterra blocked by anti-bot protection, skipping`);
           continue;
         }
 
@@ -458,10 +494,19 @@ async function cmdScan(args) {
   const browser = await connectBrowser(args);
   const page = await browser.newPage();
 
-  // Set a realistic user-agent to reduce bot detection
+  // Stealth: realistic user-agent, viewport, and extra headers to reduce bot detection
   await page.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
   );
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.setExtraHTTPHeaders({
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Upgrade-Insecure-Requests': '1',
+  });
 
   const rawReviews = [];
 
@@ -513,7 +558,36 @@ async function cmdScan(args) {
     const scored = [];
     for (const review of uniqueReviews) {
       const post = normalizeReview(review, review.source || 'g2', review.productName || domain);
-      const enriched = enrichPost(post, domain);
+      let enriched = enrichPost(post, domain);
+
+      // For low-star reviews (1-2 stars), bypass the hard pain signal filter:
+      // a 1-2 star rating is itself a strong pain indicator even if the text
+      // doesn't contain PAIN_SIGNALS keywords. Build a minimal enriched object.
+      if (!enriched && review.stars <= 2 && (post.selftext || '').length >= 20) {
+        enriched = {
+          id: post.id,
+          title: post.title || '',
+          subreddit: post.subreddit || '',
+          url: post.url || '',
+          score: post.score || 0,
+          num_comments: post.num_comments || 0,
+          upvote_ratio: 0,
+          created_utc: 0,
+          date: null,
+          selftext_excerpt: post.selftext ? post.selftext.slice(0, 200) : '',
+          // Star-based pain score: 1-star=6, 2-star=5 baseline minus slight engagement gap
+          painScore: post.score + 3.0,
+          painSignals: [],
+          bodyPainSignals: [],
+          painCategories: [],
+          painSubcategories: [],
+          wtpSignals: [],
+          intensity: 0,
+          flair: post.flair || null,
+        };
+        log(`[reviews]   star-bypass: kept ${review.stars}-star review (no signal keywords in text)`);
+      }
+
       if (enriched) {
         // Attach source metadata
         enriched.source = review.source || 'g2';
