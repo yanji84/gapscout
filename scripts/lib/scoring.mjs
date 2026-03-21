@@ -533,11 +533,27 @@ export function analyzeComments(comments, postPainCategories = []) {
  * Enrich a post with pain scoring fields.
  * Call this after normalizing raw source data to the common post shape.
  * Returns null if the post should be filtered out (hard pain filter).
+ *
+ * @param {object} post - Normalized post object
+ * @param {string} [domain=''] - Domain hint string (split into words for soft boost/penalty)
+ * @param {string[]} [domainKeywords=[]] - Hard-gate keyword list. When provided, posts that
+ *   do not contain at least one keyword in title+body are rejected (return null).
+ *   Example for scalper bots domain:
+ *   ['bot', 'scalp', 'resale', 'resell', 'drop', 'queue', 'sold out', 'face value',
+ *    'markup', 'ticket', 'snkrs', 'limited release', 'raffle', 'presale']
  */
-export function enrichPost(post, domain = '') {
+export function enrichPost(post, domain = '', domainKeywords = []) {
+  // Domain-relevance hard gate: reject posts that contain no domain keyword at all.
+  // This is the primary fix for 70-80% false-positive rate when scanners pull broad data.
+  if (domainKeywords.length > 0) {
+    const text = ((post.title || '') + ' ' + (post.selftext || '')).toLowerCase();
+    const hasDomainKeyword = domainKeywords.some(kw => text.includes(kw.toLowerCase()));
+    if (!hasDomainKeyword) return null;
+  }
+
   let painScore = computePainScore(post);
 
-  // Domain relevance boost/penalty
+  // Domain relevance boost/penalty (soft, based on domain hint words)
   const domainLower = domain.toLowerCase();
   const domainWords = domainLower.split(/\s+/).filter(w => w.length > 2);
   if (domain) {

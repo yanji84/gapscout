@@ -169,24 +169,46 @@ async function scrapeAppReviews(page, appUrl, appName, packageId, targetStars = 
   await page.goto(appUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await sleep(2000);
 
-  // Click "See all reviews" — Play Store uses a button with text "See all reviews"
+  // Click "See all reviews" — Play Store navigates to a /reviews sub-page.
+  // We must wait for navigation, not just sleep, or the frame becomes detached.
   try {
-    const clicked = await page.evaluate(() => {
-      var btns = Array.from(document.querySelectorAll('button, [role="button"]'));
+    // Find the link/button and extract href if it's an anchor, otherwise click it.
+    const reviewsHref = await page.evaluate(() => {
+      var btns = Array.from(document.querySelectorAll('a, button, [role="button"]'));
       for (var b of btns) {
         var txt = b.textContent.trim();
-        if (txt === 'See all reviews' || (b.getAttribute('aria-label') || '').toLowerCase().includes('see all reviews')) {
-          b.click();
-          return true;
+        var label = (b.getAttribute('aria-label') || '').toLowerCase();
+        if (txt === 'See all reviews' || label.includes('see all reviews')) {
+          if (b.tagName === 'A' && b.href) return b.href;
+          return '__click__';
         }
       }
-      return false;
+      return null;
     });
-    if (clicked) {
-      log('[appstore] clicked "See all reviews"');
+
+    if (reviewsHref && reviewsHref !== '__click__') {
+      log(`[appstore] navigating to reviews page: ${reviewsHref}`);
+      await page.goto(reviewsHref, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await sleep(2000);
+    } else if (reviewsHref === '__click__') {
+      log('[appstore] clicking "See all reviews" and waiting for navigation');
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {}),
+        page.evaluate(() => {
+          var btns = Array.from(document.querySelectorAll('a, button, [role="button"]'));
+          for (var b of btns) {
+            var txt = b.textContent.trim();
+            var label = (b.getAttribute('aria-label') || '').toLowerCase();
+            if (txt === 'See all reviews' || label.includes('see all reviews')) {
+              b.click();
+              return;
+            }
+          }
+        }),
+      ]);
       await sleep(2000);
     } else {
-      log('[appstore] no "See all reviews" button found');
+      log('[appstore] no "See all reviews" button found, scraping reviews in place');
     }
   } catch (err) {
     log(`[appstore] "See all reviews" click failed: ${err.message}`);
