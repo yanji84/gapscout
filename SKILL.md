@@ -3,7 +3,8 @@ name: pain-point-finder
 description: >-
   Discover pain points, frustrations, and unmet needs on Reddit using PullPush API.
   No API keys required. Use to find startup ideas backed by real user complaints.
-metadata: {"clawdbot":{"emoji":"🔬","requires":{"bins":["node"]}}}
+metadata: {"clawdbot":{"emoji":"🔬","requires":{"bins":["node"]}}
+}
 ---
 
 # Pain Point Finder
@@ -120,6 +121,50 @@ For each validated pain point, present a structured proposal:
 
 End with a ranked list of all pains by build-worthiness.
 
+## Browser Mode (Alternative Data Source)
+
+When PullPush is unavailable, rate-limited, or you want real-time data from a logged-in Reddit session, use the browser-based mode. It scrapes old.reddit.com via Puppeteer, reusing an existing Chrome session (e.g. from puppeteer-mcp-server).
+
+**Prerequisites**: Chrome running with remote debugging (puppeteer-mcp-server does this automatically). Install deps: `npm install` in the skill directory.
+
+### Browser Scan
+
+```bash
+node {baseDir}/scripts/browser-scan.mjs scan \
+  --subreddits "<sub1>,<sub2>,<sub3>" \
+  --domain "<domain>" \
+  --time year \
+  --limit 20
+```
+
+This searches old.reddit.com with pain-oriented queries (frustration, desire, cost keywords) and scrapes the results. It auto-detects the Chrome instance.
+
+### Browser Deep-Dive
+
+```bash
+node {baseDir}/scripts/browser-scan.mjs deep-dive --post <url_or_id>
+```
+
+Or from scan output:
+```bash
+node {baseDir}/scripts/browser-scan.mjs deep-dive --from-scan <scan_output.json> --top 5
+```
+
+Scrapes the actual comment thread from old.reddit.com and runs the same analysis (agreement, intensity, money trail, solution attempts) as the API mode.
+
+### When to use browser mode vs API mode
+
+| | API mode (pain-points.mjs) | Browser mode (browser-scan.mjs) |
+|---|---|---|
+| **Speed** | Faster (API calls) | Slower (page loads) |
+| **Data freshness** | Archive (may lag hours/days) | Real-time |
+| **Login required** | No | No (but benefits from logged-in session) |
+| **Rate limits** | PullPush limits (can be strict) | Reddit page loads (be polite) |
+| **Reliability** | Depends on PullPush uptime | Depends on Chrome + Reddit DOM |
+| **Best for** | Large-scale scans, historical data | Targeted scans, when PullPush is down |
+
+Output format is identical between modes — both produce `{ ok: true, data: { posts: [...] } }` with the same scoring fields, so downstream analysis (Phases 4-7) works with either.
+
 ## Options Reference
 
 ### discover
@@ -147,6 +192,28 @@ End with a ranked list of all pains by build-worthiness.
 | `--stdin` | | Read scan JSON from stdin |
 | `--top` | 10 | How many posts to analyze from scan |
 | `--maxComments` | 200 | Max comments to fetch per post |
+
+### browser-scan scan
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--subreddits` | required | Comma-separated subreddit list |
+| `--domain` | | Domain for relevance boosting |
+| `--time` | year | Time filter: hour, day, week, month, year, all |
+| `--minComments` | 3 | Min comment count filter |
+| `--limit` | 30 | Max posts to return |
+| `--ws-url` | auto | Chrome WebSocket URL |
+| `--port` | auto | Chrome debug port |
+
+### browser-scan deep-dive
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--post` | | Post URL or ID |
+| `--from-scan` | | Path to scan output JSON |
+| `--stdin` | | Read scan JSON from stdin |
+| `--top` | 10 | How many posts to analyze from scan |
+| `--maxComments` | 200 | Max comments to scrape per post |
+| `--ws-url` | auto | Chrome WebSocket URL |
+| `--port` | auto | Chrome debug port |
 
 ## Rate Limits
 

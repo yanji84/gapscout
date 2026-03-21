@@ -1,17 +1,22 @@
 {
   "name": "clawdbot-skill-pain-point-finder",
-  "version": "2.0.0",
-  "description": "Reddit pain point discovery via PullPush API — find frustrations, unmet needs, and startup ideas",
+  "version": "4.0.0",
+  "description": "Modular pain point discovery — Reddit API, browser scraping, and more. Find frustrations, unmet needs, and startup ideas.",
   "type": "module",
-  "keywords": ["clawdbot-skill", "reddit", "pain-points", "pullpush", "research"],
+  "keywords": ["clawdbot-skill", "reddit", "pain-points", "pullpush", "puppeteer", "browser", "research"],
   "author": "Lobster",
   "license": "MIT",
   "bin": {
-    "pain-points": "./scripts/pain-points.mjs"
+    "pain-points": "./scripts/cli.mjs"
   },
   "scripts": {
-    "discover": "node scripts/pain-points.mjs discover",
-    "scan": "node scripts/pain-points.mjs scan",
-    "deep-dive": "node scripts/pain-points.mjs deep-dive"
+    "discover": "node scripts/cli.mjs api discover",
+    "scan": "node scripts/cli.mjs api scan",
+    "deep-dive": "node scripts/cli.mjs api deep-dive",
+    "browser-scan": "node scripts/cli.mjs browser scan",
+    "browser-deep-dive": "node scripts/cli.mjs browser deep-dive"
+  },
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
   }
 }
