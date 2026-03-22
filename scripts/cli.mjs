@@ -70,6 +70,18 @@ const SOURCE_ALIASES = {
 async function main() {
   const argv = process.argv.slice(2);
 
+  // Top-level `web-report` command — delegate to web-report.mjs directly
+  if (argv[0] === 'web-report') {
+    const { fileURLToPath: fu2 } = await import('node:url');
+    const { dirname: dn2, resolve: res2 } = await import('node:path');
+    const __dirname2 = dn2(fu2(import.meta.url));
+    const { spawn: sp2 } = await import('node:child_process');
+    const webReportPath = res2(__dirname2, 'web-report.mjs');
+    const child2 = sp2(process.execPath, [webReportPath, ...argv.slice(1)], { stdio: 'inherit' });
+    child2.on('exit', code => process.exit(code ?? 0));
+    return;
+  }
+
   // Top-level `report` command — delegate to report.mjs directly
   if (argv[0] === 'report') {
     const { createRequire } = await import('node:module');
@@ -86,6 +98,18 @@ async function main() {
     return;
   }
 
+  // Top-level `monitor` command — delegate to monitor.mjs
+  if (argv[0] === 'monitor') {
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, resolve } = await import('node:path');
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const { normalizeArgs } = await import('./lib/utils.mjs');
+    const { runMonitor } = await import('./monitor.mjs');
+    const args = normalizeArgs(argv.slice(1));
+    await runMonitor(args);
+    return;
+  }
+
   if (argv.length === 0 || (argv.length === 1 && (argv[0] === '--help' || argv[0] === 'help'))) {
     const apiSource = await loadSource('reddit-api');
     const browserSource = await loadSource('reddit-browser');
@@ -96,6 +120,7 @@ pain-points — Multi-source pain point discovery
 Usage:
   pain-points <source> <command> [options]
   pain-points report --files file1.json,file2.json [--format md|json]
+  pain-points monitor --config domains.json [--once | --interval 6h]
 
 Sources:
   all       Coordinator — run ALL sources in parallel (recommended)
@@ -115,6 +140,15 @@ Commands by source:
 
 Report command (Phases 4-7 synthesis):
   pain-points report --files reddit-scan.json,hn-scan.json [--format md|json]
+
+Web report command (beautiful HTML dashboard):
+  pain-points web-report --input report.json --output report.html
+  pain-points web-report --input report.json --serve 8080
+
+Monitor command (continuous scanning with delta detection):
+  pain-points monitor --config domains.json --once
+  pain-points monitor --config domains.json --interval 6h
+  pain-points monitor --config domains.json --domain scalper-bot --once
 
 Examples:
   pain-points all scan --domain "project management"

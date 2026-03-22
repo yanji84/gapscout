@@ -1,0 +1,30 @@
+{
+  "domains": [
+    {
+      "name": "scalper-bot",
+      "displayName": "Scalper Bots (抢货机器人)",
+      "domain": "scalper bot",
+      "domainKeywords": ["bot", "scalp", "resale", "queue", "sold out", "ticket", "snkrs", "drop", "raffle"],
+      "sources": {
+        "api": { "subreddits": ["Ticketmaster", "Sneakers", "nvidia", "Concerts"] },
+        "hn": {},
+        "google": { "depth": 1 },
+        "trustpilot": { "companies": ["ticketmaster", "stubhub"] }
+      },
+      "alerts": {
+        "painScoreThreshold": 15,
+        "newPainWebhook": null
+      }
+    },
+    {
+      "name": "project-management",
+      "displayName": "Project Management Tools",
+      "domain": "project management",
+      "sources": {
+        "api": { "subreddits": ["projectmanagement", "SaaS", "productivity"] },
+        "hn": {},
+        "google": {}
+      }
+    }
+  ]
+}
