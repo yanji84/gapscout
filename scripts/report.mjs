@@ -367,7 +367,9 @@ function aggregateMoneyTrail(posts) {
 
   for (const p of posts) {
     if (p._analysis?.moneyTrail) {
-      trails.push(...p._analysis.moneyTrail.slice(0, 2));
+      for (const m of p._analysis.moneyTrail.slice(0, 2)) {
+        trails.push({ ...m, url: m.url || p.url || '' });
+      }
     }
   }
 
@@ -574,16 +576,24 @@ function synthesize(groups, allPosts) {
     const buildScore = buildWorthinessScore(depth, matrix, moneyTrail, crossSources, posts.length);
     const verdict = determineVerdict(depth, matrix, moneyTrail);
 
-    // Top quotes
+    // Top quotes — backfill URL from parent post if quote doesn't have one
     const topQuotes = [];
     for (const p of posts) {
-      if (p._analysis?.topQuotes) topQuotes.push(...p._analysis.topQuotes.slice(0, 2));
+      if (p._analysis?.topQuotes) {
+        for (const q of p._analysis.topQuotes.slice(0, 2)) {
+          topQuotes.push({ ...q, url: q.url || p.url || '' });
+        }
+      }
     }
 
-    // Solution attempts
+    // Solution attempts — backfill URL from parent post
     const solutionAttempts = [];
     for (const p of posts) {
-      if (p._analysis?.solutionAttempts) solutionAttempts.push(...p._analysis.solutionAttempts.slice(0, 2));
+      if (p._analysis?.solutionAttempts) {
+        for (const s of p._analysis.solutionAttempts.slice(0, 2)) {
+          solutionAttempts.push({ ...s, url: s.url || p.url || '' });
+        }
+      }
     }
 
     // Total engagement
