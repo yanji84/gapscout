@@ -20,6 +20,11 @@ const RC_PATH = resolve(homedir(), '.pain-pointsrc');
 
 // ─── token definitions ──────────────────────────────────────────────────────
 
+// Resolve the project root so printed commands use an absolute path and work
+// regardless of which directory the user runs the command from.
+const PROJECT_ROOT = resolve(import.meta.dirname, '..');
+const CLI_CMD = `node ${resolve(PROJECT_ROOT, 'scripts', 'cli.mjs')}`;
+
 const TOKENS = [
   {
     keys: ['GITHUB_TOKEN'],
@@ -37,10 +42,10 @@ const TOKENS = [
       '1. Go to https://stackapps.com/apps/oauth/register',
       '2. Fill in app name (anything), description, website',
       '3. Copy the "Key" (not secret)',
-      '4. Run: node scripts/cli.mjs setup --set STACKEXCHANGE_KEY=<your-key>',
+      `4. Run: ${CLI_CMD} setup --set STACKEXCHANGE_KEY=<your-key>`,
     ],
     getUrl: 'https://stackapps.com/apps/oauth/register',
-    setCmd: 'node scripts/cli.mjs setup --set STACKEXCHANGE_KEY=<your-key>',
+    get setCmd() { return `${CLI_CMD} setup --set STACKEXCHANGE_KEY=<your-key>`; },
   },
   {
     keys: ['PRODUCTHUNT_TOKEN'],
@@ -52,10 +57,10 @@ const TOKENS = [
       '2. Click "Add an Application"',
       '3. Fill in name and redirect URI (http://localhost)',
       '4. Copy the "Developer Token" from the app page',
-      '5. Run: node scripts/cli.mjs setup --set PRODUCTHUNT_TOKEN=<your-token>',
+      `5. Run: ${CLI_CMD} setup --set PRODUCTHUNT_TOKEN=<your-token>`,
     ],
     getUrl: 'https://producthunt.com/v2/oauth/applications',
-    setCmd: 'node scripts/cli.mjs setup --set PRODUCTHUNT_TOKEN=<token>',
+    get setCmd() { return `${CLI_CMD} setup --set PRODUCTHUNT_TOKEN=<token>`; },
   },
   {
     keys: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'],
@@ -68,10 +73,10 @@ const TOKENS = [
       '3. Choose "script" as the type',
       '4. Set redirect URI to http://localhost',
       '5. Copy the client ID (string under app name) and secret',
-      '6. Run: node scripts/cli.mjs setup --set REDDIT_CLIENT_ID=<id> --set REDDIT_CLIENT_SECRET=<secret>',
+      `6. Run: ${CLI_CMD} setup --set REDDIT_CLIENT_ID=<id> --set REDDIT_CLIENT_SECRET=<secret>`,
     ],
     getUrl: 'https://reddit.com/prefs/apps',
-    setCmd: 'node scripts/cli.mjs setup --set REDDIT_CLIENT_ID=<id> --set REDDIT_CLIENT_SECRET=<secret>',
+    get setCmd() { return `${CLI_CMD} setup --set REDDIT_CLIENT_ID=<id> --set REDDIT_CLIENT_SECRET=<secret>`; },
   },
   {
     keys: ['SEARXNG_URL'],
@@ -81,9 +86,9 @@ const TOKENS = [
     instructions: [
       '1. Run: docker run -d -p 8888:8080 searxng/searxng:latest',
       '2. The setup will auto-detect it on next run, or:',
-      '3. Run: node scripts/cli.mjs setup --set SEARXNG_URL=http://localhost:8888',
+      `3. Run: ${CLI_CMD} setup --set SEARXNG_URL=http://localhost:8888`,
     ],
-    setCmd: 'node scripts/cli.mjs setup --set SEARXNG_URL=http://localhost:8888',
+    get setCmd() { return `${CLI_CMD} setup --set SEARXNG_URL=http://localhost:8888`; },
   },
 ];
 
@@ -171,7 +176,7 @@ function parseSetFlags(argv) {
 async function runSet(argv) {
   const sets = parseSetFlags(argv);
   if (Object.keys(sets).length === 0) {
-    line('Usage: node scripts/cli.mjs setup --set KEY=VALUE [--set KEY2=VALUE2]');
+    line(`Usage: ${CLI_CMD} setup --set KEY=VALUE [--set KEY2=VALUE2]`);
     process.exit(1);
   }
 
@@ -244,11 +249,11 @@ async function runFull() {
         label: 'GITHUB_TOKEN',
         benefit: '83x GitHub rate boost',
         getUrl: 'https://github.com/settings/tokens',
-        setCmd: 'node scripts/cli.mjs setup --set GITHUB_TOKEN=<token>',
+        get setCmd() { return `${CLI_CMD} setup --set GITHUB_TOKEN=<token>`; },
         instructions: [
           'Install gh CLI and run `gh auth login`, or:',
           'Create a PAT at https://github.com/settings/tokens',
-          'Then run: node scripts/cli.mjs setup --set GITHUB_TOKEN=<token>',
+          `Then run: ${CLI_CMD} setup --set GITHUB_TOKEN=<token>`,
         ],
       });
     }
@@ -350,11 +355,11 @@ export async function runSetup(args, rawArgv) {
     line('pain-point-finder setup -- Persistent, incremental token configuration');
     line('');
     line('Usage:');
-    line('  node scripts/cli.mjs setup                  Full setup (auto-detect + status + instructions)');
-    line('  node scripts/cli.mjs setup --set KEY=VALUE   Set a token manually');
-    line('  node scripts/cli.mjs setup --status          Show what is configured vs missing');
-    line('  node scripts/cli.mjs setup --reset           Clear all saved tokens');
-    line('  node scripts/cli.mjs setup --help            Show this help');
+    line(`  ${CLI_CMD} setup                  Full setup (auto-detect + status + instructions)`);
+    line(`  ${CLI_CMD} setup --set KEY=VALUE   Set a token manually`);
+    line(`  ${CLI_CMD} setup --status          Show what is configured vs missing`);
+    line(`  ${CLI_CMD} setup --reset           Clear all saved tokens`);
+    line(`  ${CLI_CMD} setup --help            Show this help`);
     line('');
     line('Tokens are persisted to ~/.pain-pointsrc (JSON).');
     line('On subsequent runs, already-configured tokens are skipped.');
@@ -378,7 +383,7 @@ export async function runSetup(args, rawArgv) {
       line(`  Set ${key}`);
       line(`\nConfig saved to: ~/.pain-pointsrc`);
     } else {
-      line('Usage: node scripts/cli.mjs setup --set KEY=VALUE');
+      line(`Usage: ${CLI_CMD} setup --set KEY=VALUE`);
     }
     return;
   }
