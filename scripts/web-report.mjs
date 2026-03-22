@@ -382,6 +382,14 @@ function buildCategoryCards(groups) {
             </div>` : ''}
           ${competitorHtml}
           ${g.audience ? `<p class="detail-label">Target Audience</p><p class="detail-text">${escHtml(g.audience)}</p>` : ''}
+          ${(g.representativePosts || []).length > 0 ? `<p class="detail-label">Source Posts</p>
+            <div class="ref-posts">
+              ${g.representativePosts.slice(0, 8).map(p => `<a class="ref-post" href="${escHtml(p.url || '#')}" target="_blank" rel="noopener">
+                <span class="ref-source">${escHtml(SOURCE_ICONS[p.source] || p.source || '?')}</span>
+                <span class="ref-title">${escHtml(truncate(p.title, 80))}</span>
+                <span class="ref-stats">${p.score ? `↑${p.score}` : ''} ${p.num_comments ? `💬${p.num_comments}` : ''}</span>
+              </a>`).join('')}
+            </div>` : ''}
         </div>
       </details>
     </div>`;
@@ -447,9 +455,13 @@ function buildSourceCoverage(meta, groups) {
 }
 
 function buildEvidenceWall(groups) {
-  // Collect all quotes with category info
+  // Collect all quotes with category info + representative posts with URLs
   const cards = [];
   for (const g of groups) {
+    // Add representative posts first (these have URLs)
+    for (const p of (g.representativePosts || [])) {
+      cards.push({ body: p.title, score: p.score || 0, signals: [], category: g.category, depth: g.depth, url: p.url, source: p.source, comments: p.num_comments });
+    }
     for (const q of (g.topQuotes || [])) {
       cards.push({ body: q.body, score: q.score || 0, signals: q.signals || [], category: g.category, depth: g.depth });
     }
@@ -469,12 +481,18 @@ function buildEvidenceWall(groups) {
 
   const cardHtml = cards.map(c => {
     const depthMeta = DEPTH_COLOR[c.depth] || DEPTH_COLOR.surface;
+    const linkOpen = c.url ? `<a href="${escHtml(c.url)}" target="_blank" rel="noopener" class="evidence-link">` : '';
+    const linkClose = c.url ? '</a>' : '';
+    const sourceIcon = c.source ? `<span class="source-badge source-badge-sm" data-source="${escHtml(c.source)}">${escHtml(SOURCE_ICONS[c.source] || c.source.slice(0, 2).toUpperCase())}</span>` : '';
     return `<div class="evidence-card" data-category="${escHtml(c.category)}">
-      <p class="evidence-card-text">"${escHtml(truncate(c.body, 220))}"</p>
+      ${linkOpen}<p class="evidence-card-text">${c.url ? '' : '"'}${escHtml(truncate(c.body, 220))}${c.url ? '' : '"'}</p>${linkClose}
       <div class="evidence-card-footer">
         <span class="cat-pill" style="--depth-color:${depthMeta.css}">${escHtml(c.category)}</span>
-        ${c.score ? `<span class="evidence-upvotes">+${c.score}</span>` : ''}
+        ${sourceIcon}
+        ${c.score ? `<span class="evidence-upvotes">↑${c.score}</span>` : ''}
+        ${c.comments ? `<span class="evidence-comments">💬${c.comments}</span>` : ''}
         ${c.unspoken ? '<span class="unspoken-badge">unspoken</span>' : ''}
+        ${c.url ? '<span class="link-icon">↗</span>' : ''}
       </div>
     </div>`;
   }).join('');
@@ -742,8 +760,20 @@ body {
 .evidence-card-text { font-size: 14px; line-height: 1.7; color: var(--fg2); font-style: italic; margin-bottom: 12px; }
 .evidence-card-footer { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .cat-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; background: color-mix(in srgb, var(--depth-color) 15%, transparent); color: var(--depth-color); border: 1px solid color-mix(in srgb, var(--depth-color) 30%, transparent); }
-.evidence-upvotes { font-size: 12px; color: var(--accent2); font-weight: 700; margin-left: auto; }
+.evidence-upvotes { font-size: 12px; color: var(--accent2); font-weight: 700; }
+.evidence-comments { font-size: 12px; color: var(--muted); }
+.evidence-link { text-decoration: none; color: inherit; }
+.evidence-link:hover .evidence-card-text { color: var(--accent); }
+.link-icon { font-size: 12px; color: var(--accent); margin-left: auto; opacity: 0.6; }
+.evidence-card:hover .link-icon { opacity: 1; }
+.source-badge-sm { font-size: 10px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--bg3); border: 1px solid var(--border); font-weight: 700; }
 .unspoken-badge { font-size: 10px; background: var(--bg3); border: 1px solid var(--border); color: var(--muted); padding: 1px 6px; border-radius: 4px; }
+.ref-posts { display: flex; flex-direction: column; gap: 6px; }
+.ref-post { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); text-decoration: none; color: var(--fg2); transition: border-color .15s; }
+.ref-post:hover { border-color: var(--accent); color: var(--fg); }
+.ref-source { font-size: 11px; font-weight: 700; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--bg2); border: 1px solid var(--border); flex-shrink: 0; }
+.ref-title { flex: 1; font-size: 13px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref-stats { font-size: 12px; color: var(--muted); flex-shrink: 0; }
 
 /* ── Competitor chart ── */
 .comp-bars { display: flex; flex-direction: column; gap: 10px; max-width: 700px; }
