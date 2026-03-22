@@ -78,18 +78,6 @@ const TOKENS = [
     getUrl: 'https://reddit.com/prefs/apps',
     get setCmd() { return `${CLI_CMD} setup --set REDDIT_CLIENT_ID=<id> --set REDDIT_CLIENT_SECRET=<secret>`; },
   },
-  {
-    keys: ['SEARXNG_URL'],
-    label: 'SEARXNG_URL',
-    benefit: 'eliminates browser for web search',
-    autoDetect: true,
-    instructions: [
-      '1. Run: docker run -d -p 8888:8080 searxng/searxng:latest',
-      '2. The setup will auto-detect it on next run, or:',
-      `3. Run: ${CLI_CMD} setup --set SEARXNG_URL=http://localhost:8888`,
-    ],
-    get setCmd() { return `${CLI_CMD} setup --set SEARXNG_URL=http://localhost:8888`; },
-  },
 ];
 
 // ─── rc file helpers ─────────────────────────────────────────────────────────
@@ -259,29 +247,9 @@ async function runFull() {
     }
   }
 
-  // --- Auto-detect SEARXNG_URL ---
-  if (tokens.SEARXNG_URL || process.env.SEARXNG_URL) {
-    alreadyConfigured.push({
-      label: 'SEARXNG_URL',
-      detail: 'eliminates browser for web search',
-    });
-  } else {
-    const searxUrl = await probeSearxng();
-    if (searxUrl) {
-      setRcToken(rc, 'SEARXNG_URL', searxUrl);
-      changed = true;
-      autoDetected.push({
-        label: 'SEARXNG_URL',
-        detail: 'SearXNG running at ' + searxUrl,
-      });
-    } else {
-      notConfigured.push(TOKENS.find(t => t.keys[0] === 'SEARXNG_URL'));
-    }
-  }
-
   // --- Check remaining tokens ---
   for (const def of TOKENS) {
-    if (def.keys[0] === 'GITHUB_TOKEN' || def.keys[0] === 'SEARXNG_URL') continue;
+    if (def.keys[0] === 'GITHUB_TOKEN') continue;
 
     const allSet = def.keys.every(k => !!tokens[k] || !!process.env[k]);
     if (allSet) {
