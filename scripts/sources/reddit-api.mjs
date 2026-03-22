@@ -603,7 +603,7 @@ async function cmdDeepDive(args) {
 
     const postPainCats = postMeta ? getPostPainCategories(postMeta) : [];
     const normalizedComments = comments.map(c => ({ body: c.body || '', score: c.score || 0 }));
-    const analysis = analyzeComments(normalizedComments, postPainCats);
+    const analysis = analyzeComments(normalizedComments, postPainCats, postMeta?.url || '');
 
     results.push({
       post: postMeta ? {

@@ -327,7 +327,7 @@ function computePainScore(post) {
   return Math.round(score * 10) / 10;
 }
 
-function analyzeComments(comments, postPainCategories = []) {
+function analyzeComments(comments, postPainCategories = [], postUrl = '') {
   let agreementCount = 0;
   let thematicAgreementCount = 0;
   const agreements = [];
@@ -349,7 +349,7 @@ function analyzeComments(comments, postPainCategories = []) {
     if (allAgreeMatches.length > 0) {
       const upvoteWeight = Math.max(1, Math.log2((c.score || 1) + 1));
       agreementCount += upvoteWeight;
-      agreements.push({ body: excerpt(body, 150), score: c.score || 0, signals: allAgreeMatches });
+      agreements.push({ body: excerpt(body, 150), score: c.score || 0, signals: allAgreeMatches, url: postUrl });
     }
 
     if (postPainCategories.length > 0) {
@@ -363,7 +363,7 @@ function analyzeComments(comments, postPainCategories = []) {
 
     const solutionMatches = matchSignals(body, 'solution');
     if (solutionMatches.length > 0) {
-      solutions.push({ body: excerpt(body, 200), score: c.score || 0, signals: solutionMatches });
+      solutions.push({ body: excerpt(body, 200), score: c.score || 0, signals: solutionMatches, url: postUrl });
 
       const TOOL_NOISE = new Set([
         'I', 'It', 'The', 'This', 'That', 'My', 'We', 'They', 'But', 'And',
@@ -397,12 +397,12 @@ function analyzeComments(comments, postPainCategories = []) {
       ...matchSignals(body, 'cost'),
     ];
     if (painMatches.length > 0 && (c.score || 0) >= 2) {
-      topQuotes.push({ body: excerpt(body, 200), score: c.score || 0, signals: painMatches });
+      topQuotes.push({ body: excerpt(body, 200), score: c.score || 0, signals: painMatches, url: postUrl });
     }
 
     const wtpMatches = matchSignals(body, 'willingness_to_pay');
     if (wtpMatches.length > 0) {
-      moneyTrail.push({ body: excerpt(body, 200), score: c.score || 0, signals: wtpMatches });
+      moneyTrail.push({ body: excerpt(body, 200), score: c.score || 0, signals: wtpMatches, url: postUrl });
     }
 
     intensityTotal += computeIntensity(body);
@@ -924,7 +924,7 @@ async function cmdBrowserDeepDive(args) {
         if (matchSignals(postText, 'desire').length) postPainCategories.push('desire');
         if (matchSignals(postText, 'cost').length) postPainCategories.push('cost');
 
-        const analysis = analyzeComments(data.comments, postPainCategories);
+        const analysis = analyzeComments(data.comments, postPainCategories, postUrl || '');
 
         results.push({
           post: {

@@ -459,7 +459,7 @@ async function cmdDeepDive(args) {
         };
 
         const postPainCats = getPostPainCategories(postMeta);
-        const analysis = analyzeComments(data.comments, postPainCats);
+        const analysis = analyzeComments(data.comments, postPainCats, postUrl || '');
 
         results.push({
           post: {

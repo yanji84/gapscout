@@ -326,19 +326,31 @@ function buildCategoryCards(groups) {
     ).join('');
 
     // Expanded evidence
-    const allQuotes = [...(g.topQuotes || []), ...(g.unspokenPain || []).map(b => ({ body: b, score: 0, _unspoken: true }))];
+    const allQuotes = [
+      ...(g.topQuotes || []),
+      ...(g.unspokenPain || []).map(b => typeof b === 'string' ? { body: b, score: 0, url: '', _unspoken: true } : { ...b, score: 0, _unspoken: true }),
+    ];
     const evidenceHtml = allQuotes.slice(0, 6).map(q => {
       const body = typeof q === 'string' ? q : q.body;
       const score = typeof q === 'object' ? q.score : 0;
+      const url = typeof q === 'object' ? (q.url || '') : '';
+      const linkOpen = url ? `<a href="${escHtml(url)}" target="_blank" rel="noopener" class="evidence-link">` : '';
+      const linkClose = url ? '</a>' : '';
       return `<div class="evidence-item">
-        <p class="evidence-text">"${escHtml(truncate(body, 240))}"</p>
-        ${score ? `<span class="evidence-score">+${score}</span>` : ''}
+        ${linkOpen}<p class="evidence-text">"${escHtml(truncate(body, 240))}"</p>${linkClose}
+        <div class="evidence-item-footer">
+          ${score ? `<span class="evidence-score">+${score}</span>` : ''}
+          ${url ? '<span class="link-icon">↗</span>' : '<span class="no-source">no source</span>'}
+        </div>
       </div>`;
     }).join('');
 
     const solutionHtml = (g.solutionAttempts || []).slice(0, 3).map(s => {
       const body = typeof s === 'string' ? s : s.body;
-      return `<li class="solution-item">${escHtml(truncate(body, 160))}</li>`;
+      const url = typeof s === 'object' ? (s.url || '') : '';
+      const linkOpen = url ? `<a href="${escHtml(url)}" target="_blank" rel="noopener" class="solution-link">` : '';
+      const linkClose = url ? '</a>' : '';
+      return `<li class="solution-item">${linkOpen}${escHtml(truncate(body, 160))}${linkClose}${url ? ' <span class="link-icon">↗</span>' : ' <span class="no-source">no source</span>'}</li>`;
     }).join('');
 
     const competitorHtml = (g.tools || []).length > 0
@@ -375,10 +387,15 @@ function buildCategoryCards(groups) {
           ${solutionHtml ? `<p class="detail-label">Current Workarounds</p><ul class="solution-list">${solutionHtml}</ul>` : ''}
           ${g.moneyTrail?.examples?.length ? `<p class="detail-label">Money Trail (${g.moneyTrail.strength})</p>
             <div class="money-trail">
-              ${g.moneyTrail.examples.slice(0, 3).map(ex => `<div class="money-trail-item">
-                <p class="money-body">"${escHtml(truncate(ex.body, 200))}"</p>
-                <div class="money-signals">${(ex.signals || []).map(sig => `<span class="signal-tag">${escHtml(sig)}</span>`).join('')}</div>
-              </div>`).join('')}
+              ${g.moneyTrail.examples.slice(0, 3).map(ex => {
+                const exUrl = ex.url || '';
+                const linkOpen = exUrl ? `<a href="${escHtml(exUrl)}" target="_blank" rel="noopener" class="evidence-link">` : '';
+                const linkClose = exUrl ? '</a>' : '';
+                return `<div class="money-trail-item">
+                  ${linkOpen}<p class="money-body">"${escHtml(truncate(ex.body, 200))}"</p>${linkClose}
+                  <div class="money-signals">${(ex.signals || []).map(sig => `<span class="signal-tag">${escHtml(sig)}</span>`).join('')}${exUrl ? '<span class="link-icon">↗</span>' : '<span class="no-source">no source</span>'}</div>
+                </div>`;
+              }).join('')}
             </div>` : ''}
           ${competitorHtml}
           ${g.audience ? `<p class="detail-label">Target Audience</p><p class="detail-text">${escHtml(g.audience)}</p>` : ''}
@@ -463,10 +480,12 @@ function buildEvidenceWall(groups) {
       cards.push({ body: p.title, score: p.score || 0, signals: [], category: g.category, depth: g.depth, url: p.url, source: p.source, comments: p.num_comments });
     }
     for (const q of (g.topQuotes || [])) {
-      cards.push({ body: q.body, score: q.score || 0, signals: q.signals || [], category: g.category, depth: g.depth });
+      cards.push({ body: q.body, score: q.score || 0, signals: q.signals || [], category: g.category, depth: g.depth, url: q.url || '' });
     }
-    for (const body of (g.unspokenPain || [])) {
-      cards.push({ body, score: 0, signals: [], category: g.category, depth: g.depth, unspoken: true });
+    for (const item of (g.unspokenPain || [])) {
+      const body = typeof item === 'string' ? item : item.body;
+      const url = typeof item === 'object' ? (item.url || '') : '';
+      cards.push({ body, score: 0, signals: [], category: g.category, depth: g.depth, url, unspoken: true });
     }
   }
 
@@ -766,6 +785,10 @@ body {
 .evidence-link:hover .evidence-card-text { color: var(--accent); }
 .link-icon { font-size: 12px; color: var(--accent); margin-left: auto; opacity: 0.6; }
 .evidence-card:hover .link-icon { opacity: 1; }
+.no-source { font-size: 10px; color: var(--muted); opacity: 0.5; font-style: italic; }
+.evidence-item-footer { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.solution-link { color: inherit; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+.solution-link:hover { color: var(--accent); }
 .source-badge-sm { font-size: 10px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--bg3); border: 1px solid var(--border); font-weight: 700; }
 .unspoken-badge { font-size: 10px; background: var(--bg3); border: 1px solid var(--border); color: var(--muted); padding: 1px 6px; border-radius: 4px; }
 .ref-posts { display: flex; flex-direction: column; gap: 6px; }

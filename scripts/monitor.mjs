@@ -553,6 +553,11 @@ async function scanDomain(domainConfig, baseDir) {
   if (report.json) {
     const jsonFile = join(domainDir, 'reports', `${ts}-report.json`);
     writeJSON(jsonFile, report.json);
+
+    // Update latest-report.json (watched by web-report --serve for live dashboard)
+    const latestJsonFile = join(domainDir, 'latest-report.json');
+    writeJSON(latestJsonFile, report.json);
+    log(`[monitor] [${domainName}] latest-report.json updated`);
   }
 
   // 6. Update history
@@ -617,6 +622,49 @@ function parseInterval(str) {
   return null;
 }
 
+// ─── web-report server launcher ──────────────────────────────────────────────
+
+let _webServerChild = null;
+
+function killWebServer() {
+  if (_webServerChild) {
+    try { _webServerChild.kill(); } catch {}
+    _webServerChild = null;
+  }
+}
+
+process.on('exit', killWebServer);
+process.on('SIGINT', () => { killWebServer(); process.exit(0); });
+process.on('SIGTERM', () => { killWebServer(); process.exit(0); });
+
+/**
+ * Spawn the web-report dev server for a given report JSON path and port.
+ * Only spawns once — subsequent calls are no-ops.
+ */
+function startWebServer(reportJsonPath, port) {
+  if (_webServerChild) return; // already running
+
+  const webReportScript = resolve(__dirname, 'web-report.mjs');
+  _webServerChild = spawn(process.execPath, [
+    webReportScript,
+    '--input', reportJsonPath,
+    '--serve', String(port),
+  ], { stdio: 'inherit' });
+
+  _webServerChild.on('error', (err) => {
+    log(`[monitor] web-report server error: ${err.message}`);
+  });
+
+  _webServerChild.on('exit', (code) => {
+    if (code !== null && code !== 0) {
+      log(`[monitor] web-report server exited with code ${code}`);
+    }
+    _webServerChild = null;
+  });
+
+  log(`[monitor] Live dashboard at http://localhost:${port}`);
+}
+
 // ─── main ────────────────────────────────────────────────────────────────────
 
 export async function runMonitor(args) {
@@ -654,12 +702,33 @@ export async function runMonitor(args) {
 
   log(`[monitor] monitoring ${domains.length} domain(s): ${domains.map(d => d.name).join(', ')}`);
 
+  // Resolve serve port once (falsy = disabled)
+  const servePort = args.serve ? parseInt(args.serve, 10) : null;
+
+  // Helper: start web server after first scan if --serve was passed
+  // Uses the first domain's latest-report.json as the watched file.
+  function maybeStartWebServer() {
+    if (!servePort) return;
+    const primaryDomain = domains[0].name;
+    const reportJsonPath = join(baseDir, primaryDomain, 'latest-report.json');
+    if (existsSync(reportJsonPath)) {
+      startWebServer(reportJsonPath, servePort);
+    } else {
+      log(`[monitor] --serve: latest-report.json not found yet for "${primaryDomain}", skipping web server start`);
+    }
+  }
+
   // Single run
   if (args.once) {
     for (const domain of domains) {
       await scanDomain(domain, baseDir);
     }
+    maybeStartWebServer();
     log('\n[monitor] Done.');
+    // Keep process alive so the web server stays up (unless no serve)
+    if (servePort && _webServerChild) {
+      await new Promise(() => {}); // wait until killed
+    }
     return;
   }
 
@@ -672,11 +741,17 @@ export async function runMonitor(args) {
 
   const intervalHuman = args.interval || '6h';
   log(`[monitor] Continuous mode: scanning every ${intervalHuman}`);
+  if (servePort) log(`[monitor] --serve ${servePort}: dashboard will start after first scan`);
 
+  let firstCycle = true;
   while (true) {
     const runStart = Date.now();
     for (const domain of domains) {
       await scanDomain(domain, baseDir);
+    }
+    if (firstCycle) {
+      maybeStartWebServer();
+      firstCycle = false;
     }
     const elapsed = Date.now() - runStart;
     const wait = Math.max(0, intervalMs - elapsed);

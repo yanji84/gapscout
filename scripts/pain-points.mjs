@@ -497,7 +497,7 @@ function computePainScore(post) {
   return Math.round(score * 10) / 10;
 }
 
-function analyzeComments(comments, postPainCategories = []) {
+function analyzeComments(comments, postPainCategories = [], postUrl = '') {
   let agreementCount = 0;
   let thematicAgreementCount = 0;
   const agreements = [];
@@ -522,7 +522,7 @@ function analyzeComments(comments, postPainCategories = []) {
       // weight by comment score — a 50-upvote agreement is worth more than 1-upvote
       const upvoteWeight = Math.max(1, Math.log2((c.score || 1) + 1));
       agreementCount += upvoteWeight;
-      agreements.push({ body: excerpt(body, 150), score: c.score || 0, signals: allAgreeMatches });
+      agreements.push({ body: excerpt(body, 150), score: c.score || 0, signals: allAgreeMatches, url: postUrl });
     }
 
     // thematic agreement: comment contains same pain categories as the post
@@ -542,7 +542,7 @@ function analyzeComments(comments, postPainCategories = []) {
 
     const solutionMatches = matchSignals(body, 'solution');
     if (solutionMatches.length > 0) {
-      solutions.push({ body: excerpt(body, 200), score: c.score || 0, signals: solutionMatches });
+      solutions.push({ body: excerpt(body, 200), score: c.score || 0, signals: solutionMatches, url: postUrl });
 
       // extract tool names: look for capitalized words after solution keywords
       const TOOL_NOISE = new Set([
@@ -578,13 +578,13 @@ function analyzeComments(comments, postPainCategories = []) {
       ...matchSignals(body, 'cost'),
     ];
     if (painMatches.length > 0 && (c.score || 0) >= 2) {
-      topQuotes.push({ body: excerpt(body, 200), score: c.score || 0, signals: painMatches });
+      topQuotes.push({ body: excerpt(body, 200), score: c.score || 0, signals: painMatches, url: postUrl });
     }
 
     // willingness-to-pay signals
     const wtpMatches = matchSignals(body, 'willingness_to_pay');
     if (wtpMatches.length > 0) {
-      moneyTrail.push({ body: excerpt(body, 200), score: c.score || 0, signals: wtpMatches });
+      moneyTrail.push({ body: excerpt(body, 200), score: c.score || 0, signals: wtpMatches, url: postUrl });
     }
 
     // intensity tracking
@@ -974,14 +974,15 @@ async function cmdDeepDive(args) {
       if (matchSignals(postText, 'cost').length) postPainCategories.push('cost');
     }
 
-    const analysis = analyzeComments(comments, postPainCategories);
+    const postUrl = postMeta ? `https://www.reddit.com${postMeta.permalink || ''}` : '';
+    const analysis = analyzeComments(comments, postPainCategories, postUrl);
 
     results.push({
       post: postMeta ? {
         id: postMeta.id,
         title: postMeta.title || '',
         subreddit: postMeta.subreddit || '',
-        url: `https://www.reddit.com${postMeta.permalink || ''}`,
+        url: postUrl,
         score: postMeta.score || 0,
         num_comments: postMeta.num_comments || 0,
         painScore: computePainScore(postMeta),

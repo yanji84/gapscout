@@ -398,20 +398,20 @@ function extractUnspokenPain(posts) {
       if (body.includes('workaround') || body.includes('built my own') || body.includes('hack') ||
           body.includes('still') || body.includes('but ') || body.includes('failed') ||
           body.includes("doesn't work") || body.includes("didn't work")) {
-        hints.push(sol.body);
+        hints.push({ body: sol.body, url: sol.url || p.url || '' });
       }
     }
 
     // High-score quotes that hint at a deeper need (score >= 10 = widely agreed on)
     for (const q of (analysis.topQuotes || []).slice(0, 2)) {
-      if ((q.score || 0) >= 10) hints.push(q.body);
+      if ((q.score || 0) >= 10) hints.push({ body: q.body, url: q.url || p.url || '' });
     }
   }
 
   // Deduplicate by content prefix
   const seen = new Set();
   return hints.filter(h => {
-    const key = h.slice(0, 40);
+    const key = (h.body || h).slice(0, 40);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

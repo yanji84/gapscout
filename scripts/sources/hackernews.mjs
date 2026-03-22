@@ -525,7 +525,7 @@ async function cmdDeepDive(args) {
     };
 
     const postPainCats = getPostPainCategories(post);
-    const analysis = analyzeComments(comments, postPainCats);
+    const analysis = analyzeComments(comments, postPainCats, post.url || '');
 
     results.push({
       post: {

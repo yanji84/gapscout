@@ -149,6 +149,8 @@ Monitor command (continuous scanning with delta detection):
   pain-points monitor --config domains.json --once
   pain-points monitor --config domains.json --interval 6h
   pain-points monitor --config domains.json --domain scalper-bot --once
+  pain-points monitor --config domains.json --once --serve 8080        (scan once + serve live dashboard)
+  pain-points monitor --config domains.json --interval 6h --serve 8080 (scan every 6h + live dashboard)
 
 Examples:
   pain-points all scan --domain "project management"
