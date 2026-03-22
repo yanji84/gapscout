@@ -299,6 +299,16 @@ Options:
     process.exit(1);
   }
 
+  // Top-level `setup` command — delegate to setup.mjs
+  if (argv[0] === 'setup') {
+    const { normalizeArgs: na4 } = await import('./lib/utils.mjs');
+    const { runSetup } = await import('./setup.mjs');
+    const args4 = na4(argv.slice(1));
+    if (argv.includes('--help')) args4.help = true;
+    await runSetup(args4);
+    return;
+  }
+
   // Top-level `monitor` command — delegate to monitor.mjs
   if (argv[0] === 'monitor') {
     const { fileURLToPath } = await import('node:url');

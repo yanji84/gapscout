@@ -1,13 +1,19 @@
 /**
  * stackoverflow.mjs — Stack Overflow source for pain-point-finder
  *
- * Uses the Stack Exchange API (no API key required for basic usage, 300 req/day).
- * Searches questions tagged with domain-related tags, filters by score and answer count.
- * Frustrated developers asking for help = pain signal.
+ * Uses the Stack Exchange API to search questions tagged with domain-related tags,
+ * filters by score and answer count. Frustrated developers asking for help = pain signal.
+ *
+ * API key is optional:
+ *   - Without key: 300 requests/day (unkeyed)
+ *   - With STACKEXCHANGE_KEY: 10,000 requests/day (33x improvement)
  *
  * Usage:
  *   pain-points so scan --domain "project management"
  *   pain-points stackoverflow scan --domain "SaaS billing" --limit 100
+ *
+ *   # With API key (dramatically higher rate limits):
+ *   STACKEXCHANGE_KEY=xxx node scripts/cli.mjs so scan --domain "kubernetes"
  */
 
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
@@ -19,7 +25,20 @@ import https from 'node:https';
 // ─── constants ───────────────────────────────────────────────────────────────
 
 const SE_API_HOST = 'api.stackexchange.com';
+const SE_KEY = process.env.STACKEXCHANGE_KEY || '';
 const MIN_DELAY_MS = 1000;
+
+let _tipShown = false;
+
+if (SE_KEY) {
+  log('[stackoverflow] Keyed mode (STACKEXCHANGE_KEY detected) — 10,000 requests/day');
+} else {
+  log('[stackoverflow] Unkeyed mode — 300 requests/day. Set STACKEXCHANGE_KEY for 33x higher rate limits (free at https://stackapps.com/).');
+  if (!_tipShown) {
+    _tipShown = true;
+    process.stderr.write('[stackoverflow] tip: set STACKEXCHANGE_KEY for 33x more queries → free at stackapps.com\n');
+  }
+}
 
 // ─── rate limiter ────────────────────────────────────────────────────────────
 
@@ -97,8 +116,11 @@ async function searchQuestions(query, { page = 1, pageSize = 50, sort = 'votes' 
     page: String(page),
     pagesize: String(pageSize),
   });
-  const path = `/2.3/search/advanced?${params.toString()}`;
-  const data = await seApiGet(path);
+  let pathStr = `/2.3/search/advanced?${params.toString()}`;
+  if (SE_KEY) {
+    pathStr += `&key=${encodeURIComponent(SE_KEY)}`;
+  }
+  const data = await seApiGet(pathStr);
   return {
     items: data.items || [],
     hasMore: data.has_more || false,
@@ -263,8 +285,14 @@ scan options:
   --limit <n>           Max posts to return (default: 50)
   --max-pages <n>       Max pages per query (default: 3)
 
+API key (optional):
+  Set STACKEXCHANGE_KEY environment variable for higher rate limits.
+  - Without key:  300 requests/day
+  - With key:     10,000 requests/day
+  Get a free key at https://stackapps.com/ (no OAuth needed, just a simple app key).
+
 Examples:
   node scripts/cli.mjs so scan --domain "kubernetes" --limit 100
-  node scripts/cli.mjs stackoverflow scan --domain "react native" --limit 50
+  STACKEXCHANGE_KEY=xxx node scripts/cli.mjs so scan --domain "react native"
 `,
 };

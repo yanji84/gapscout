@@ -1,14 +1,16 @@
 /**
- * crowdfunding.mjs — Puppeteer browser source for pain-point-finder
+ * crowdfunding.mjs — Kickstarter + Indiegogo source for pain-point-finder
  *
- * Scrapes Kickstarter for funded projects and backer comments.
- * Connects to an existing Chrome instance (e.g. from puppeteer-mcp-server)
- * or accepts --ws-url / --port.
+ * Kickstarter: Puppeteer browser scraping (no public API exists).
+ * Indiegogo:   HTTP API calls (no browser needed).
+ *
+ * Use --sources to choose: kickstarter, indiegogo, or both (default: both).
  */
 
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
 import { connectBrowser, politeDelay as politeDelayBase } from '../lib/browser.mjs';
+import { httpGet, httpGetWithRetry, RateLimiter } from '../lib/http.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -21,6 +23,18 @@ async function politeDelay() {
 }
 
 const REALISTIC_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36';
+
+// ─── Indiegogo constants ──────────────────────────────────────────────────────
+
+const IGG_HOST = 'www.indiegogo.com';
+const IGG_PUBLIC_API_BASE = '/api/public/projects';
+const IGG_DISCOVER_PATH = '/private_api/discover';
+
+const iggRateLimiter = new RateLimiter({
+  minDelayMs: 1200,
+  jitterMs: 300,
+  maxPerMin: 25,
+});
 
 /**
  * Strip query parameters from a URL, keeping only the path.
@@ -53,6 +67,24 @@ function parseCount(text) {
   const m = text.replace(/,/g, '').match(/\d+/);
   return m ? parseInt(m[0], 10) : 0;
 }
+
+// ─── valid --sources values ─────────────────────────────────────────────────
+
+const VALID_SOURCES = ['kickstarter', 'indiegogo', 'both'];
+
+function parseSources(args) {
+  const raw = args.sources || 'both';
+  const val = raw.toLowerCase().trim();
+  if (!VALID_SOURCES.includes(val)) {
+    log(`[crowdfunding] invalid --sources "${raw}", using "both". Valid: ${VALID_SOURCES.join(', ')}`);
+    return 'both';
+  }
+  return val;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  KICKSTARTER (Puppeteer)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── Kickstarter search ──────────────────────────────────────────────────────
 
@@ -293,6 +325,268 @@ async function scrapeProjectComments(page, projectUrl, maxComments = 60) {
   }, maxComments);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+//  INDIEGOGO (HTTP API — no browser required)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Fetch active crowdfunding projects from Indiegogo's public API.
+ * Returns array of campaign objects.
+ */
+async function iggFetchActiveProjects() {
+  log('[crowdfunding-igg] fetching active projects via public API');
+  try {
+    await iggRateLimiter.wait();
+    const data = await httpGet(IGG_HOST, `${IGG_PUBLIC_API_BASE}/getActiveCrowdfundingProjects`, {
+      timeout: 20000,
+      headers: { 'Accept': 'application/json' },
+    });
+    return data || [];
+  } catch (err) {
+    log(`[crowdfunding-igg] active projects fetch failed: ${err.message}`);
+    return [];
+  }
+}
+
+/**
+ * Fetch a single campaign's details from Indiegogo's public API.
+ * @param {string} urlName - The project's URL slug
+ * @returns Campaign detail object or null
+ */
+async function iggFetchProjectDetails(urlName) {
+  log(`[crowdfunding-igg] fetching project: ${urlName}`);
+  try {
+    await iggRateLimiter.wait();
+    const data = await httpGet(
+      IGG_HOST,
+      `${IGG_PUBLIC_API_BASE}/getCrowdfundingProject?urlName=${encodeURIComponent(urlName)}`,
+      { timeout: 20000, headers: { 'Accept': 'application/json' } },
+    );
+    return data || null;
+  } catch (err) {
+    log(`[crowdfunding-igg] project detail fetch failed for ${urlName}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Search campaigns using the Indiegogo private discover API.
+ * This endpoint accepts POST requests and returns discoverable campaigns.
+ * Falls back gracefully if the endpoint is unavailable.
+ *
+ * @param {string} query - Search term
+ * @param {number} [page=1] - Page number
+ * @returns Array of campaign stubs from the discover response
+ */
+async function iggDiscoverCampaigns(query, page = 1) {
+  log(`[crowdfunding-igg] discover: query="${query}" page=${page}`);
+  try {
+    await iggRateLimiter.wait();
+    // The discover endpoint is POST-based. We use Node https directly
+    // since httpGet only supports GET requests.
+    const { default: https } = await import('node:https');
+    const body = JSON.stringify({
+      sort: 'trending',
+      project_type: 'campaign',
+      project_timing: 'all',
+      q: query,
+      page_num: page,
+      per_page: 24,
+    });
+
+    return await new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: IGG_HOST,
+        path: IGG_DISCOVER_PATH,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json;charset=UTF-8',
+          'Accept': 'application/json, text/plain, */*',
+          'User-Agent': REALISTIC_UA,
+          'Content-Length': Buffer.byteLength(body),
+        },
+        timeout: 20000,
+      }, (res) => {
+        let raw = '';
+        res.on('data', chunk => raw += chunk);
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            try {
+              const parsed = JSON.parse(raw);
+              resolve(parsed?.response?.discoverables || []);
+            } catch {
+              log(`[crowdfunding-igg] discover: non-JSON response`);
+              resolve([]);
+            }
+          } else {
+            log(`[crowdfunding-igg] discover: HTTP ${res.statusCode}`);
+            resolve([]);
+          }
+        });
+      });
+      req.on('timeout', () => { req.destroy(); resolve([]); });
+      req.on('error', () => resolve([]));
+      req.write(body);
+      req.end();
+    });
+  } catch (err) {
+    log(`[crowdfunding-igg] discover failed: ${err.message}`);
+    return [];
+  }
+}
+
+/**
+ * Extract the URL slug from an Indiegogo project URL or clickthrough_url.
+ * e.g. "/projects/my-cool-gadget" => "my-cool-gadget"
+ *      "https://www.indiegogo.com/projects/my-cool-gadget" => "my-cool-gadget"
+ */
+function iggExtractSlug(urlOrPath) {
+  if (!urlOrPath) return null;
+  const m = urlOrPath.match(/\/projects\/([^/?#]+)/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Normalize a discoverable item from the discover API into a project stub.
+ */
+function iggNormalizeDiscoverable(item) {
+  const slug = iggExtractSlug(item.clickthrough_url || item.url || '');
+  if (!slug) return null;
+
+  return {
+    slug,
+    name: (item.title || item.name || slug).substring(0, 120),
+    description: (item.tagline || item.blurb || item.description || '').substring(0, 300),
+    url: `https://www.indiegogo.com/projects/${slug}`,
+    backerCount: parseInt(item.contributions_count || item.backers_count || 0, 10),
+    fundingAmount: Math.round(parseFloat(item.collected_funds || item.funds_raised_amount || 0)),
+    commentCount: parseInt(item.comments_count || 0, 10),
+  };
+}
+
+/**
+ * Normalize a project from the public API active projects list.
+ */
+function iggNormalizePublicProject(item) {
+  const slug = item.projectUrlName || iggExtractSlug(item.projectHomeUrl || '');
+  if (!slug) return null;
+
+  return {
+    slug,
+    name: (item.projectName || slug).substring(0, 120),
+    description: (item.shortDescription || '').substring(0, 300),
+    url: item.projectHomeUrl || `https://www.indiegogo.com/projects/${slug}`,
+    backerCount: parseInt(item.backerCount || 0, 10),
+    fundingAmount: Math.round(parseFloat(item.fundsGathered || 0)),
+    commentCount: parseInt(item.commentCount || 0, 10),
+    campaignStartDate: item.campaignStartDate || null,
+    campaignEndDate: item.campaignEndDate || null,
+  };
+}
+
+/**
+ * Run the Indiegogo scan: discover campaigns via API, enrich with details.
+ * No browser required.
+ */
+async function scanIndiegogo(domain, limit) {
+  log(`[crowdfunding-igg] scanning domain="${domain}", limit=${limit}`);
+
+  const projectsBySlug = new Map();
+
+  // Strategy 1: search via the discover API using domain-related queries
+  const queries = buildSearchQueries(domain);
+  for (const query of queries) {
+    try {
+      const discoverables = await iggDiscoverCampaigns(query);
+      log(`[crowdfunding-igg]   discover query="${query}" => ${discoverables.length} results`);
+      for (const item of discoverables) {
+        const stub = iggNormalizeDiscoverable(item);
+        if (stub && !projectsBySlug.has(stub.slug)) {
+          projectsBySlug.set(stub.slug, stub);
+        }
+      }
+    } catch (err) {
+      log(`[crowdfunding-igg]   discover query failed: ${err.message}`);
+    }
+  }
+
+  // Strategy 2: also fetch active projects from the public API
+  // and filter by domain keyword if provided
+  try {
+    const activeProjects = await iggFetchActiveProjects();
+    const items = Array.isArray(activeProjects) ? activeProjects : [];
+    log(`[crowdfunding-igg]   active projects: ${items.length}`);
+    for (const item of items) {
+      const stub = iggNormalizePublicProject(item);
+      if (!stub) continue;
+      // If domain is set, filter by keyword match in name/description
+      if (domain) {
+        const haystack = `${stub.name} ${stub.description}`.toLowerCase();
+        const needles = domain.toLowerCase().split(/\s+/);
+        const matches = needles.some(n => haystack.includes(n));
+        if (!matches) continue;
+      }
+      if (!projectsBySlug.has(stub.slug)) {
+        projectsBySlug.set(stub.slug, stub);
+      }
+    }
+  } catch (err) {
+    log(`[crowdfunding-igg]   active projects failed: ${err.message}`);
+  }
+
+  log(`[crowdfunding-igg] ${projectsBySlug.size} unique Indiegogo projects found`);
+
+  // Enrich top candidates with full project details from the public API
+  const stubs = [...projectsBySlug.values()].slice(0, Math.min(15, projectsBySlug.size));
+  const enriched = [];
+
+  for (const stub of stubs) {
+    try {
+      const details = await iggFetchProjectDetails(stub.slug);
+      const title = details?.projectName || stub.name;
+      const description = details?.shortDescription || stub.description || '';
+      const backerCount = parseInt(details?.backerCount || stub.backerCount || 0, 10);
+      const fundingAmount = Math.round(parseFloat(details?.fundsGathered || stub.fundingAmount || 0));
+      const commentCount = parseInt(details?.commentCount || stub.commentCount || 0, 10);
+      const startDate = details?.campaignStartDate || stub.campaignStartDate || null;
+
+      // Compute created_utc from campaign start date
+      let createdUtc = 0;
+      if (startDate) {
+        const ts = new Date(startDate).getTime();
+        if (!isNaN(ts)) createdUtc = Math.floor(ts / 1000);
+      }
+
+      const post = {
+        id: `igg-${stub.slug}`,
+        title,
+        selftext: description,
+        subreddit: 'indiegogo',
+        url: stub.url,
+        score: backerCount || fundingAmount,
+        num_comments: commentCount,
+        upvote_ratio: 0,
+        flair: '',
+        created_utc: createdUtc,
+        source: 'indiegogo',
+        _backerCount: backerCount,
+        _fundingAmount: fundingAmount,
+      };
+
+      const result = enrichPost(post, domain);
+      if (result) {
+        result._backerCount = backerCount;
+        result._fundingAmount = fundingAmount;
+        enriched.push(result);
+      }
+    } catch (err) {
+      log(`[crowdfunding-igg]   enrich failed for ${stub.slug}: ${err.message}`);
+    }
+  }
+
+  return enriched;
+}
+
 // ─── build queries from domain ────────────────────────────────────────────────
 
 function buildSearchQueries(domain) {
@@ -315,132 +609,157 @@ async function cmdScan(args) {
   const domain = args.domain || '';
   const limit = args.limit || 20;
   const maxComments = args.maxComments || 60;
+  const sources = parseSources(args);
 
-  log(`[crowdfunding-scan] domain="${domain}", limit=${limit}`);
+  log(`[crowdfunding-scan] domain="${domain}", limit=${limit}, sources=${sources}`);
 
-  const browser = await connectBrowser(args);
-  const page = await browser.newPage();
-  // Set realistic UA once — avoids Cloudflare bot detection without repeated protocol calls
-  await page.setUserAgent(REALISTIC_UA);
+  const allEnriched = [];
 
-  try {
-    const queries = buildSearchQueries(domain);
-    const projectsBySlug = new Map();
+  // ─── Kickstarter path (Puppeteer browser) ───────────────────────────────
+  if (sources === 'kickstarter' || sources === 'both') {
+    log('[crowdfunding-scan] starting Kickstarter scan (Puppeteer)');
+    let browser, page;
+    try {
+      browser = await connectBrowser(args);
+      page = await browser.newPage();
+      // Set realistic UA once — avoids Cloudflare bot detection
+      await page.setUserAgent(REALISTIC_UA);
 
-    // Phase 1: collect project stubs from search pages
-    for (const query of queries) {
-      log(`[crowdfunding-scan] query="${query}"`);
-      try {
-        const results = await scrapeKickstarterSearch(page, query);
-        log(`[crowdfunding-scan]   found ${results.length} projects`);
-        for (const p of results) {
-          if (p.slug && !projectsBySlug.has(p.slug)) {
-            projectsBySlug.set(p.slug, p);
+      const queries = buildSearchQueries(domain);
+      const projectsBySlug = new Map();
+
+      // Phase 1: collect project stubs from search pages
+      for (const query of queries) {
+        log(`[crowdfunding-scan] query="${query}"`);
+        try {
+          const results = await scrapeKickstarterSearch(page, query);
+          log(`[crowdfunding-scan]   found ${results.length} projects`);
+          for (const p of results) {
+            if (p.slug && !projectsBySlug.has(p.slug)) {
+              projectsBySlug.set(p.slug, p);
+            }
           }
+        } catch (err) {
+          log(`[crowdfunding-scan]   search failed: ${err.message}`);
         }
-      } catch (err) {
-        log(`[crowdfunding-scan]   search failed: ${err.message}`);
+        await politeDelay();
       }
-      await politeDelay();
-    }
 
-    log(`[crowdfunding-scan] ${projectsBySlug.size} unique projects found`);
+      log(`[crowdfunding-scan] ${projectsBySlug.size} unique Kickstarter projects found`);
 
-    // Phase 2: enrich top candidates with project page + comments
-    // Ensure all URLs are canonical (no query params) before fetching
-    for (const [slug, stub] of projectsBySlug) {
-      stub.url = stripQuery(stub.url);
-    }
-    const stubs = [...projectsBySlug.values()].slice(0, Math.min(15, projectsBySlug.size));
-    const enriched = [];
+      // Phase 2: enrich top candidates with project page + comments
+      for (const [slug, stub] of projectsBySlug) {
+        stub.url = stripQuery(stub.url);
+      }
+      const stubs = [...projectsBySlug.values()].slice(0, Math.min(15, projectsBySlug.size));
 
-    for (const stub of stubs) {
-      log(`[crowdfunding-scan] enriching: ${stub.url}`);
-      try {
-        // Scrape project page for richer description/stats
-        const projectData = await scrapeProjectPage(page, stub.url);
-        await politeDelay();
+      for (const stub of stubs) {
+        log(`[crowdfunding-scan] enriching: ${stub.url}`);
+        try {
+          const projectData = await scrapeProjectPage(page, stub.url);
+          await politeDelay();
 
-        // Scrape comments
-        const comments = await scrapeProjectComments(page, stub.url, maxComments);
-        log(`[crowdfunding-scan]   ${comments.length} comments`);
-        await politeDelay();
+          const comments = await scrapeProjectComments(page, stub.url, maxComments);
+          log(`[crowdfunding-scan]   ${comments.length} comments`);
+          await politeDelay();
 
-        const backerCount = parseCount(projectData.backerText) || stub.backerCount;
-        const fundingAmount = parseFundingAmount(projectData.fundText) || stub.fundingAmount;
-        const commentCount = parseCount(projectData.commentCountText) || comments.length;
+          const backerCount = parseCount(projectData.backerText) || stub.backerCount;
+          const fundingAmount = parseFundingAmount(projectData.fundText) || stub.fundingAmount;
+          const commentCount = parseCount(projectData.commentCountText) || comments.length;
 
-        // Combine project description with top comments for body text
-        const description = projectData.description || stub.description || '';
-        const commentSnippet = comments
-          .slice(0, 10)
-          .map(c => c.body)
-          .join(' | ');
-        const selftext = description + (commentSnippet ? '\n\n' + commentSnippet : '');
+          const description = projectData.description || stub.description || '';
+          const commentSnippet = comments
+            .slice(0, 10)
+            .map(c => c.body)
+            .join(' | ');
+          const selftext = description + (commentSnippet ? '\n\n' + commentSnippet : '');
 
-        const post = {
-          id: stub.slug,
-          title: projectData.title || stub.name,
-          selftext,
-          subreddit: 'kickstarter',
-          url: stub.url,
-          score: backerCount || fundingAmount,
-          num_comments: commentCount,
-          upvote_ratio: 0,
-          flair: '',
-          created_utc: 0,
-          // Attach comments for deep analysis downstream
-          _comments: comments,
-          _backerCount: backerCount,
-          _fundingAmount: fundingAmount,
-        };
+          const post = {
+            id: stub.slug,
+            title: projectData.title || stub.name,
+            selftext,
+            subreddit: 'kickstarter',
+            url: stub.url,
+            score: backerCount || fundingAmount,
+            num_comments: commentCount,
+            upvote_ratio: 0,
+            flair: '',
+            created_utc: 0,
+            source: 'kickstarter',
+            _comments: comments,
+            _backerCount: backerCount,
+            _fundingAmount: fundingAmount,
+          };
 
-        const result = enrichPost(post, domain);
-        if (result) {
-          result._comments = comments;
-          result._backerCount = backerCount;
-          result._fundingAmount = fundingAmount;
-          enriched.push(result);
+          const result = enrichPost(post, domain);
+          if (result) {
+            result._comments = comments;
+            result._backerCount = backerCount;
+            result._fundingAmount = fundingAmount;
+            allEnriched.push(result);
+          }
+        } catch (err) {
+          log(`[crowdfunding-scan]   failed for ${stub.url}: ${err.message}`);
         }
-      } catch (err) {
-        log(`[crowdfunding-scan]   failed for ${stub.url}: ${err.message}`);
       }
+    } catch (err) {
+      log(`[crowdfunding-scan] Kickstarter scan failed: ${err.message}`);
+      if (sources === 'kickstarter') {
+        fail(`Kickstarter scan failed: ${err.message}`);
+        return;
+      }
+      // If "both", continue to Indiegogo
+    } finally {
+      if (page) await page.close().catch(() => {});
     }
-
-    enriched.sort((a, b) => b.painScore - a.painScore);
-    const output = enriched.slice(0, limit);
-
-    // Strip internal _fields from final output
-    const cleaned = output.map(p => {
-      const { _comments, _backerCount, _fundingAmount, ...rest } = p;
-      return {
-        ...rest,
-        backerCount: _backerCount,
-        fundingAmount: _fundingAmount,
-        topComments: (_comments || []).slice(0, 5).map(c => excerpt(c.body, 150)),
-      };
-    });
-
-    ok({
-      mode: 'crowdfunding',
-      posts: cleaned,
-      stats: {
-        queries: queries.length,
-        raw_projects: projectsBySlug.size,
-        enriched: enriched.length,
-        after_filter: cleaned.length,
-      },
-    });
-  } finally {
-    await page.close();
   }
+
+  // ─── Indiegogo path (HTTP API — no browser) ─────────────────────────────
+  if (sources === 'indiegogo' || sources === 'both') {
+    log('[crowdfunding-scan] starting Indiegogo scan (HTTP API)');
+    try {
+      const iggResults = await scanIndiegogo(domain, limit);
+      log(`[crowdfunding-scan] Indiegogo enriched: ${iggResults.length}`);
+      allEnriched.push(...iggResults);
+    } catch (err) {
+      log(`[crowdfunding-scan] Indiegogo scan failed: ${err.message}`);
+      if (sources === 'indiegogo') {
+        fail(`Indiegogo scan failed: ${err.message}`);
+        return;
+      }
+    }
+  }
+
+  // ─── merge and output ───────────────────────────────────────────────────
+  allEnriched.sort((a, b) => b.painScore - a.painScore);
+  const output = allEnriched.slice(0, limit);
+
+  const cleaned = output.map(p => {
+    const { _comments, _backerCount, _fundingAmount, ...rest } = p;
+    return {
+      ...rest,
+      backerCount: _backerCount,
+      fundingAmount: _fundingAmount,
+      topComments: (_comments || []).slice(0, 5).map(c => excerpt(c.body, 150)),
+    };
+  });
+
+  ok({
+    mode: 'crowdfunding',
+    sources: sources,
+    posts: cleaned,
+    stats: {
+      total_enriched: allEnriched.length,
+      after_filter: cleaned.length,
+    },
+  });
 }
 
 // ─── source export ────────────────────────────────────────────────────────────
 
 export default {
   name: 'crowdfunding',
-  description: 'Puppeteer browser — Kickstarter project scraping for backer pain points',
+  description: 'Kickstarter (Puppeteer) + Indiegogo (HTTP API) — crowdfunding pain point discovery',
   commands: ['scan'],
   async run(command, args) {
     switch (command) {
@@ -449,22 +768,26 @@ export default {
     }
   },
   help: `
-crowdfunding source — Kickstarter backer pain point scraping
+crowdfunding source — Kickstarter + Indiegogo pain point discovery
 
 Commands:
-  scan        Search Kickstarter for projects and scrape backer comments
+  scan        Search crowdfunding platforms for projects and backer pain signals
 
 scan options:
   --domain <str>        Domain/keyword to search (e.g. "smart home")
   --limit <n>           Max projects in output (default: 20)
-  --maxComments <n>     Max comments per project (default: 60)
+  --maxComments <n>     Max comments per Kickstarter project (default: 60)
+  --sources <str>       Which platforms to scan: kickstarter, indiegogo, or both
+                        (default: both)
 
-Connection options:
+Connection options (Kickstarter only — Indiegogo uses HTTP API):
   --ws-url <url>        Chrome WebSocket URL (auto-detected if omitted)
   --port <n>            Chrome debug port (auto-detected if omitted)
 
 Examples:
   pain-points kickstarter scan --domain "smart home"
-  pain-points kickstarter scan --domain "productivity app" --limit 10
+  pain-points kickstarter scan --domain "smart home" --sources indiegogo
+  pain-points kickstarter scan --domain "productivity app" --sources kickstarter
+  pain-points kickstarter scan --domain "3d printer" --sources both --limit 10
 `,
 };

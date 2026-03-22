@@ -37,6 +37,8 @@
     "browser-deep-dive": "node scripts/cli.mjs browser deep-dive"
   },
   "dependencies": {
+    "app-store-scraper": "^0.18.0",
+    "google-play-scraper": "^10.1.2",
     "puppeteer-core": "^23.11.1"
   }
 }

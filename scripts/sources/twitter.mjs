@@ -2,13 +2,16 @@
  * twitter.mjs — Twitter/X source for pain-point-finder
  *
  * Strategy (tried in order):
- *   1. Nitter instances — public Twitter mirrors, no login required
+ *   1. Nitter instances — dynamically discovered from status.d420.de,
+ *      with fallback to a hardcoded list of known-good instances.
+ *      Each instance is probed before use and the working one is cached.
  *   2. Browser scraping x.com — Puppeteer fallback via connectBrowser
  *
  * Exports { name: 'twitter', commands: ['scan'], run, help }
  */
 
 import https from 'node:https';
+import http from 'node:http';
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
 import { connectBrowser, politeDelay as politeDelayBase } from '../lib/browser.mjs';
@@ -18,15 +21,21 @@ import { connectBrowser, politeDelay as politeDelayBase } from '../lib/browser.m
 const PAGE_DELAY_MS = 2500;
 const JITTER_MS = 800;
 const REQUEST_TIMEOUT_MS = 15000;
+const INSTANCE_DISCOVERY_TIMEOUT_MS = 10000;
 
-// Known Nitter instances to try in order
-const NITTER_INSTANCES = [
+// Fallback Nitter instances — used only when dynamic discovery fails
+const FALLBACK_NITTER_INSTANCES = [
   'nitter.privacydev.net',
   'nitter.poast.org',
   'nitter.catsarch.com',
   'nitter.1d4.us',
   'nitter.kavin.rocks',
+  'nitter.net',
+  'nitter.unixfox.eu',
 ];
+
+// Cache the working instance for the duration of the scan
+let _cachedWorkingInstance = null;
 
 // Pain-revealing search query templates
 const PAIN_QUERY_TEMPLATES = [
@@ -42,6 +51,125 @@ const PAIN_QUERY_TEMPLATES = [
 
 async function politeDelay() {
   await politeDelayBase(PAGE_DELAY_MS, JITTER_MS);
+}
+
+// ─── Dynamic Nitter instance discovery ──────────────────────────────────────
+
+/**
+ * Fetch HTML from a URL (supports both http and https).
+ * Returns the response body as a string.
+ */
+function fetchHtml(url, timeoutMs = INSTANCE_DISCOVERY_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https') ? https : http;
+    const req = mod.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; pain-point-finder/3.0)',
+        'Accept': 'text/html,application/xhtml+xml',
+      },
+      timeout: timeoutMs,
+    }, (res) => {
+      // Follow redirects (one level)
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        fetchHtml(res.headers.location, timeoutMs).then(resolve).catch(reject);
+        return;
+      }
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) resolve(body);
+        else reject(new Error(`HTTP ${res.statusCode}`));
+      });
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    req.on('error', reject);
+  });
+}
+
+/**
+ * Discover live Nitter instances from status.d420.de.
+ * Parses the HTML page to extract instance hostnames that are marked as working.
+ * Returns an array of hostname strings.
+ */
+async function discoverNitterInstances() {
+  const aggregatorUrls = [
+    'https://status.d420.de/',
+    'https://status.d420.de/api/v1/instances',
+  ];
+
+  for (const url of aggregatorUrls) {
+    try {
+      log(`[twitter/nitter] discovering instances from ${url}`);
+      const body = await fetchHtml(url);
+
+      // Try JSON API format first
+      try {
+        const data = JSON.parse(body);
+        // API returns an object or array of instance info
+        const instances = [];
+        if (Array.isArray(data)) {
+          for (const entry of data) {
+            const host = entry.url || entry.host || entry.hostname || entry.domain;
+            if (host && (entry.healthy === true || entry.status === 'up' || entry.healthy !== false)) {
+              instances.push(host.replace(/^https?:\/\//, '').replace(/\/+$/, ''));
+            }
+          }
+        } else if (typeof data === 'object') {
+          // Object keyed by hostname
+          for (const [key, val] of Object.entries(data)) {
+            if (val && (val.healthy === true || val.status === 'up' || val.healthy !== false)) {
+              instances.push(key.replace(/^https?:\/\//, '').replace(/\/+$/, ''));
+            }
+          }
+        }
+        if (instances.length > 0) {
+          log(`[twitter/nitter] discovered ${instances.length} instances via API`);
+          return instances;
+        }
+      } catch {
+        // Not JSON — parse as HTML
+      }
+
+      // HTML parsing: look for instance URLs in the page
+      // status.d420.de typically lists instances as links with status indicators
+      const instances = [];
+
+      // Pattern: extract hostnames from links that look like Nitter instances
+      // Look for <a href="https://nitter.xxx.yyy"> patterns
+      const linkPattern = /href="(https?:\/\/[^"]*nitter[^"]*)"[^>]*>/gi;
+      let match;
+      while ((match = linkPattern.exec(body)) !== null) {
+        try {
+          const u = new URL(match[1]);
+          const hostname = u.hostname;
+          if (!instances.includes(hostname)) {
+            instances.push(hostname);
+          }
+        } catch { /* skip invalid URLs */ }
+      }
+
+      // Also look for general instance pattern: links with "up" or "online" nearby
+      // Broader pattern: any https link in an instance row
+      const rowPattern = /<tr[^>]*>[\s\S]*?href="(https?:\/\/([^"/]+))"[\s\S]*?<\/tr>/gi;
+      while ((match = rowPattern.exec(body)) !== null) {
+        const hostname = match[2];
+        // Skip the aggregator itself and common non-instance domains
+        if (hostname.includes('d420.de') || hostname.includes('github.com')) continue;
+        if (!instances.includes(hostname)) {
+          instances.push(hostname);
+        }
+      }
+
+      if (instances.length > 0) {
+        log(`[twitter/nitter] discovered ${instances.length} instances from HTML`);
+        return instances;
+      }
+    } catch (err) {
+      log(`[twitter/nitter] discovery from ${url} failed: ${err.message}`);
+    }
+  }
+
+  return [];
 }
 
 // ─── Nitter scraping ─────────────────────────────────────────────────────────
@@ -87,11 +215,40 @@ async function probeNitterInstance(hostname) {
 }
 
 async function findWorkingNitterInstance() {
-  for (const instance of NITTER_INSTANCES) {
+  // Return cached instance if available
+  if (_cachedWorkingInstance) {
+    log(`[twitter/nitter] using cached instance: ${_cachedWorkingInstance}`);
+    return _cachedWorkingInstance;
+  }
+
+  // Step 1: Try dynamic discovery
+  let instances = [];
+  try {
+    instances = await discoverNitterInstances();
+  } catch (err) {
+    log(`[twitter/nitter] dynamic discovery failed: ${err.message}`);
+  }
+
+  // Step 2: Fall back to hardcoded list if discovery returned nothing
+  if (instances.length === 0) {
+    log('[twitter/nitter] dynamic discovery returned no instances, using fallback list');
+    instances = [...FALLBACK_NITTER_INSTANCES];
+  } else {
+    // Append fallback instances that weren't discovered (as extra candidates)
+    for (const fb of FALLBACK_NITTER_INSTANCES) {
+      if (!instances.includes(fb)) {
+        instances.push(fb);
+      }
+    }
+  }
+
+  // Step 3: Probe each instance to find a working one
+  for (const instance of instances) {
     log(`[twitter/nitter] probing ${instance}...`);
     const works = await probeNitterInstance(instance);
     if (works) {
       log(`[twitter/nitter] using ${instance}`);
+      _cachedWorkingInstance = instance;
       return instance;
     }
   }
@@ -375,6 +532,7 @@ async function cmdScan(args) {
   // ── Strategy 2: Browser scraping x.com ────────────────────────────────────
   // Use browser if: Nitter not available, or user forces it, or we need more results
   const needsBrowser = !nitterHost || args.browser || postsById.size < 50;
+  let browserAvailable = false;
 
   if (needsBrowser) {
     log(`[twitter/browser] falling back to x.com browser scraping`);
@@ -383,6 +541,7 @@ async function cmdScan(args) {
 
     try {
       browser = await connectBrowser(args);
+      browserAvailable = true;
       page = await browser.newPage();
       await page.setViewport({ width: 1280, height: 900 });
 
@@ -406,6 +565,8 @@ async function cmdScan(args) {
           log(`[twitter/browser]   query failed: ${err.message}`);
         }
       }
+    } catch (err) {
+      log(`[twitter/browser] browser unavailable: ${err.message}`);
     } finally {
       if (page) await page.close().catch(() => {});
     }
@@ -413,8 +574,24 @@ async function cmdScan(args) {
     log(`[twitter/browser] collected ${postsById.size} total tweets after browser pass`);
   }
 
+  // ── Graceful failure: no tweets from any source ────────────────────────────
   if (postsById.size === 0) {
-    fail('No tweets collected. Check domain query or network access.');
+    // Instead of crashing, return a structured empty response with an error note
+    ok({
+      mode: 'none',
+      source: 'twitter',
+      posts: [],
+      stats: {
+        strategy: 'none',
+        raw_tweets: 0,
+        after_scoring: 0,
+        returned: 0,
+        error: !nitterHost && !browserAvailable
+          ? 'no working instances'
+          : 'No tweets collected. Check domain query or network access.',
+      },
+    });
+    return;
   }
 
   // ── Score and output ───────────────────────────────────────────────────────
@@ -443,7 +620,7 @@ async function cmdScan(args) {
 
 export default {
   name: 'twitter',
-  description: 'Twitter/X — scrapes tweets via Nitter instances or x.com browser',
+  description: 'Twitter/X — scrapes tweets via dynamically-discovered Nitter instances or x.com browser',
   commands: ['scan'],
   async run(command, args) {
     switch (command) {
@@ -455,8 +632,14 @@ export default {
 twitter source — Twitter/X tweet scraping for pain points
 
 Strategy (tried in order):
-  1. Nitter public instances (no login required)
+  1. Nitter public instances — dynamically discovered from status.d420.de
+     aggregator. Falls back to a hardcoded list of known-good instances if
+     the live list is unreachable. Each instance is probed with a test query
+     before use and the working one is cached for the scan duration.
   2. Browser scraping x.com via Puppeteer
+
+If all Nitter instances fail AND no browser is available, returns an empty
+result set with an error note instead of crashing.
 
 Commands:
   scan        Search Twitter for pain-revealing tweets about a domain

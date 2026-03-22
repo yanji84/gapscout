@@ -3,11 +3,17 @@
  *
  * Uses the GitHub Search API to find open issues mentioning a domain.
  * Issues with many +1 reactions = validated pain.
- * No auth required for basic search (60 requests/hour).
+ *
+ * Authentication is optional:
+ *   - Without token: 60 requests/hour (unauthenticated)
+ *   - With GITHUB_TOKEN or GH_TOKEN: 5,000 requests/hour (83x improvement)
  *
  * Usage:
  *   pain-points gh-issues scan --domain "kubernetes"
  *   pain-points github-issues scan --domain "react native" --limit 100
+ *
+ *   # With authentication (dramatically higher rate limits):
+ *   GITHUB_TOKEN=ghp_xxx node scripts/cli.mjs gh-issues scan --domain "kubernetes"
  */
 
 import https from 'node:https';
@@ -17,8 +23,22 @@ import { enrichPost } from '../lib/scoring.mjs';
 // ─── constants ───────────────────────────────────────────────────────────────
 
 const GH_API_HOST = 'api.github.com';
-const MIN_DELAY_MS = 2000; // Be conservative with GitHub's rate limits
+const GH_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
+const AUTHENTICATED = Boolean(GH_TOKEN);
+const MIN_DELAY_MS = AUTHENTICATED ? 500 : 2000; // Auth: 5,000/hr allows faster polling
 const REQUEST_TIMEOUT_MS = 15000;
+
+let _tipShown = false;
+
+if (AUTHENTICATED) {
+  log('[github-issues] Authenticated mode (GITHUB_TOKEN detected) — 5,000 requests/hour');
+} else {
+  log('[github-issues] Unauthenticated mode — 60 requests/hour. Set GITHUB_TOKEN or GH_TOKEN for 83x higher rate limits.');
+  if (!_tipShown) {
+    _tipShown = true;
+    process.stderr.write('[github-issues] tip: set GITHUB_TOKEN for 83x faster rate limits → already set if using gh CLI\n');
+  }
+}
 
 // ─── rate limiter ────────────────────────────────────────────────────────────
 
@@ -39,11 +59,16 @@ async function ghApiGet(path) {
   log(`[github-issues] GET ${path}`);
 
   return new Promise((resolve, reject) => {
+    const headers = {
+      'User-Agent': 'pain-point-finder/1.0',
+      'Accept': 'application/vnd.github.v3+json',
+    };
+    if (GH_TOKEN) {
+      headers['Authorization'] = `Bearer ${GH_TOKEN}`;
+    }
+
     const req = https.get(`https://${GH_API_HOST}${path}`, {
-      headers: {
-        'User-Agent': 'pain-point-finder/1.0',
-        'Accept': 'application/vnd.github.v3+json',
-      },
+      headers,
       timeout: REQUEST_TIMEOUT_MS,
     }, (res) => {
       const chunks = [];
@@ -251,10 +276,15 @@ scan options:
   --max-pages <n>       Max pages per query (default: 2)
 
 Issues with many +1 reactions are boosted as validated pain.
-No authentication required (60 requests/hour rate limit).
+
+Authentication (optional):
+  Set GITHUB_TOKEN or GH_TOKEN environment variable for higher rate limits.
+  - Without token:  60 requests/hour  (delay: 2000ms between requests)
+  - With token:     5,000 requests/hour (delay: 500ms between requests)
+  Generate a token at https://github.com/settings/tokens
 
 Examples:
   node scripts/cli.mjs gh-issues scan --domain "kubernetes" --limit 100
-  node scripts/cli.mjs github-issues scan --domain "react native" --limit 50
+  GITHUB_TOKEN=ghp_xxx node scripts/cli.mjs gh-issues scan --domain "react native"
 `,
 };

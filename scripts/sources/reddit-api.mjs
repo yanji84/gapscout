@@ -1,7 +1,13 @@
 /**
  * reddit-api.mjs — PullPush API source for pain-point-finder
+ *
+ * Data sources (tried in order):
+ *   1. PullPush API — historical Reddit data archive
+ *   2. Reddit OAuth API — official Reddit API (fallback, requires
+ *      REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET env vars)
  */
 
+import https from 'node:https';
 import { sleep, log, ok, fail, excerpt, unixNow, daysAgoUnix, utcToDate } from '../lib/utils.mjs';
 import {
   SCAN_QUERIES, computePainScore, analyzeComments, enrichPost,
@@ -21,6 +27,8 @@ const MAX_RETRIES_TIMEOUT = 1;
 const BACKOFF_BASE_MS = 2000;
 
 const PAGE_SIZE = 100;
+
+let _redditTipShown = false;
 
 // ─── expanded SCAN_QUERIES (30+ terms, domain-specific sets) ─────────────────
 
@@ -214,6 +222,221 @@ function normalizePost(p) {
   };
 }
 
+// ─── Reddit OAuth API fallback ───────────────────────────────────────────────
+
+/**
+ * Check if Reddit OAuth credentials are available in environment.
+ */
+function hasRedditOAuthCredentials() {
+  return !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
+}
+
+/**
+ * Get an OAuth access token from Reddit using client_credentials grant.
+ * Returns the token string or throws on failure.
+ */
+let _redditOAuthToken = null;
+let _redditOAuthExpiry = 0;
+
+async function getRedditOAuthToken() {
+  // Return cached token if still valid (with 60s buffer)
+  if (_redditOAuthToken && Date.now() < _redditOAuthExpiry - 60000) {
+    return _redditOAuthToken;
+  }
+
+  const clientId = process.env.REDDIT_CLIENT_ID;
+  const clientSecret = process.env.REDDIT_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    throw new Error('REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET are required for Reddit OAuth');
+  }
+
+  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const postData = 'grant_type=client_credentials';
+
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'www.reddit.com',
+      path: '/api/v1/access_token',
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'pain-point-finder/4.0',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+      timeout: 15000,
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          try {
+            const data = JSON.parse(body);
+            if (data.access_token) {
+              _redditOAuthToken = data.access_token;
+              _redditOAuthExpiry = Date.now() + (data.expires_in || 3600) * 1000;
+              resolve(data.access_token);
+            } else {
+              reject(new Error(`Reddit OAuth: no access_token in response`));
+            }
+          } catch {
+            reject(new Error(`Reddit OAuth: non-JSON response`));
+          }
+        } else {
+          reject(new Error(`Reddit OAuth: HTTP ${res.statusCode}`));
+        }
+      });
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('Reddit OAuth: timeout')); });
+    req.on('error', reject);
+    req.write(postData);
+    req.end();
+  });
+}
+
+/**
+ * Make an authenticated GET request to the Reddit OAuth API.
+ */
+function redditOAuthGet(path, token) {
+  return new Promise((resolve, reject) => {
+    const req = https.get({
+      hostname: 'oauth.reddit.com',
+      path,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'User-Agent': 'pain-point-finder/4.0',
+      },
+      timeout: 15000,
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          try { resolve(JSON.parse(body)); }
+          catch { reject(new Error(`Reddit API: non-JSON response`)); }
+        } else {
+          const err = new Error(`Reddit API: HTTP ${res.statusCode}`);
+          err.statusCode = res.statusCode;
+          reject(err);
+        }
+      });
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('Reddit API: timeout')); });
+    req.on('error', reject);
+  });
+}
+
+/**
+ * Search Reddit via OAuth API. Returns posts in the same format as PullPush.
+ */
+async function redditOAuthSearch(query, { subreddit, sort = 'relevance', limit = 100, after } = {}) {
+  const token = await getRedditOAuthToken();
+
+  let path;
+  if (subreddit) {
+    path = `/r/${encodeURIComponent(subreddit)}/search.json?q=${encodeURIComponent(query)}&sort=${sort}&limit=${limit}&restrict_sr=on&type=link`;
+  } else {
+    path = `/search.json?q=${encodeURIComponent(query)}&sort=${sort}&limit=${limit}&type=link`;
+  }
+
+  // Add time filter if 'after' timestamp is provided
+  if (after) {
+    const daysAgo = Math.ceil((unixNow() - after) / 86400);
+    let t;
+    if (daysAgo <= 1) t = 'day';
+    else if (daysAgo <= 7) t = 'week';
+    else if (daysAgo <= 30) t = 'month';
+    else if (daysAgo <= 365) t = 'year';
+    else t = 'all';
+    path += `&t=${t}`;
+  }
+
+  await rateLimiter.wait();
+  const data = await redditOAuthGet(path, token);
+
+  // Reddit API returns { data: { children: [{ data: post }, ...] } }
+  const children = data?.data?.children || [];
+  return children.map(child => {
+    const p = child.data;
+    return {
+      id: p.id,
+      title: p.title || '',
+      selftext: p.selftext || '',
+      subreddit: p.subreddit || '',
+      permalink: p.permalink || '',
+      score: p.score || 0,
+      num_comments: p.num_comments || 0,
+      upvote_ratio: p.upvote_ratio || 0,
+      link_flair_text: p.link_flair_text || '',
+      created_utc: p.created_utc || 0,
+    };
+  });
+}
+
+/**
+ * Paginate Reddit OAuth search results using after tokens.
+ */
+async function paginateRedditOAuth(query, { subreddit, sort = 'relevance', maxPages = 5, after } = {}) {
+  const all = [];
+  let redditAfter = null;
+
+  for (let page = 0; page < maxPages; page++) {
+    try {
+      const token = await getRedditOAuthToken();
+      let path;
+      if (subreddit) {
+        path = `/r/${encodeURIComponent(subreddit)}/search.json?q=${encodeURIComponent(query)}&sort=${sort}&limit=100&restrict_sr=on&type=link`;
+      } else {
+        path = `/search.json?q=${encodeURIComponent(query)}&sort=${sort}&limit=100&type=link`;
+      }
+
+      if (after) {
+        const daysAgo = Math.ceil((unixNow() - after) / 86400);
+        let t;
+        if (daysAgo <= 1) t = 'day';
+        else if (daysAgo <= 7) t = 'week';
+        else if (daysAgo <= 30) t = 'month';
+        else if (daysAgo <= 365) t = 'year';
+        else t = 'all';
+        path += `&t=${t}`;
+      }
+
+      if (redditAfter) path += `&after=${redditAfter}`;
+
+      await rateLimiter.wait();
+      const data = await redditOAuthGet(path, token);
+
+      const children = data?.data?.children || [];
+      if (children.length === 0) break;
+
+      for (const child of children) {
+        const p = child.data;
+        all.push({
+          id: p.id,
+          title: p.title || '',
+          selftext: p.selftext || '',
+          subreddit: p.subreddit || '',
+          permalink: p.permalink || '',
+          score: p.score || 0,
+          num_comments: p.num_comments || 0,
+          upvote_ratio: p.upvote_ratio || 0,
+          link_flair_text: p.link_flair_text || '',
+          created_utc: p.created_utc || 0,
+        });
+      }
+
+      redditAfter = data?.data?.after;
+      if (!redditAfter) break;
+    } catch (err) {
+      log(`[reddit-oauth] page ${page + 1} failed: ${err.message}`);
+      break;
+    }
+  }
+
+  return all;
+}
+
 // ─── comment search helper ──────────────────────────────────────────────────
 
 /**
@@ -401,72 +624,128 @@ async function cmdScan(args) {
 
   const postsById = new Map();
   let queriesRun = 0;
+  let pullpushFailed = false;
+  let dataSource = 'pullpush';
 
-  if (globalMode) {
-    // Global search: no subreddit filter
-    for (const { q, category } of queries) {
-      log(`[scan] global q=${q} (${category})`);
-      queriesRun++;
-      let posts;
-      try {
-        posts = await paginateSubmissions({
-          q, score: `>${minScore}`,
-          sort: 'desc', sort_type: 'num_comments', after,
-        }, maxPages);
-      } catch (err) {
-        if (err.statusCode === 403) break;
-        log(`[scan] failed: ${err.message}`); continue;
-      }
-      for (const p of posts) {
-        if (!postsById.has(p.id)) postsById.set(p.id, p);
-      }
-    }
-  } else {
-    for (const sub of subreddits) {
+  // ── Strategy 1: PullPush API ─────────────────────────────────────────────
+  try {
+    if (globalMode) {
+      // Global search: no subreddit filter
       for (const { q, category } of queries) {
-        log(`[scan] r/${sub} q=${q} (${category})`);
+        log(`[scan] global q=${q} (${category})`);
         queriesRun++;
         let posts;
         try {
           posts = await paginateSubmissions({
-            q, subreddit: sub, score: `>${minScore}`,
+            q, score: `>${minScore}`,
             sort: 'desc', sort_type: 'num_comments', after,
           }, maxPages);
         } catch (err) {
-          if (err.statusCode === 403) break;
+          if (err.statusCode === 403) { pullpushFailed = true; break; }
+          if (err.statusCode >= 500 || err.message === 'timeout') pullpushFailed = true;
           log(`[scan] failed: ${err.message}`); continue;
         }
         for (const p of posts) {
           if (!postsById.has(p.id)) postsById.set(p.id, p);
         }
       }
-
-      // Comment search mode: search comments for query terms and surface parent posts
-      if (includeComments) {
-        log(`[scan] comment-search mode for r/${sub}`);
-        const commentQueries = domain
-          ? [domain, ...Object.values(DOMAIN_SCAN_QUERIES).flat().slice(0, 10)]
-          : Object.values(DOMAIN_SCAN_QUERIES).flat().slice(0, 15);
-
-        for (const q of commentQueries) {
+    } else {
+      for (const sub of subreddits) {
+        for (const { q, category } of queries) {
+          log(`[scan] r/${sub} q=${q} (${category})`);
           queriesRun++;
-          const commentPosts = await searchCommentsByQuery({
-            q, subreddit: sub, after, minScore, maxPages: Math.min(maxPages, 5), domain,
-          });
-          for (const p of commentPosts) {
+          let posts;
+          try {
+            posts = await paginateSubmissions({
+              q, subreddit: sub, score: `>${minScore}`,
+              sort: 'desc', sort_type: 'num_comments', after,
+            }, maxPages);
+          } catch (err) {
+            if (err.statusCode === 403) { pullpushFailed = true; break; }
+            if (err.statusCode >= 500 || err.message === 'timeout') pullpushFailed = true;
+            log(`[scan] failed: ${err.message}`); continue;
+          }
+          for (const p of posts) {
             if (!postsById.has(p.id)) postsById.set(p.id, p);
-            else {
-              // Merge comment hit data onto existing post
-              const existing = postsById.get(p.id);
-              existing._commentHits = (existing._commentHits || 0) + (p._commentHits || 0);
+          }
+        }
+
+        // Comment search mode: search comments for query terms and surface parent posts
+        if (includeComments) {
+          log(`[scan] comment-search mode for r/${sub}`);
+          const commentQueries = domain
+            ? [domain, ...Object.values(DOMAIN_SCAN_QUERIES).flat().slice(0, 10)]
+            : Object.values(DOMAIN_SCAN_QUERIES).flat().slice(0, 15);
+
+          for (const q of commentQueries) {
+            queriesRun++;
+            const commentPosts = await searchCommentsByQuery({
+              q, subreddit: sub, after, minScore, maxPages: Math.min(maxPages, 5), domain,
+            });
+            for (const p of commentPosts) {
+              if (!postsById.has(p.id)) postsById.set(p.id, p);
+              else {
+                // Merge comment hit data onto existing post
+                const existing = postsById.get(p.id);
+                existing._commentHits = (existing._commentHits || 0) + (p._commentHits || 0);
+              }
             }
           }
         }
       }
     }
+  } catch (err) {
+    log(`[scan] PullPush error: ${err.message}`);
+    pullpushFailed = true;
   }
 
-  log(`[scan] ${postsById.size} unique posts`);
+  log(`[scan] PullPush: ${postsById.size} unique posts${pullpushFailed ? ' (PullPush had errors)' : ''}`);
+
+  // ── Strategy 2: Reddit OAuth API fallback ────────────────────────────────
+  // Try Reddit OAuth if PullPush failed or returned no results
+  if ((pullpushFailed || postsById.size === 0) && hasRedditOAuthCredentials()) {
+    log(`[scan] falling back to Reddit OAuth API`);
+    dataSource = postsById.size > 0 ? 'pullpush+reddit-oauth' : 'reddit-oauth';
+
+    const oauthQueries = queries.slice(0, 10); // Limit queries to stay within rate limits
+    for (const { q, category } of oauthQueries) {
+      const subs = globalMode ? [null] : subreddits;
+      for (const sub of subs) {
+        const label = sub ? `r/${sub}` : 'global';
+        log(`[scan/reddit-oauth] ${label} q=${q} (${category})`);
+        queriesRun++;
+        try {
+          const posts = await paginateRedditOAuth(q, {
+            subreddit: sub || undefined,
+            sort: 'relevance',
+            maxPages: Math.min(maxPages, 3), // conservative for OAuth
+            after,
+          });
+          for (const p of posts) {
+            if (!postsById.has(p.id)) postsById.set(p.id, p);
+          }
+          log(`[scan/reddit-oauth]   got ${posts.length} posts (${postsById.size} total)`);
+        } catch (err) {
+          log(`[scan/reddit-oauth]   failed: ${err.message}`);
+          if (err.message.includes('HTTP 401') || err.message.includes('HTTP 403')) {
+            log('[scan/reddit-oauth] auth error — check REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET');
+            break;
+          }
+        }
+      }
+    }
+    log(`[scan/reddit-oauth] total after OAuth fallback: ${postsById.size} unique posts`);
+  } else if ((pullpushFailed || postsById.size === 0) && !hasRedditOAuthCredentials()) {
+    log(`[scan] PullPush failed and no Reddit OAuth credentials found.`);
+    log(`[scan] Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET env vars to enable Reddit OAuth fallback.`);
+    log(`[scan] Get free credentials at https://www.reddit.com/prefs/apps (script type app).`);
+    if (!_redditTipShown) {
+      _redditTipShown = true;
+      process.stderr.write('[reddit-api] tip: set REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET as PullPush backup → free at reddit.com/prefs/apps\n');
+    }
+  }
+
+  log(`[scan] ${postsById.size} unique posts (source: ${dataSource})`);
 
   const scored = [];
   for (const rawPost of postsById.values()) {
@@ -491,6 +770,7 @@ async function cmdScan(args) {
       raw_posts: postsById.size,
       after_filter: Math.min(scored.length, limit),
       include_comments: includeComments,
+      data_source: dataSource,
     },
   });
 }
@@ -562,7 +842,7 @@ async function cmdDeepDive(args) {
 
 export default {
   name: 'reddit-api',
-  description: 'PullPush API — historical Reddit data, no browser needed',
+  description: 'PullPush API + Reddit OAuth fallback — historical Reddit data, no browser needed',
   commands: ['discover', 'scan', 'deep-dive'],
   async run(command, args) {
     switch (command) {
@@ -573,7 +853,21 @@ export default {
     }
   },
   help: `
-reddit-api source — PullPush API
+reddit-api source — PullPush API with Reddit OAuth fallback
+
+Data sources (tried in order):
+  1. PullPush API — historical Reddit data archive
+  2. Reddit OAuth API — official Reddit API (fallback when PullPush is down)
+
+Reddit OAuth setup (optional, enables fallback):
+  1. Go to https://www.reddit.com/prefs/apps and create a "script" app
+  2. Set environment variables:
+       export REDDIT_CLIENT_ID="your_client_id"
+       export REDDIT_CLIENT_SECRET="your_client_secret"
+  3. Free for non-commercial use (100 requests/min)
+
+Everything works without credentials — PullPush is tried first. Reddit OAuth
+is only used as a fallback when PullPush fails or returns no results.
 
 Commands:
   discover   Find relevant subreddits for a domain
