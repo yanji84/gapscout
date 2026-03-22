@@ -62,22 +62,6 @@ const TOKENS = [
     getUrl: 'https://producthunt.com/v2/oauth/applications',
     get setCmd() { return `${CLI_CMD} setup --set PRODUCTHUNT_TOKEN=<token>`; },
   },
-  {
-    keys: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'],
-    label: 'REDDIT_CLIENT_ID',
-    benefit: 'Reddit backup when PullPush is down',
-    autoDetect: false,
-    instructions: [
-      '1. Go to https://www.reddit.com/prefs/apps',
-      '2. Click "create another app..." at the bottom',
-      '3. Choose "script" as the type',
-      '4. Set redirect URI to http://localhost',
-      '5. Copy the client ID (string under app name) and secret',
-      `6. Run: ${CLI_CMD} setup --set REDDIT_CLIENT_ID=<id> --set REDDIT_CLIENT_SECRET=<secret>`,
-    ],
-    getUrl: 'https://reddit.com/prefs/apps',
-    get setCmd() { return `${CLI_CMD} setup --set REDDIT_CLIENT_ID=<id> --set REDDIT_CLIENT_SECRET=<secret>`; },
-  },
 ];
 
 // ─── rc file helpers ─────────────────────────────────────────────────────────
