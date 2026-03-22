@@ -404,7 +404,7 @@ async function cmdScan(args) {
     fail('--subreddits or --domain is required');
   }
 
-  const days = args.days || 365;
+  const days = args.days || 180; // default 6 months for fresher results
   const minScore = args.minScore || 1;
   const minComments = args.minComments || 3;
   const limit = args.limit || 30;

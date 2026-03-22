@@ -1092,6 +1092,7 @@ Options:
   --files <paths>    Comma-separated list of scan/deep-dive JSON files
   --stdin            Read a single scan JSON from stdin
   --format <md|json> Output format (default: md)
+  --max-age <days>   Drop posts older than N days (default: 180 = 6 months, 0 = no filter)
 
 The report follows Phase 4-7 of the SKILL.md workflow:
   Phase 4: Pain Depth Classification (surface / active / urgent)
@@ -1145,6 +1146,22 @@ The report follows Phase 4-7 of the SKILL.md workflow:
     }
   }
   allPosts = [...seenIds.values()];
+
+  // Recency filter: drop posts older than --max-age days (default 180 = 6 months)
+  const maxAgeDays = args.maxAge != null ? parseInt(args.maxAge, 10) : 180;
+  if (maxAgeDays > 0) {
+    const cutoff = Math.floor(Date.now() / 1000) - maxAgeDays * 86400;
+    const before = allPosts.length;
+    allPosts = allPosts.filter(p => {
+      // Keep posts without timestamps (google autocomplete, etc.) — can't filter them
+      if (!p.created_utc || p.created_utc === 0) return true;
+      return p.created_utc >= cutoff;
+    });
+    const dropped = before - allPosts.length;
+    if (dropped > 0) {
+      log(`[report] Recency filter: dropped ${dropped} posts older than ${maxAgeDays} days (kept ${allPosts.length})`);
+    }
+  }
 
   if (allPosts.length === 0) {
     process.stderr.write('[report] No posts loaded. Use --files or --stdin.\n');
