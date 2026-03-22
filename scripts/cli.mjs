@@ -304,6 +304,83 @@ Options:
     process.exit(1);
   }
 
+  // Top-level `plan` command — scan plan generator
+  if (argv[0] === 'plan') {
+    const { normalizeArgs: na5 } = await import('./lib/utils.mjs');
+    const { runPlan } = await import('./plan.mjs');
+    const args5 = na5(argv.slice(1));
+    if (argv.includes('--help')) {
+      process.stderr.write(`
+pain-points plan — Scan Plan Generator
+
+Usage:
+  pain-points plan --domain "<domain>" --depth regular|deep
+
+Options:
+  --domain <domain>     Domain/niche to scan
+  --depth <preset>      Depth preset: regular (~1000+ posts) or deep (~5000+ posts)
+  --help                Show this help
+`);
+      process.exit(0);
+    }
+    await runPlan(args5);
+    return;
+  }
+
+  // Top-level `usage` command — show daily API usage
+  if (argv[0] === 'usage') {
+    const { getUsageTracker } = await import('./lib/usage-tracker.mjs');
+    const tracker = getUsageTracker();
+
+    if (argv.includes('--reset')) {
+      tracker.reset();
+      log('Usage counters reset.');
+      process.exit(0);
+    }
+
+    if (argv.includes('--help')) {
+      process.stderr.write(`
+pain-points usage — Show daily API usage per source
+
+Usage:
+  pain-points usage            Show today's usage
+  pain-points usage --reset    Reset all counters (for testing)
+  pain-points usage --help     Show this help
+`);
+      process.exit(0);
+    }
+
+    const allUsage = tracker.getAllUsage();
+    const today = new Date().toISOString().split('T')[0];
+    let totalRequests = 0;
+
+    const lines = [];
+    lines.push(`Daily API Usage (${today})`);
+    lines.push('============================');
+
+    for (const [source, info] of Object.entries(allUsage)) {
+      totalRequests += info.requests;
+      const used = String(info.requests).padStart(6);
+      let limitStr;
+      let pctStr = '';
+      if (info.limit === Infinity) {
+        limitStr = 'unlimited';
+      } else {
+        limitStr = info.limit.toLocaleString();
+        pctStr = `  (${info.pct}%)`;
+      }
+      const authStr = info.authLabel ? `   [${info.authLabel}]` : '';
+      const padSource = (source + ':').padEnd(22);
+      lines.push(`  ${padSource}${used} / ${limitStr}${pctStr}${authStr}`);
+    }
+
+    lines.push('');
+    lines.push(`  Total requests today: ${totalRequests}`);
+
+    log(lines.join('\n'));
+    process.exit(0);
+  }
+
   // Top-level `setup` command — delegate to setup.mjs
   if (argv[0] === 'setup') {
     const { normalizeArgs: na4 } = await import('./lib/utils.mjs');
@@ -372,6 +449,14 @@ Web report command (beautiful HTML dashboard):
 LLM augmentation command (no API key needed — uses Claude Code agent):
   pain-points llm prompt --from-scan scan.json --domain "project management" --top 50
   pain-points llm apply --from-scan scan.json --analysis analysis.json
+
+Plan command (scan plan and time estimates):
+  pain-points plan --domain "pokemon tcg" --depth regular
+  pain-points plan --domain "SaaS billing" --depth deep
+
+Usage command (daily API budget tracking):
+  pain-points usage
+  pain-points usage --reset
 
 Monitor command (continuous scanning with delta detection):
   pain-points monitor --config domains.json --once

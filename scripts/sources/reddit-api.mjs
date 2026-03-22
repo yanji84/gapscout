@@ -14,6 +14,7 @@ import {
   getPostPainCategories, matchSignals,
 } from '../lib/scoring.mjs';
 import { RateLimiter, httpGet as httpGetBase, REDDIT_USER_AGENT, _rateLimitWarning } from '../lib/http.mjs';
+import { getUsageTracker } from '../lib/usage-tracker.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -119,6 +120,7 @@ async function fetchWithRetry(urlPath, params) {
   for (let attempt = 0; attempt <= MAX_RETRIES_429; attempt++) {
     try {
       await rateLimiter.wait();
+      getUsageTracker().increment('reddit-api');
       return await httpGet(urlPath, params);
     } catch (err) {
       lastErr = err;
@@ -605,6 +607,17 @@ async function cmdScan(args) {
   // --subreddits is required unless --domain is provided (coordinator mode: global domain search)
   if ((!subreddits || !subreddits.length) && !domain) {
     fail('--subreddits or --domain is required');
+  }
+
+  // Check daily usage budget
+  const _usage = getUsageTracker();
+  const _remaining = _usage.getRemaining('reddit-api');
+  if (_remaining.pct >= 80) {
+    log(`[reddit-api] WARNING: daily budget low — ${_remaining.remaining}/${_remaining.limit} requests remaining today`);
+  }
+  if (_remaining.remaining <= 0) {
+    log(`[reddit-api] ERROR: daily budget exhausted. Try again tomorrow.`);
+    return ok({ source: 'reddit-api', posts: [], stats: { error: 'daily limit reached' } });
   }
 
   const days = args.days || 180; // default 6 months for fresher results

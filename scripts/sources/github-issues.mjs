@@ -19,6 +19,7 @@
 import https from 'node:https';
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
+import { getUsageTracker } from '../lib/usage-tracker.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -59,6 +60,7 @@ async function rateLimit() {
 
 async function ghApiGet(path) {
   await rateLimit();
+  getUsageTracker().increment('github-issues');
   log(`[github-issues] GET ${path}`);
 
   return new Promise((resolve, reject) => {
@@ -208,6 +210,17 @@ async function cmdScan(args) {
   let stoppedEarly = false;
 
   log(`[github-issues] scan domain="${domain}", limit=${limit}, maxPages=${maxPages}`);
+
+  // Check daily usage budget
+  const usage = getUsageTracker();
+  const remaining = usage.getRemaining('github-issues');
+  if (remaining.pct >= 80) {
+    log(`[github-issues] WARNING: daily budget low — ${remaining.remaining}/${remaining.limit} requests remaining today`);
+  }
+  if (remaining.remaining <= 0) {
+    log(`[github-issues] ERROR: daily budget exhausted. Try again tomorrow.`);
+    return ok({ source: 'github-issues', posts: [], stats: { error: 'daily limit reached' } });
+  }
 
   const queries = buildPainQueries(domain);
   const issuesById = new Map();

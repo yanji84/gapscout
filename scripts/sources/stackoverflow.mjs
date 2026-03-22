@@ -19,6 +19,7 @@
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
 import { httpGet } from '../lib/http.mjs';
+import { getUsageTracker } from '../lib/usage-tracker.mjs';
 import zlib from 'node:zlib';
 import https from 'node:https';
 
@@ -63,6 +64,7 @@ async function rateLimit() {
  */
 async function seApiGet(path) {
   await rateLimit();
+  getUsageTracker().increment('stackoverflow');
   log(`[stackoverflow] GET ${path}`);
 
   return new Promise((resolve, reject) => {
@@ -235,6 +237,17 @@ async function cmdScan(args) {
   let stoppedEarly = false;
 
   log(`[stackoverflow] scan domain="${domain}", limit=${limit}, maxPages=${maxPages}`);
+
+  // Check daily usage budget
+  const usage = getUsageTracker();
+  const remaining = usage.getRemaining('stackoverflow');
+  if (remaining.pct >= 80) {
+    log(`[stackoverflow] WARNING: daily budget low — ${remaining.remaining}/${remaining.limit} requests remaining today`);
+  }
+  if (remaining.remaining <= 0) {
+    log(`[stackoverflow] ERROR: daily budget exhausted. Try again tomorrow.`);
+    return ok({ source: 'stackoverflow', posts: [], stats: { error: 'daily limit reached' } });
+  }
 
   const queries = buildPainQueries(domain);
   const questionsById = new Map();
