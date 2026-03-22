@@ -1,178 +1,400 @@
 /**
- * setup.mjs -- Interactive setup guide for pain-point-finder
+ * setup.mjs -- Persistent, incremental setup for pain-point-finder
  *
- * Shows which optional tokens are configured and how to set up the missing ones.
- * Does NOT prompt for input or write any files -- purely informational.
+ * Auto-detects available tokens, persists to ~/.pain-pointsrc,
+ * and shows instructions for tokens that need manual setup.
  *
  * Usage:
- *   node scripts/cli.mjs setup
- *   node scripts/cli.mjs setup --help
+ *   node scripts/cli.mjs setup              — Full setup (auto-detect + status + instructions)
+ *   node scripts/cli.mjs setup --set KEY=VALUE  — Set a token manually
+ *   node scripts/cli.mjs setup --status     — Show what's configured vs missing
+ *   node scripts/cli.mjs setup --reset      — Clear all saved tokens
+ *   node scripts/cli.mjs setup --help       — Show help
  */
+
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { homedir } from 'node:os';
+
+const RC_PATH = resolve(homedir(), '.pain-pointsrc');
 
 // ─── token definitions ──────────────────────────────────────────────────────
 
 const TOKENS = [
   {
-    envVars: ['GITHUB_TOKEN'],
-    altEnvVars: ['GH_TOKEN'],
+    keys: ['GITHUB_TOKEN'],
     label: 'GITHUB_TOKEN',
-    source: 'GitHub Issues',
-    benefit: '60 → 5,000 req/hr (83x improvement)',
-    howToSet: [
-      'Already available if you use gh CLI:',
-      '  export GITHUB_TOKEN=$(grep oauth_token ~/.config/gh/hosts.yml | head -1 | awk \'{print $2}\')',
-      '',
-      'Or: Create a fine-grained PAT at https://github.com/settings/tokens',
-    ],
+    benefit: '83x GitHub rate boost',
+    autoDetect: true,
+    instructions: null, // auto-detected only
   },
   {
-    envVars: ['STACKEXCHANGE_KEY'],
-    altEnvVars: [],
+    keys: ['STACKEXCHANGE_KEY'],
     label: 'STACKEXCHANGE_KEY',
-    source: 'Stack Overflow',
-    benefit: '300 → 10,000 req/day (33x improvement)',
-    howToSet: [
-      'Register a free app at https://stackapps.com',
-      'No OAuth needed -- just a simple app key.',
+    benefit: '10,000 req/day',
+    autoDetect: false,
+    instructions: [
+      '1. Go to https://stackapps.com/apps/oauth/register',
+      '2. Fill in app name (anything), description, website',
+      '3. Copy the "Key" (not secret)',
+      '4. Run: node scripts/cli.mjs setup --set STACKEXCHANGE_KEY=<your-key>',
     ],
+    getUrl: 'https://stackapps.com/apps/oauth/register',
+    setCmd: 'node scripts/cli.mjs setup --set STACKEXCHANGE_KEY=<your-key>',
   },
   {
-    envVars: ['PRODUCTHUNT_TOKEN'],
-    altEnvVars: [],
+    keys: ['PRODUCTHUNT_TOKEN'],
     label: 'PRODUCTHUNT_TOKEN',
-    source: 'Product Hunt',
-    benefit: 'Eliminates browser dependency (uses GraphQL API directly)',
-    howToSet: [
-      'Register at https://producthunt.com/v2/oauth/applications',
-      'Create a new application and use the Developer Token.',
+    benefit: 'eliminates browser for Product Hunt',
+    autoDetect: false,
+    instructions: [
+      '1. Go to https://www.producthunt.com/v2/oauth/applications',
+      '2. Click "Add an Application"',
+      '3. Fill in name and redirect URI (http://localhost)',
+      '4. Copy the "Developer Token" from the app page',
+      '5. Run: node scripts/cli.mjs setup --set PRODUCTHUNT_TOKEN=<your-token>',
     ],
+    getUrl: 'https://producthunt.com/v2/oauth/applications',
+    setCmd: 'node scripts/cli.mjs setup --set PRODUCTHUNT_TOKEN=<token>',
   },
   {
-    envVars: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'],
-    altEnvVars: [],
-    label: 'REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET',
-    source: 'Reddit (backup when PullPush is down)',
-    benefit: 'Fallback data source when PullPush API is unavailable',
-    howToSet: [
-      'Create a "script" app at https://reddit.com/prefs/apps',
-      '  1. Click "create another app..." at the bottom',
-      '  2. Choose "script" as the app type',
-      '  3. Set redirect URI to http://localhost',
-      '  4. Use the client ID (under the app name) and secret',
-      '',
-      '  export REDDIT_CLIENT_ID="your_client_id"',
-      '  export REDDIT_CLIENT_SECRET="your_client_secret"',
+    keys: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'],
+    label: 'REDDIT_CLIENT_ID',
+    benefit: 'Reddit backup when PullPush is down',
+    autoDetect: false,
+    instructions: [
+      '1. Go to https://www.reddit.com/prefs/apps',
+      '2. Click "create another app..." at the bottom',
+      '3. Choose "script" as the type',
+      '4. Set redirect URI to http://localhost',
+      '5. Copy the client ID (string under app name) and secret',
+      '6. Run: node scripts/cli.mjs setup --set REDDIT_CLIENT_ID=<id> --set REDDIT_CLIENT_SECRET=<secret>',
     ],
+    getUrl: 'https://reddit.com/prefs/apps',
+    setCmd: 'node scripts/cli.mjs setup --set REDDIT_CLIENT_ID=<id> --set REDDIT_CLIENT_SECRET=<secret>',
   },
   {
-    envVars: ['SEARXNG_URL'],
-    altEnvVars: [],
+    keys: ['SEARXNG_URL'],
     label: 'SEARXNG_URL',
-    source: 'Web search',
-    benefit: 'Eliminates browser dependency (uses SearXNG API)',
-    howToSet: [
-      'Run a local SearXNG instance:',
-      '  docker run -d -p 8888:8080 searxng/searxng:latest',
-      '',
-      'Then:',
-      '  export SEARXNG_URL=http://localhost:8888',
+    benefit: 'eliminates browser for web search',
+    autoDetect: true,
+    instructions: [
+      '1. Run: docker run -d -p 8888:8080 searxng/searxng:latest',
+      '2. The setup will auto-detect it on next run, or:',
+      '3. Run: node scripts/cli.mjs setup --set SEARXNG_URL=http://localhost:8888',
     ],
+    setCmd: 'node scripts/cli.mjs setup --set SEARXNG_URL=http://localhost:8888',
   },
 ];
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// ─── rc file helpers ─────────────────────────────────────────────────────────
 
-function isSet(envVars, altEnvVars) {
-  const allVars = [...envVars, ...(altEnvVars || [])];
-  // For multi-var tokens (like REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET),
-  // all primary vars must be set
-  return envVars.every(v => !!process.env[v]) ||
-         (altEnvVars && altEnvVars.length > 0 && altEnvVars.every(v => !!process.env[v]));
+function loadRc() {
+  try {
+    const raw = readFileSync(RC_PATH, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
 }
+
+function saveRc(rc) {
+  writeFileSync(RC_PATH, JSON.stringify(rc, null, 2) + '\n', 'utf8');
+}
+
+function getRcTokens(rc) {
+  return (rc && rc.tokens) || {};
+}
+
+function setRcToken(rc, key, value) {
+  if (!rc.tokens) rc.tokens = {};
+  rc.tokens[key] = value;
+}
+
+// ─── auto-detection ──────────────────────────────────────────────────────────
+
+async function autoDetectGithubToken() {
+  const ghConfigPath = resolve(homedir(), '.config', 'gh', 'hosts.yml');
+  try {
+    const raw = readFileSync(ghConfigPath, 'utf8');
+    // Simple YAML parsing — look for oauth_token line
+    const match = raw.match(/oauth_token:\s*(.+)/);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  } catch {
+    // gh CLI not configured
+  }
+  return null;
+}
+
+async function probeSearxng() {
+  try {
+    const { execSync } = (await import('node:child_process'));
+    execSync('curl -s --connect-timeout 2 http://localhost:8888/', {
+      stdio: 'pipe',
+      timeout: 5000,
+    });
+    return 'http://localhost:8888';
+  } catch {
+    return null;
+  }
+}
+
+// ─── output helpers ──────────────────────────────────────────────────────────
 
 function line(str = '') {
   process.stdout.write(str + '\n');
 }
 
-// ─── main ────────────────────────────────────────────────────────────────────
+// ─── parse --set flags from raw argv ─────────────────────────────────────────
 
-export async function runSetup(args) {
+function parseSetFlags(argv) {
+  const sets = {};
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--set' && i + 1 < argv.length) {
+      const val = argv[i + 1];
+      const eqIdx = val.indexOf('=');
+      if (eqIdx > 0) {
+        const key = val.substring(0, eqIdx);
+        const value = val.substring(eqIdx + 1);
+        sets[key] = value;
+      }
+      i++; // skip value
+    }
+  }
+  return sets;
+}
+
+// ─── commands ────────────────────────────────────────────────────────────────
+
+async function runSet(argv) {
+  const sets = parseSetFlags(argv);
+  if (Object.keys(sets).length === 0) {
+    line('Usage: node scripts/cli.mjs setup --set KEY=VALUE [--set KEY2=VALUE2]');
+    process.exit(1);
+  }
+
+  const rc = loadRc();
+  for (const [key, value] of Object.entries(sets)) {
+    setRcToken(rc, key, value);
+    line(`  Set ${key}`);
+  }
+  saveRc(rc);
+  line(`\nConfig saved to: ~/.pain-pointsrc`);
+}
+
+async function runReset() {
+  const rc = loadRc();
+  rc.tokens = {};
+  saveRc(rc);
+  line('All saved tokens cleared.');
+  line(`Config saved to: ~/.pain-pointsrc`);
+}
+
+async function runStatus() {
+  const rc = loadRc();
+  const tokens = getRcTokens(rc);
+
+  line('pain-point-finder setup');
+  line('========================');
+  line('');
+
+  for (const def of TOKENS) {
+    const allSet = def.keys.every(k => !!tokens[k] || !!process.env[k]);
+    const label = def.keys.length > 1 ? def.keys.join(' + ') : def.label;
+
+    if (allSet) {
+      line(`  [ok] ${label} -- ${def.benefit}`);
+    } else {
+      line(`  [ ] ${label} -- ${def.benefit}`);
+    }
+  }
+
+  line('');
+  line(`Config file: ~/.pain-pointsrc`);
+}
+
+async function runFull() {
+  const rc = loadRc();
+  const tokens = getRcTokens(rc);
+  let changed = false;
+
+  const autoDetected = [];
+  const alreadyConfigured = [];
+  const notConfigured = [];
+
+  // --- Auto-detect GITHUB_TOKEN ---
+  if (tokens.GITHUB_TOKEN || process.env.GITHUB_TOKEN || process.env.GH_TOKEN) {
+    alreadyConfigured.push({
+      label: 'GITHUB_TOKEN',
+      detail: '83x GitHub rate boost',
+    });
+  } else {
+    const ghToken = await autoDetectGithubToken();
+    if (ghToken) {
+      setRcToken(rc, 'GITHUB_TOKEN', ghToken);
+      changed = true;
+      autoDetected.push({
+        label: 'GITHUB_TOKEN',
+        detail: 'saved from gh CLI (83x GitHub rate boost)',
+      });
+    } else {
+      notConfigured.push({
+        label: 'GITHUB_TOKEN',
+        benefit: '83x GitHub rate boost',
+        getUrl: 'https://github.com/settings/tokens',
+        setCmd: 'node scripts/cli.mjs setup --set GITHUB_TOKEN=<token>',
+        instructions: [
+          'Install gh CLI and run `gh auth login`, or:',
+          'Create a PAT at https://github.com/settings/tokens',
+          'Then run: node scripts/cli.mjs setup --set GITHUB_TOKEN=<token>',
+        ],
+      });
+    }
+  }
+
+  // --- Auto-detect SEARXNG_URL ---
+  if (tokens.SEARXNG_URL || process.env.SEARXNG_URL) {
+    alreadyConfigured.push({
+      label: 'SEARXNG_URL',
+      detail: 'eliminates browser for web search',
+    });
+  } else {
+    const searxUrl = await probeSearxng();
+    if (searxUrl) {
+      setRcToken(rc, 'SEARXNG_URL', searxUrl);
+      changed = true;
+      autoDetected.push({
+        label: 'SEARXNG_URL',
+        detail: 'SearXNG running at ' + searxUrl,
+      });
+    } else {
+      notConfigured.push(TOKENS.find(t => t.keys[0] === 'SEARXNG_URL'));
+    }
+  }
+
+  // --- Check remaining tokens ---
+  for (const def of TOKENS) {
+    if (def.keys[0] === 'GITHUB_TOKEN' || def.keys[0] === 'SEARXNG_URL') continue;
+
+    const allSet = def.keys.every(k => !!tokens[k] || !!process.env[k]);
+    if (allSet) {
+      alreadyConfigured.push({
+        label: def.keys.length > 1 ? def.keys.join(' + ') : def.label,
+        detail: def.benefit,
+      });
+    } else {
+      notConfigured.push(def);
+    }
+  }
+
+  // Save if anything was auto-detected
+  if (changed) {
+    saveRc(rc);
+  }
+
+  // --- Print output ---
+  line('pain-point-finder setup');
+  line('========================');
+  line('');
+
+  if (autoDetected.length > 0) {
+    line('Auto-detected:');
+    for (const item of autoDetected) {
+      line(`  [ok] ${item.label} -- ${item.detail}`);
+    }
+    line('');
+  }
+
+  if (alreadyConfigured.length > 0) {
+    line('Already configured:');
+    for (const item of alreadyConfigured) {
+      line(`  [ok] ${item.label} -- ${item.detail}`);
+    }
+    line('');
+  }
+
+  if (notConfigured.length > 0) {
+    line('Not configured (optional):');
+    for (const item of notConfigured) {
+      const label = item.keys ? (item.keys.length > 1 ? item.keys.join(' + ') : item.label) : item.label;
+      line(`  [ ] ${label} -- ${item.benefit}`);
+      if (item.getUrl) {
+        line(`    -> Get one at: ${item.getUrl}`);
+      }
+      if (item.setCmd) {
+        line(`    -> Then run: ${item.setCmd}`);
+      }
+      if (item.instructions) {
+        for (const inst of item.instructions) {
+          line(`    ${inst}`);
+        }
+      }
+      line('');
+    }
+  }
+
+  if (changed) {
+    line(`Config saved to: ~/.pain-pointsrc`);
+  } else if (autoDetected.length === 0 && notConfigured.length === 0) {
+    line('All tokens are configured. You are all set!');
+  }
+}
+
+// ─── main entry point ────────────────────────────────────────────────────────
+
+export async function runSetup(args, rawArgv) {
+  // Help
   if (args && (args.help || args['--help'])) {
-    line('pain-points setup -- Show token configuration status and setup instructions');
+    line('pain-point-finder setup -- Persistent, incremental token configuration');
     line('');
     line('Usage:');
-    line('  pain-points setup');
-    line('  pain-points setup --help');
+    line('  node scripts/cli.mjs setup                  Full setup (auto-detect + status + instructions)');
+    line('  node scripts/cli.mjs setup --set KEY=VALUE   Set a token manually');
+    line('  node scripts/cli.mjs setup --status          Show what is configured vs missing');
+    line('  node scripts/cli.mjs setup --reset           Clear all saved tokens');
+    line('  node scripts/cli.mjs setup --help            Show this help');
     line('');
-    line('This command checks which optional API tokens are configured and');
-    line('shows instructions for setting up the missing ones. It does not');
-    line('prompt for input or write any files.');
+    line('Tokens are persisted to ~/.pain-pointsrc (JSON).');
+    line('On subsequent runs, already-configured tokens are skipped.');
     return;
   }
 
-  line('==========================================================');
-  line('  pain-point-finder -- Setup Guide');
-  line('==========================================================');
-  line('');
-  line('This tool discovers pain points across multiple platforms.');
-  line('All tokens below are OPTIONAL -- the tool works without any');
-  line('of them. But each token unlocks higher rate limits or removes');
-  line('the need for a browser (Chrome/Puppeteer).');
-  line('');
-  line('----------------------------------------------------------');
-
-  let configured = 0;
-  let missing = 0;
-
-  for (const token of TOKENS) {
-    const set = isSet(token.envVars, token.altEnvVars);
-    line('');
-    line(`  ${token.label}`);
-    line(`  Source: ${token.source}`);
-    line(`  Benefit: ${token.benefit}`);
-    line('');
-
-    if (set) {
-      configured++;
-      line(`  Status: ✓ already configured`);
+  // --set: parse from rawArgv to support multiple --set flags
+  if (rawArgv && rawArgv.some(a => a === '--set')) {
+    await runSet(rawArgv);
+    return;
+  }
+  if (args && args.set) {
+    // Fallback if rawArgv not passed — single --set
+    const eqIdx = String(args.set).indexOf('=');
+    if (eqIdx > 0) {
+      const rc = loadRc();
+      const key = String(args.set).substring(0, eqIdx);
+      const value = String(args.set).substring(eqIdx + 1);
+      setRcToken(rc, key, value);
+      saveRc(rc);
+      line(`  Set ${key}`);
+      line(`\nConfig saved to: ~/.pain-pointsrc`);
     } else {
-      missing++;
-      line(`  Status: not set`);
-      line('');
-      line('  How to set up:');
-      for (const h of token.howToSet) {
-        line(`    ${h}`);
-      }
+      line('Usage: node scripts/cli.mjs setup --set KEY=VALUE');
     }
-
-    line('');
-    line('----------------------------------------------------------');
+    return;
   }
 
-  line('');
-  line('==========================================================');
-  line('  Summary');
-  line('==========================================================');
-  line('');
-  line(`  Configured: ${configured}/${TOKENS.length}`);
-  line(`  Missing:    ${missing}/${TOKENS.length}`);
-  line('');
-
-  if (missing > 0) {
-    line('To persist your tokens, add the export lines to your shell');
-    line('profile so they are available in every terminal session:');
-    line('');
-    line('  # bash');
-    line('  echo \'export GITHUB_TOKEN="..."\' >> ~/.bashrc');
-    line('');
-    line('  # zsh');
-    line('  echo \'export GITHUB_TOKEN="..."\' >> ~/.zshrc');
-    line('');
-    line('Replace GITHUB_TOKEN with the relevant variable name and');
-    line('value for each token you want to persist.');
-  } else {
-    line('All optional tokens are configured. You are all set!');
+  // --reset
+  if (args && args.reset) {
+    await runReset();
+    return;
   }
 
-  line('');
+  // --status
+  if (args && args.status) {
+    await runStatus();
+    return;
+  }
+
+  // Full setup
+  await runFull();
 }

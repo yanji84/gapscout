@@ -21,6 +21,11 @@
 
 import { normalizeArgs, log } from './lib/utils.mjs';
 import { SOURCE_ALIASES } from './lib/command-registry.mjs';
+import { loadAndExportTokens } from './lib/config.mjs';
+
+// Load persisted tokens from ~/.pain-pointsrc into process.env
+// before any source module is loaded, so they pick up tokens automatically.
+loadAndExportTokens();
 
 // ─── idea sketch markdown helper ─────────────────────────────────────────────
 
@@ -305,7 +310,7 @@ Options:
     const { runSetup } = await import('./setup.mjs');
     const args4 = na4(argv.slice(1));
     if (argv.includes('--help')) args4.help = true;
-    await runSetup(args4);
+    await runSetup(args4, argv.slice(1));
     return;
   }
 

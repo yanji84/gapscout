@@ -165,3 +165,32 @@ export class ConfigManager {
     return this._merged;
   }
 }
+
+// ─── token loader ────────────────────────────────────────────────────────────
+
+/**
+ * Read tokens from ~/.pain-pointsrc and export them as environment variables.
+ * Call this early in the CLI entry point (before any source is loaded)
+ * so all sources benefit from persisted tokens via process.env.
+ *
+ * Only sets env vars that are not already set (env takes precedence).
+ */
+export function loadAndExportTokens(configPath) {
+  const rcPath = configPath || resolve(homedir(), '.pain-pointsrc');
+  let rc;
+  try {
+    const raw = readFileSync(rcPath, 'utf8');
+    rc = JSON.parse(raw);
+  } catch {
+    return; // no config file or invalid JSON — nothing to do
+  }
+
+  const tokens = rc && rc.tokens;
+  if (!tokens || typeof tokens !== 'object') return;
+
+  for (const [key, value] of Object.entries(tokens)) {
+    if (value && !process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
