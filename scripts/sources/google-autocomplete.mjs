@@ -17,7 +17,7 @@
 import https from 'node:https';
 import { sleep, log, ok, fail } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
-import { connectBrowser as connectBrowserBase, politeDelay as politeDelayBase } from '../lib/browser.mjs';
+import { connectBrowser as connectBrowserBase, politeDelay as politeDelayBase, detectBlockInPage, createBlockTracker } from '../lib/browser.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -181,19 +181,16 @@ async function expandQuery(query, queryPattern, depth, maxDepth, seenQueries, la
 
 // ─── browser autocomplete scraping ──────────────────────────────────────────
 
-async function scrapeAutocomplete(page, query) {
+async function scrapeAutocomplete(page, query, blockTracker) {
   try {
     await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await sleep(800);
+    await sleep(600 + Math.floor(Math.random() * 400));
 
-    // Check for CAPTCHA
-    const isCaptcha = await page.evaluate(() => {
-      return document.title.toLowerCase().includes('sorry') ||
-        !!document.querySelector('#captcha-form') ||
-        !!document.querySelector('form[action*="sorry"]');
-    });
-    if (isCaptcha) {
-      log(`[google-autocomplete] CAPTCHA detected, falling back to API for: ${query}`);
+    // Check for block/CAPTCHA using shared detector
+    const blockResult = await detectBlockInPage(page);
+    if (blockResult.blocked) {
+      log(`[google-autocomplete] ${blockResult.reason} detected, falling back to API for: ${query}`);
+      if (blockTracker) blockTracker.recordBlock(blockResult.reason);
       return await fetchAutocompleteAPI(query);
     }
 
@@ -240,22 +237,20 @@ async function scrapeAutocomplete(page, query) {
 
 // ─── People Also Ask scraping ────────────────────────────────────────────────
 
-async function scrapePeopleAlsoAsk(page, query) {
+async function scrapePeopleAlsoAsk(page, query, blockTracker) {
   try {
     const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
-    await sleep(1500);
+    await sleep(1200 + Math.floor(Math.random() * 600));
 
-    // Check for CAPTCHA
-    const isCaptcha = await page.evaluate(() => {
-      return document.title.toLowerCase().includes('sorry') ||
-        !!document.querySelector('#captcha-form') ||
-        !!document.querySelector('form[action*="sorry"]');
-    });
-    if (isCaptcha) {
-      log(`[google-autocomplete] CAPTCHA on SERP for: ${query}`);
+    // Check for block/CAPTCHA using shared detector
+    const blockResult = await detectBlockInPage(page);
+    if (blockResult.blocked) {
+      log(`[google-autocomplete] ${blockResult.reason} on SERP for: ${query}`);
+      if (blockTracker) blockTracker.recordBlock(blockResult.reason);
       return { paa: [], related: [] };
     }
+    if (blockTracker) blockTracker.recordSuccess();
 
     return await page.evaluate(() => {
       // ── People Also Ask ──
@@ -345,7 +340,7 @@ function makePost({ text, source, position, queryPattern }) {
 
 // ─── shared scoring/output helper ────────────────────────────────────────────
 
-function scoreAndOutput({ rawPosts, domain, limit, queryPatterns }) {
+function scoreAndOutput({ rawPosts, domain, limit, queryPatterns, blockStats }) {
   log(`[google-autocomplete] ${rawPosts.length} raw items, scoring...`);
   const scored = [];
   for (const post of rawPosts) {
@@ -360,6 +355,8 @@ function scoreAndOutput({ rawPosts, domain, limit, queryPatterns }) {
       query_patterns: queryPatterns.length,
       raw_items: rawPosts.length,
       after_filter: Math.min(scored.length, limit),
+      blocked: blockStats?.blocked || 0,
+      rateLimitWarnings: blockStats?.rateLimitWarnings || 0,
     },
   });
 }
@@ -441,16 +438,24 @@ async function cmdScan(args) {
   const rawPosts = [];
   const seenIds = new Set();
   const seenQueries = new Set();
+  const blockTracker = createBlockTracker('google-autocomplete');
 
   // Browser fetch wrapper for recursive expansion
   const browserFetch = async (query, lang) => {
-    const results = await scrapeAutocomplete(page, query);
+    if (blockTracker.shouldStop) return [];
+    const results = await scrapeAutocomplete(page, query, blockTracker);
+    if (results.length > 0) blockTracker.recordSuccess();
     await politeDelay();
     return results;
   };
 
   try {
     for (const pattern of queryPatterns) {
+      if (blockTracker.shouldStop) {
+        log(`[google-autocomplete] stopping early due to repeated blocks`);
+        break;
+      }
+
       // Autocomplete suggestions with recursive expansion
       log(`[google-autocomplete] autocomplete (depth=${depth}): "${pattern}"`);
       try {
@@ -470,12 +475,13 @@ async function cmdScan(args) {
         log(`[google-autocomplete] autocomplete failed for "${pattern}": ${err.message}`);
       }
 
+      if (blockTracker.shouldStop) break;
       await politeDelay();
 
       // People Also Ask + Related Searches from the SERP
       log(`[google-autocomplete] SERP (PAA + related): "${pattern}"`);
       try {
-        const { paa, related } = await scrapePeopleAlsoAsk(page, pattern);
+        const { paa, related } = await scrapePeopleAlsoAsk(page, pattern, blockTracker);
         log(`[google-autocomplete]   ${paa.length} PAA, ${related.length} related`);
         for (let i = 0; i < paa.length; i++) {
           const text = paa[i];
@@ -502,7 +508,7 @@ async function cmdScan(args) {
       await politeDelay();
     }
 
-    scoreAndOutput({ rawPosts, domain, limit, queryPatterns });
+    scoreAndOutput({ rawPosts, domain, limit, queryPatterns, blockStats: blockTracker.stats });
   } finally {
     try { await page.close(); } catch { /* ignore if already closed */ }
   }

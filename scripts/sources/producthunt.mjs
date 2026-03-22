@@ -11,6 +11,7 @@
 import https from 'node:https';
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import { RateLimiter } from '../lib/http.mjs';
+import { createBlockTracker } from '../lib/browser.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
@@ -562,23 +563,15 @@ async function navigateAndWait(page, url, waitMs = 2500) {
     log(`[ph-browser] navigation error: ${err.message}`);
     return false;
   }
-  await sleep(waitMs);
-  const blocked = await page.evaluate(() => {
-    const title = document.title.toLowerCase();
-    const body = document.body.textContent.toLowerCase();
-    return title.includes('just a moment') ||
-      title.includes('checking your browser') ||
-      body.includes('cf-browser-verification') ||
-      document.querySelector('iframe[src*="recaptcha"]') !== null;
-  });
-  if (blocked) {
-    log(`[ph-browser] Cloudflare challenge detected — waiting 8s...`);
+  await sleep(waitMs + Math.floor(Math.random() * 500));
+  const { detectBlockInPage } = await import('../lib/browser.mjs');
+  const blockResult = await detectBlockInPage(page);
+  if (blockResult.blocked) {
+    log(`[ph-browser] block detected (${blockResult.reason}) — waiting 8s...`);
     await sleep(8000);
-    const stillBlocked = await page.evaluate(() => {
-      return document.title.toLowerCase().includes('just a moment');
-    });
-    if (stillBlocked) {
-      log(`[ph-browser] still blocked by Cloudflare`);
+    const blockResult2 = await detectBlockInPage(page);
+    if (blockResult2.blocked) {
+      log(`[ph-browser] still blocked by ${blockResult2.reason}`);
       return false;
     }
   }
@@ -852,6 +845,7 @@ async function cmdScanBrowser(args) {
 
   const browser = await connectBrowser(args);
   const page = await preparePage(browser);
+  const blockTracker = createBlockTracker('producthunt');
 
   try {
     const productsBySlug = new Map();
@@ -898,7 +892,7 @@ async function cmdScanBrowser(args) {
     const scored = [];
     let count = 0;
     for (const product of productsBySlug.values()) {
-      if (count >= limit + 5) break;
+      if (count >= limit + 5 || blockTracker.shouldStop) break;
       try {
         const data = await scrapeProductPage(page, product.slug, maxComments);
         if (!data.upvotes && product.upvotes) data.upvotes = product.upvotes;
@@ -929,6 +923,8 @@ async function cmdScanBrowser(args) {
         products_found: productsBySlug.size,
         products_scraped: count,
         after_filter: Math.min(scored.length, limit),
+        blocked: blockTracker.stats.blocked,
+        rateLimitWarnings: blockTracker.stats.rateLimitWarnings,
       },
     });
   } finally {

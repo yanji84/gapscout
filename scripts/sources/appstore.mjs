@@ -380,7 +380,7 @@ async function cmdScan(args) {
     ok({
       mode: 'appstore',
       posts: [],
-      stats: { domain, apps_found: 0, reviews_scraped: 0, after_filter: 0 },
+      stats: { domain, apps_found: 0, reviews_scraped: 0, after_filter: 0, blocked: 0, rateLimitWarnings: 0 },
     });
     return;
   }
@@ -439,6 +439,8 @@ async function cmdScan(args) {
       apps_found: apps.length,
       reviews_scraped: postsRaw.length,
       after_filter: Math.min(scored.length, limit),
+      blocked: 0,
+      rateLimitWarnings: 0,
     },
   });
 }

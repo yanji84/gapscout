@@ -15,6 +15,7 @@
  *   cat scan.json | pain-points report --stdin
  */
 
+import { readFileSync } from 'node:fs';
 import { log, normalizeArgs } from './lib/utils.mjs';
 import { mergeScanFiles } from './lib/report/aggregator.mjs';
 import {
@@ -122,6 +123,32 @@ function synthesize(groups, allPosts) {
   return reportGroups;
 }
 
+// ─── rate monitor data extraction from scan files ────────────────────────────
+
+/**
+ * Extract and merge rateMonitorSummary data from scan JSON files.
+ * Each scan file may contain a top-level `rateMonitorSummary` field
+ * written by sources that use RateMonitor.
+ */
+function extractRateMonitorSummaries(filePaths) {
+  const merged = { warnings: [], blocks: [], errors: [] };
+  for (const f of filePaths) {
+    try {
+      const raw = JSON.parse(readFileSync(f, 'utf8'));
+      const summary = raw?.rateMonitorSummary || raw?.data?.rateMonitorSummary;
+      if (summary) {
+        if (Array.isArray(summary.warnings)) merged.warnings.push(...summary.warnings);
+        if (Array.isArray(summary.blocks)) merged.blocks.push(...summary.blocks);
+        if (Array.isArray(summary.errors)) merged.errors.push(...summary.errors);
+      }
+    } catch {
+      // skip files that can't be read
+    }
+  }
+  const total = merged.warnings.length + merged.blocks.length + merged.errors.length;
+  return total > 0 ? merged : null;
+}
+
 // ─── main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -178,10 +205,14 @@ The report follows Phase 4-7 of the SKILL.md workflow:
   const groups = groupBySubcategory(allPosts);
   const synthesized = synthesize(groups, allPosts);
 
+  // Extract rate monitor data from scan files (if any sources reported issues)
+  const rateMonitorSummary = extractRateMonitorSummaries(filePaths);
+
   const meta = {
     sources: [...loadedSources],
     totalPosts: allPosts.length,
     categoriesFound: synthesized.length,
+    ...(rateMonitorSummary ? { rateMonitorSummary } : {}),
   };
 
   const output = format === 'json'

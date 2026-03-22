@@ -188,6 +188,59 @@ export function formatIdeaSketch(sketch, lines) {
   lines.push('');
 }
 
+// ─── data collection warnings section ────────────────────────────────────────
+
+/**
+ * Render a "Data Collection Warnings" section if any sources had rate limit issues.
+ * @param {object} rateMonitorSummary - Output of RateMonitor.getSummary()
+ * @param {Array} lines - Lines array to push to
+ */
+export function renderDataCollectionWarnings(rateMonitorSummary, lines) {
+  if (!rateMonitorSummary) return;
+
+  const { warnings, blocks, errors } = rateMonitorSummary;
+  const totalIssues = warnings.length + blocks.length + errors.length;
+  if (totalIssues === 0) return;
+
+  lines.push('## Data Collection Warnings');
+  lines.push('');
+  lines.push('Some data sources encountered rate limiting or blocking during collection. Results from affected sources may be partial.');
+  lines.push('');
+
+  // Build per-source breakdown
+  const sourceMap = new Map();
+  const bump = (source, field, entry) => {
+    if (!sourceMap.has(source)) sourceMap.set(source, { warnings: [], blocks: [], errors: [] });
+    sourceMap.get(source)[field].push(entry);
+  };
+  for (const w of warnings) bump(w.source, 'warnings', w);
+  for (const b of blocks) bump(b.source, 'blocks', b);
+  for (const e of errors) bump(e.source, 'errors', e);
+
+  lines.push('| Source | Status | Details |');
+  lines.push('|--------|--------|---------|');
+
+  for (const [source, counts] of sourceMap) {
+    const parts = [];
+    if (counts.blocks.length > 0) parts.push(`${counts.blocks.length} block(s)`);
+    if (counts.errors.length > 0) parts.push(`${counts.errors.length} error(s)`);
+    if (counts.warnings.length > 0) parts.push(`${counts.warnings.length} warning(s)`);
+    const status = counts.blocks.length > 0 ? 'Partial results' : 'Completed with warnings';
+
+    // Pick most recent/relevant message for details
+    const allEntries = [...counts.blocks, ...counts.errors, ...counts.warnings];
+    const detail = allEntries[0]?.message || 'Rate limit issue encountered';
+
+    lines.push(`| **${source}** | ${status} | ${parts.join(', ')} — ${detail} |`);
+  }
+
+  lines.push('');
+  lines.push('> **Note:** Sources automatically stop and return partial results when rate-limited or blocked. No manual intervention needed.');
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+}
+
 // ─── full markdown renderer ─────────────────────────────────────────────────
 
 export function renderMarkdown(groups, meta) {
@@ -201,6 +254,12 @@ export function renderMarkdown(groups, meta) {
   lines.push(`**Total posts analyzed:** ${meta.totalPosts}  `);
   lines.push(`**Pain categories found:** ${groups.length}`);
   lines.push('');
+
+  // Data collection warnings (if any sources had rate limit issues)
+  if (meta.rateMonitorSummary) {
+    renderDataCollectionWarnings(meta.rateMonitorSummary, lines);
+  }
+
   lines.push('---');
   lines.push('');
 
@@ -464,13 +523,17 @@ export function renderMarkdown(groups, meta) {
 
 export function renderJson(groups, meta) {
   const ideaSketches = generateIdeaSketches(groups);
-  return JSON.stringify({
-    ok: true,
-    data: {
-      generated: new Date().toISOString(),
-      meta,
-      groups,
-      ideaSketches,
-    },
-  }, null, 2);
+  const data = {
+    generated: new Date().toISOString(),
+    meta,
+    groups,
+    ideaSketches,
+  };
+
+  // Include rate monitor summary if present
+  if (meta.rateMonitorSummary) {
+    data.dataCollectionWarnings = meta.rateMonitorSummary;
+  }
+
+  return JSON.stringify({ ok: true, data }, null, 2);
 }

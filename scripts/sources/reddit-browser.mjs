@@ -12,23 +12,88 @@ import {
   matchSignals, getPostPainCategories,
 } from '../lib/scoring.mjs';
 import { connectBrowser, politeDelay } from '../lib/browser.mjs';
+import { REDDIT_USER_AGENT } from '../lib/http.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
 const OLD_REDDIT = 'https://old.reddit.com';
-const PAGE_DELAY_MS = 1000;
-const JITTER_MS = 300;
+const PAGE_DELAY_MS = 1500;   // increased from 1000 to be more polite
+const JITTER_MS = 500;        // increased from 300 for more natural spacing
 const MAX_PAGES_PER_RUN = 200;
+const BACKOFF_BASE_MS = 3000;
+const MAX_RETRIES_PER_PAGE = 3;
+
+/** Track rate limit state across the browser session */
+let _rateLimitWarning = false;
+let _consecutiveErrors = 0;
+let _totalRequests = 0;
+let _blockedDetected = false;
+
+function emitBrowserRateLimitWarning(message) {
+  _rateLimitWarning = true;
+  process.stderr.write(`\n⚠ RATE LIMIT WARNING [browser]: ${message}\n\n`);
+}
 
 async function politeDelayLocal() {
-  await politeDelay(PAGE_DELAY_MS, JITTER_MS);
+  // Increase delay if we're seeing errors (adaptive backoff)
+  const multiplier = _consecutiveErrors > 0 ? Math.pow(2, Math.min(_consecutiveErrors, 4)) : 1;
+  const effectiveDelay = PAGE_DELAY_MS * multiplier;
+  if (multiplier > 1) {
+    log(`[browser-scan] adaptive backoff: ${effectiveDelay}ms delay (${_consecutiveErrors} consecutive errors)`);
+  }
+  await politeDelay(effectiveDelay, JITTER_MS);
+}
+
+/**
+ * Check if a page shows a Reddit rate-limit, ban, or block page.
+ * Returns { blocked: boolean, reason: string }
+ */
+async function checkForBlock(page) {
+  try {
+    const result = await page.evaluate(() => {
+      const body = document.body ? document.body.textContent : '';
+      const title = document.title || '';
+      // Reddit rate limit / "too many requests" page
+      if (title.includes('Too Many Requests') || body.includes('you are doing that too much')
+          || body.includes('try again in') || document.querySelector('.error-page')) {
+        return { blocked: true, reason: 'rate-limited (too many requests)' };
+      }
+      // Reddit ban / forbidden page
+      if (title.includes('Forbidden') || title.includes('403')
+          || body.includes('you are not allowed') || body.includes('banned')) {
+        return { blocked: true, reason: 'forbidden/banned (403)' };
+      }
+      // Cloudflare challenge
+      if (title.includes('Just a moment') || body.includes('Checking your browser')) {
+        return { blocked: true, reason: 'Cloudflare challenge — detected as bot' };
+      }
+      // CAPTCHA
+      if (body.includes('captcha') || body.includes('CAPTCHA') || document.querySelector('#captcha')) {
+        return { blocked: true, reason: 'CAPTCHA challenge — detected as bot' };
+      }
+      return { blocked: false, reason: '' };
+    });
+    return result;
+  } catch {
+    return { blocked: false, reason: '' };
+  }
 }
 
 // ─── scraping functions ─────────────────────────────────────────────────────
 
 async function scrapeSearchResults(page, url) {
+  _totalRequests++;
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await sleep(1000);
+
+  // Check for rate limit / ban pages
+  const blockCheck = await checkForBlock(page);
+  if (blockCheck.blocked) {
+    emitBrowserRateLimitWarning(blockCheck.reason);
+    _blockedDetected = true;
+    throw new Error(`Blocked: ${blockCheck.reason}`);
+  }
+  _consecutiveErrors = 0; // reset on success
 
   return await page.evaluate(() => {
     // Parse relative time string (e.g. "3 hours ago", "2 days ago") to approximate unix timestamp
@@ -111,6 +176,7 @@ async function scrapeSearchResultsAllPages(page, startUrl, maxPages, postsById, 
         }
       }
       totalNewPosts += newCount;
+      _consecutiveErrors = 0;
       log(`[browser-scan]   ${posts.length} posts on page (${newCount} new, ${postsById.size} total unique)`);
 
       if (posts.length === 0) break; // empty page, stop paginating
@@ -124,7 +190,26 @@ async function scrapeSearchResultsAllPages(page, startUrl, maxPages, postsById, 
         await politeDelayLocal();
       }
     } catch (err) {
+      _consecutiveErrors++;
       log(`[browser-scan]   failed: ${err.message}`);
+
+      // If blocked/banned, stop immediately and return partial results
+      if (_blockedDetected || err.message.includes('Blocked:')) {
+        log(`[browser-scan]   blocked detected — returning partial results (${postsById.size} posts so far)`);
+        break;
+      }
+
+      // Exponential backoff on errors before retrying next page
+      if (_consecutiveErrors <= MAX_RETRIES_PER_PAGE) {
+        const backoff = BACKOFF_BASE_MS * Math.pow(2, _consecutiveErrors - 1);
+        log(`[browser-scan]   backing off ${backoff}ms before next attempt`);
+        await sleep(backoff);
+        // Retry the same URL
+        continue;
+      }
+
+      // Too many consecutive errors, stop pagination
+      log(`[browser-scan]   ${_consecutiveErrors} consecutive errors — stopping pagination`);
       break;
     }
   }
@@ -137,8 +222,17 @@ async function scrapePostPage(page, postUrl, maxComments = 200) {
   if (!url.includes('old.reddit.com')) url = url.replace('reddit.com', 'old.reddit.com');
   url = url.replace(/\?.*$/, '') + '?limit=500';
 
+  _totalRequests++;
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await sleep(1500);
+
+  // Check for rate limit / ban pages
+  const blockCheck = await checkForBlock(page);
+  if (blockCheck.blocked) {
+    emitBrowserRateLimitWarning(blockCheck.reason);
+    _blockedDetected = true;
+    throw new Error(`Blocked: ${blockCheck.reason}`);
+  }
 
   return await page.evaluate((maxC) => {
     var postBody = '';
@@ -180,9 +274,16 @@ async function scrapePostPage(page, postUrl, maxComments = 200) {
  */
 async function runWorker(browser, workItems, maxPages, postsById, globalMode, timeFilter, domain) {
   const page = await browser.newPage();
+  // Set a proper User-Agent — Reddit blocks default Puppeteer UA
+  await page.setUserAgent(REDDIT_USER_AGENT);
   let pagesLoaded = 0;
   try {
     for (const item of workItems) {
+      // Stop immediately if a block was detected in any worker
+      if (_blockedDetected) {
+        log(`[browser-scan] worker stopping — block detected`);
+        break;
+      }
       const { sub, sortMode, query } = item;
       const encodedQuery = encodeURIComponent(query);
       let startUrl;
@@ -305,6 +406,16 @@ async function cmdScan(args) {
     }
 
     scored.sort((a, b) => b.painScore - a.painScore);
+
+    const warnings = [];
+    if (_blockedDetected) warnings.push('Reddit blocked requests — results are partial (detected rate limit or ban page)');
+    if (_rateLimitWarning) warnings.push('Rate limit warnings occurred during this scan');
+    if (_consecutiveErrors > 0) warnings.push(`Scan ended with ${_consecutiveErrors} consecutive errors`);
+
+    if (warnings.length > 0) {
+      process.stderr.write(`\n⚠ SCAN COMPLETED WITH WARNINGS:\n${warnings.map(w => `  - ${w}`).join('\n')}\n\n`);
+    }
+
     ok({
       mode: globalMode ? 'browser-global' : 'browser',
       posts: scored.slice(0, limit),
@@ -316,7 +427,9 @@ async function cmdScan(args) {
         after_filter: Math.min(scored.length, limit),
         max_pages_per_query: maxPages,
         parallel_tabs: parallelTabs,
+        total_requests: _totalRequests,
       },
+      ...(warnings.length > 0 ? { warnings } : {}),
     });
   } finally {
     await browser.disconnect();
@@ -359,10 +472,16 @@ async function cmdDeepDive(args) {
 
   const browser = await connectBrowser(args);
   const page = await browser.newPage();
+  await page.setUserAgent(REDDIT_USER_AGENT);
 
   try {
     const results = [];
     for (const postUrl of postUrls) {
+      // Stop if blocked
+      if (_blockedDetected) {
+        log(`[browser-deep-dive] blocked — stopping with ${results.length} results so far`);
+        break;
+      }
       log(`[browser-deep-dive] scraping ${postUrl}`);
       try {
         const data = await scrapePostPage(page, postUrl, maxComments);
@@ -395,7 +514,18 @@ async function cmdDeepDive(args) {
       await politeDelayLocal();
     }
 
-    ok({ mode: 'browser', results, pages_loaded: postUrls.length });
+    const warnings = [];
+    if (_blockedDetected) warnings.push('Reddit blocked requests — results may be incomplete');
+    if (_rateLimitWarning) warnings.push('Rate limit warnings occurred during this scan');
+
+    if (warnings.length > 0) {
+      process.stderr.write(`\n⚠ DEEP-DIVE COMPLETED WITH WARNINGS:\n${warnings.map(w => `  - ${w}`).join('\n')}\n\n`);
+    }
+
+    ok({
+      mode: 'browser', results, pages_loaded: postUrls.length,
+      ...(warnings.length > 0 ? { warnings } : {}),
+    });
   } finally {
     await page.close();
   }

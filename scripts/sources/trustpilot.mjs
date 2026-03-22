@@ -16,6 +16,7 @@ import https from 'node:https';
 import { sleep, log, ok, fail } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
 import { RateLimiter } from '../lib/http.mjs';
+import { createBlockTracker } from '../lib/browser.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -567,23 +568,26 @@ async function scrapePageBrowser(page, url, companySlug) {
  * Scrape all low-star reviews for a single company via HTTP.
  * Falls back to Puppeteer per-page if HTTP fails (unless apiOnly).
  */
-async function scrapeCompanyHttp(companySlug, maxPages, targetLimit, { apiOnly, browserFallbackFn }) {
+async function scrapeCompanyHttp(companySlug, maxPages, targetLimit, { apiOnly, browserFallbackFn, blockTracker }) {
   const allReviews = [];
   const seenIds = new Set();
   let httpFailedConsecutive = 0;
 
   for (const stars of [1, 2, 3]) {
     if (allReviews.length >= targetLimit) break;
+    if (blockTracker && blockTracker.shouldStop) break;
 
     log(`[trustpilot] HTTP scraping ${companySlug} — ${stars}-star reviews`);
     httpFailedConsecutive = 0;
 
     for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
       if (allReviews.length >= targetLimit) break;
+      if (blockTracker && blockTracker.shouldStop) break;
 
       const { reviews, hasNext, blocked, httpFailed } = await scrapePageHttp(companySlug, stars, pageNum);
 
       if (blocked) {
+        if (blockTracker) blockTracker.recordBlock('http-blocked');
         if (apiOnly) {
           log(`[trustpilot]   blocked and --api-only set, stopping star tier`);
           break;
@@ -612,6 +616,7 @@ async function scrapeCompanyHttp(companySlug, maxPages, targetLimit, { apiOnly, 
       }
 
       httpFailedConsecutive = 0;
+      if (blockTracker) blockTracker.recordSuccess();
       let newCount = 0;
       for (const r of reviews) {
         if (!seenIds.has(r.id)) {
@@ -797,6 +802,7 @@ async function cmdScan(args) {
   log(`[trustpilot] domain="${domain}", companies=${companySlugs.join(',')}, limit=${limit}, mode=${browserOnly ? 'browser-only' : apiOnly ? 'api-only' : 'http+fallback'}`);
 
   const rawReviews = [];
+  const blockTracker = createBlockTracker('trustpilot');
 
   if (browserOnly) {
     // ── Browser-only mode (legacy) ────────────────────────────────────────
@@ -816,7 +822,7 @@ async function cmdScan(args) {
 
     try {
       for (const slug of companySlugs) {
-        if (rawReviews.length >= limit * 3) break;
+        if (rawReviews.length >= limit * 3 || blockTracker.shouldStop) break;
         log(`[trustpilot] === company: ${slug} ===`);
         const perCompanyLimit = Math.ceil(limit / companySlugs.length) * 3;
         const reviews = await scrapeCompanyBrowser(page, slug, maxPages, perCompanyLimit);
@@ -834,12 +840,13 @@ async function cmdScan(args) {
     }
 
     for (const slug of companySlugs) {
-      if (rawReviews.length >= limit * 3) break;
+      if (rawReviews.length >= limit * 3 || blockTracker.shouldStop) break;
       log(`[trustpilot] === company: ${slug} ===`);
       const perCompanyLimit = Math.ceil(limit / companySlugs.length) * 3;
       const reviews = await scrapeCompanyHttp(slug, maxPages, perCompanyLimit, {
         apiOnly,
         browserFallbackFn,
+        blockTracker,
       });
       log(`[trustpilot] ${reviews.length} raw reviews from ${slug}`);
       rawReviews.push(...reviews);
@@ -912,6 +919,8 @@ async function cmdScan(args) {
       raw_reviews: rawReviews.length,
       unique_reviews: uniqueReviews.length,
       after_filter: Math.min(scored.length, limit),
+      blocked: blockTracker.stats.blocked,
+      rateLimitWarnings: blockTracker.stats.rateLimitWarnings,
     },
   });
 }

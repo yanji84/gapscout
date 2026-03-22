@@ -8,7 +8,7 @@
 
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
-import { connectBrowser, politeDelay as politeDelayBase } from '../lib/browser.mjs';
+import { connectBrowser, politeDelay as politeDelayBase, detectBlockInPage, createBlockTracker } from '../lib/browser.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -36,16 +36,9 @@ async function searchG2Products(page, domain, maxProducts = MAX_PRODUCTS) {
     await sleep(2000);
 
     // Check for anti-bot block on the search page itself
-    const searchBlocked = await page.evaluate(() => {
-      var body = document.body ? document.body.textContent.toLowerCase() : '';
-      var title = document.title.toLowerCase();
-      return title.includes('blocked') || body.includes('access is temporarily restricted') ||
-             body.includes('unusual activity') || body.includes('you have been blocked') ||
-             body.includes('captcha');
-    });
-
-    if (searchBlocked) {
-      log(`[reviews] G2 search page is blocked by anti-bot protection`);
+    const blockResult = await detectBlockInPage(page);
+    if (blockResult.blocked) {
+      log(`[reviews] G2 search page is blocked (${blockResult.reason})`);
       return [];
     }
 
@@ -102,7 +95,7 @@ async function searchG2Products(page, domain, maxProducts = MAX_PRODUCTS) {
  * Scrape low-star reviews from a G2 product reviews page.
  * G2 URL: https://www.g2.com/products/<slug>/reviews?filters[star_rating][]=1&filters[star_rating][]=2&filters[star_rating][]=3
  */
-async function scrapeG2Reviews(page, productUrl, productName, maxPages = MAX_REVIEW_PAGES) {
+async function scrapeG2Reviews(page, productUrl, productName, maxPages = MAX_REVIEW_PAGES, blockTracker = null) {
   // Filter for 1-3 star reviews
   const baseUrl = productUrl.replace(/\?.*$/, '');
   const lowStarUrl = `${baseUrl}?filters[star_rating][]=1&filters[star_rating][]=2&filters[star_rating][]=3`;
@@ -119,21 +112,14 @@ async function scrapeG2Reviews(page, productUrl, productName, maxPages = MAX_REV
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await sleep(1500);
 
-      // Check for anti-bot / captcha
-      const blockStatus = await page.evaluate(() => {
-        var title = document.title.toLowerCase();
-        var body = document.body ? document.body.textContent.toLowerCase() : '';
-        if (title.includes('captcha') || body.includes('captcha')) return 'captcha';
-        if (title.includes('blocked') || body.includes('you have been blocked')) return 'cloudflare';
-        if (body.includes('access is temporarily restricted') || body.includes('unusual activity')) return 'g2-restricted';
-        if (body.includes('access denied') || body.includes('verify you are human')) return 'access-denied';
-        return null;
-      });
-
-      if (blockStatus) {
-        log(`[reviews]   anti-bot detected (${blockStatus}) on page ${pageNum}, skipping product`);
+      // Check for anti-bot / captcha using shared detector
+      const blockResult = await detectBlockInPage(page);
+      if (blockResult.blocked) {
+        log(`[reviews]   anti-bot detected (${blockResult.reason}) on page ${pageNum}, skipping product`);
+        if (blockTracker) blockTracker.recordBlock(blockResult.reason);
         break;
       }
+      if (blockTracker) blockTracker.recordSuccess();
 
       const reviews = await page.evaluate((prodName, prodUrl) => {
         var results = [];
@@ -269,7 +255,7 @@ async function scrapeG2Reviews(page, productUrl, productName, maxPages = MAX_REV
 /**
  * Scrape low-star reviews from Capterra for a given domain search.
  */
-async function scrapeCapterraReviews(page, domain, maxProducts = 3) {
+async function scrapeCapterraReviews(page, domain, maxProducts = 3, blockTracker = null) {
   const searchUrl = `https://www.capterra.com/search/?query=${encodeURIComponent(domain)}`;
   log(`[reviews] searching Capterra: ${searchUrl}`);
 
@@ -280,16 +266,10 @@ async function scrapeCapterraReviews(page, domain, maxProducts = 3) {
     await sleep(2000);
 
     // Check for anti-bot block on Capterra search page
-    const searchBlocked = await page.evaluate(() => {
-      var body = document.body ? document.body.textContent.toLowerCase() : '';
-      var title = document.title.toLowerCase();
-      return title.includes('blocked') || body.includes('you have been blocked') ||
-             body.includes('unusual activity') || body.includes('access denied') ||
-             body.includes('captcha');
-    });
-
-    if (searchBlocked) {
-      log(`[reviews] Capterra search page is blocked by anti-bot protection`);
+    const blockResult = await detectBlockInPage(page);
+    if (blockResult.blocked) {
+      log(`[reviews] Capterra search page is blocked (${blockResult.reason})`);
+      if (blockTracker) blockTracker.recordBlock(blockResult.reason);
       return allReviews;
     }
 
@@ -325,18 +305,14 @@ async function scrapeCapterraReviews(page, domain, maxProducts = 3) {
         await page.goto(reviewUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await sleep(2000);
 
-        const isBlocked = await page.evaluate(() => {
-          var title = document.title.toLowerCase();
-          var body = document.body ? document.body.textContent.toLowerCase() : '';
-          return title.includes('captcha') || title.includes('blocked') ||
-                 body.includes('you have been blocked') || body.includes('unusual activity') ||
-                 body.includes('access denied') || body.includes('verify you are human');
-        });
-
-        if (isBlocked) {
-          log(`[reviews]   Capterra blocked by anti-bot protection, skipping`);
+        const blockResult2 = await detectBlockInPage(page);
+        if (blockResult2.blocked) {
+          log(`[reviews]   Capterra blocked (${blockResult2.reason}), skipping`);
+          if (blockTracker) blockTracker.recordBlock(blockResult2.reason);
+          if (blockTracker && blockTracker.shouldStop) break;
           continue;
         }
+        if (blockTracker) blockTracker.recordSuccess();
 
         const reviews = await page.evaluate((prodName, prodUrl) => {
           var results = [];
@@ -450,18 +426,20 @@ async function cmdScan(args) {
   });
 
   const rawReviews = [];
+  const blockTracker = createBlockTracker('reviews');
 
   try {
     // ── G2 ──────────────────────────────────────────────────────────────────
-    if (sources.includes('g2')) {
+    if (sources.includes('g2') && !blockTracker.shouldStop) {
       log(`[reviews-scan] searching G2...`);
       const products = await searchG2Products(page, domain, maxProducts);
       await politeDelay();
 
       for (const product of products) {
+        if (blockTracker.shouldStop) break;
         log(`[reviews-scan] scraping G2 product: ${product.name} (${product.slug})`);
         try {
-          const reviews = await scrapeG2Reviews(page, product.url, product.name);
+          const reviews = await scrapeG2Reviews(page, product.url, product.name, MAX_REVIEW_PAGES, blockTracker);
           for (const r of reviews) {
             r.source = 'g2';
             r.productName = product.name;
@@ -476,9 +454,9 @@ async function cmdScan(args) {
     }
 
     // ── Capterra ─────────────────────────────────────────────────────────────
-    if (sources.includes('capterra')) {
+    if (sources.includes('capterra') && !blockTracker.shouldStop) {
       log(`[reviews-scan] searching Capterra...`);
-      const reviews = await scrapeCapterraReviews(page, domain, maxProducts);
+      const reviews = await scrapeCapterraReviews(page, domain, maxProducts, blockTracker);
       rawReviews.push(...reviews);
       log(`[reviews-scan]   ${reviews.length} Capterra low-star reviews collected`);
     }
@@ -549,6 +527,8 @@ async function cmdScan(args) {
         raw_reviews: rawReviews.length,
         unique_reviews: uniqueReviews.length,
         after_filter: Math.min(scored.length, limit),
+        blocked: blockTracker.stats.blocked,
+        rateLimitWarnings: blockTracker.stats.rateLimitWarnings,
       },
     });
   } finally {

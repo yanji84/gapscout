@@ -205,3 +205,159 @@ export async function connectBrowser(args, options = {}) {
   }
   fail(errorMsg);
 }
+
+// ─── detectBlock ──────────────────────────────────────────────────────────────
+
+/**
+ * Detect common block/CAPTCHA/rate-limit indicators in an HTML string.
+ * Returns { blocked: boolean, reason: string|null }.
+ *
+ * Checks for:
+ *  - Cloudflare challenge pages ("Just a moment", cf-browser-verification)
+ *  - "Access Denied" / "403 Forbidden"
+ *  - CAPTCHA / reCAPTCHA
+ *  - "Rate limit exceeded"
+ *  - Empty response with error indicators
+ *  - Common anti-bot phrases
+ */
+export function detectBlock(html) {
+  if (!html || typeof html !== 'string') {
+    return { blocked: true, reason: 'empty-response' };
+  }
+
+  const lower = html.toLowerCase();
+
+  // Cloudflare challenge
+  if (lower.includes('just a moment') && lower.includes('cloudflare')) {
+    return { blocked: true, reason: 'cloudflare-challenge' };
+  }
+  if (lower.includes('cf-browser-verification') ||
+      lower.includes('cf-challenge-running') ||
+      lower.includes('cf-error-code') ||
+      lower.includes('challenge-form') ||
+      lower.includes('checking your browser')) {
+    return { blocked: true, reason: 'cloudflare-challenge' };
+  }
+
+  // Access denied / 403
+  if (lower.includes('access denied') || lower.includes('403 forbidden') ||
+      lower.includes('you have been blocked') ||
+      lower.includes('access is temporarily restricted')) {
+    return { blocked: true, reason: 'access-denied' };
+  }
+
+  // CAPTCHA / reCAPTCHA
+  if (lower.includes('captcha') || lower.includes('recaptcha') ||
+      lower.includes('verify you are human') ||
+      lower.includes('prove you are not a robot') ||
+      lower.includes('hcaptcha')) {
+    return { blocked: true, reason: 'captcha' };
+  }
+
+  // Rate limiting
+  if (lower.includes('rate limit') || lower.includes('too many requests') ||
+      lower.includes('unusual traffic') || lower.includes('unusual activity')) {
+    return { blocked: true, reason: 'rate-limited' };
+  }
+
+  // Google-specific "sorry" page
+  if (lower.includes('<title>sorry') || lower.includes('form[action*="sorry"]') ||
+      (lower.includes('sorry') && lower.includes('automated queries'))) {
+    return { blocked: true, reason: 'google-sorry' };
+  }
+
+  return { blocked: false, reason: null };
+}
+
+/**
+ * Detect block indicators in a Puppeteer page context (runs page.evaluate).
+ * Returns { blocked: boolean, reason: string|null }.
+ */
+export async function detectBlockInPage(page) {
+  try {
+    const result = await page.evaluate(() => {
+      const title = (document.title || '').toLowerCase();
+      const bodyText = document.body ? document.body.textContent.substring(0, 5000).toLowerCase() : '';
+
+      // Cloudflare
+      if (title.includes('just a moment') || title.includes('checking your browser') ||
+          document.querySelector('#challenge-form, .cf-challenge-running, .cf-error-code')) {
+        return { blocked: true, reason: 'cloudflare-challenge' };
+      }
+
+      // Access denied
+      if (title.includes('blocked') || title.includes('access denied') || title.includes('403') ||
+          bodyText.includes('you have been blocked') || bodyText.includes('access denied') ||
+          bodyText.includes('access is temporarily restricted')) {
+        return { blocked: true, reason: 'access-denied' };
+      }
+
+      // CAPTCHA
+      if (title.includes('captcha') || document.querySelector('#captcha-form') ||
+          document.querySelector('iframe[src*="recaptcha"]') ||
+          document.querySelector('iframe[src*="hcaptcha"]') ||
+          document.querySelector('[id*="captcha-container"]') ||
+          bodyText.includes('verify you are human') || bodyText.includes('captcha')) {
+        return { blocked: true, reason: 'captcha' };
+      }
+
+      // Rate limiting
+      if (bodyText.includes('rate limit') || bodyText.includes('too many requests') ||
+          bodyText.includes('unusual traffic') || bodyText.includes('unusual activity')) {
+        return { blocked: true, reason: 'rate-limited' };
+      }
+
+      // Google sorry
+      if (title.includes('sorry') && (document.querySelector('form[action*="sorry"]') ||
+          bodyText.includes('automated queries'))) {
+        return { blocked: true, reason: 'google-sorry' };
+      }
+
+      return { blocked: false, reason: null };
+    });
+    return result;
+  } catch (err) {
+    return { blocked: false, reason: null };
+  }
+}
+
+/**
+ * Block tracking helper. Create one per source scan to count consecutive blocks.
+ * When threshold is hit, returns true indicating the source should stop.
+ *
+ * @param {string} sourceTag - Source name for log messages
+ * @param {number} [threshold=3] - Consecutive block count before stopping
+ * @returns {{ recordBlock: (reason: string) => boolean, recordSuccess: () => void, stats: { blocked: number, rateLimitWarnings: number } }}
+ */
+export function createBlockTracker(sourceTag, threshold = 3) {
+  let consecutiveBlocks = 0;
+  const stats = { blocked: 0, rateLimitWarnings: 0 };
+  let totalSuccessful = 0;
+
+  return {
+    /**
+     * Record a block event. Returns true if threshold reached (caller should stop).
+     */
+    recordBlock(reason = 'unknown') {
+      consecutiveBlocks++;
+      stats.blocked++;
+      if (reason === 'rate-limited') stats.rateLimitWarnings++;
+      if (consecutiveBlocks >= threshold) {
+        log(`[${sourceTag}] WARNING: blocked/rate-limited after ${totalSuccessful} requests. Returning partial results.`);
+        return true; // signal: stop
+      }
+      log(`[${sourceTag}] block detected (${reason}), ${consecutiveBlocks}/${threshold} consecutive`);
+      return false;
+    },
+    recordSuccess() {
+      consecutiveBlocks = 0;
+      totalSuccessful++;
+    },
+    get stats() {
+      return { ...stats };
+    },
+    get shouldStop() {
+      return consecutiveBlocks >= threshold;
+    },
+  };
+}

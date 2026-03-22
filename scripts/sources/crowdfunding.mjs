@@ -9,7 +9,7 @@
 
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
-import { connectBrowser, politeDelay as politeDelayBase } from '../lib/browser.mjs';
+import { connectBrowser, politeDelay as politeDelayBase, detectBlockInPage, createBlockTracker } from '../lib/browser.mjs';
 import { httpGet, httpGetWithRetry, RateLimiter } from '../lib/http.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
@@ -92,14 +92,23 @@ function parseSources(args) {
  * Scrape the Kickstarter advanced search results page for a query.
  * Returns array of { slug, creator, name, url, description, backerCount, fundingAmount }.
  */
-async function scrapeKickstarterSearch(page, query) {
+async function scrapeKickstarterSearch(page, query, blockTracker = null) {
   const encodedQuery = encodeURIComponent(query);
   const url = `${KICKSTARTER}/discover/advanced?term=${encodedQuery}&sort=most_backed`;
   log(`[crowdfunding] search: ${url}`);
 
   // networkidle2 is required — domcontentloaded fires before React renders cards
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
-  await sleep(1500);
+  await sleep(1200 + Math.floor(Math.random() * 600));
+
+  // Check for block/CAPTCHA
+  const blockResult = await detectBlockInPage(page);
+  if (blockResult.blocked) {
+    log(`[crowdfunding] search page blocked (${blockResult.reason})`);
+    if (blockTracker) blockTracker.recordBlock(blockResult.reason);
+    return [];
+  }
+  if (blockTracker) blockTracker.recordSuccess();
 
   // Scroll to trigger lazy-loaded cards below the fold
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -204,9 +213,18 @@ async function scrapeKickstarterSearch(page, query) {
 /**
  * Scrape the main project page for description and funding stats.
  */
-async function scrapeProjectPage(page, projectUrl) {
+async function scrapeProjectPage(page, projectUrl, blockTracker = null) {
   await page.goto(projectUrl, { waitUntil: 'networkidle2', timeout: 45000 });
-  await sleep(1500);
+  await sleep(1200 + Math.floor(Math.random() * 600));
+
+  // Check for block
+  const blockResult = await detectBlockInPage(page);
+  if (blockResult.blocked) {
+    log(`[crowdfunding] project page blocked (${blockResult.reason}): ${projectUrl}`);
+    if (blockTracker) blockTracker.recordBlock(blockResult.reason);
+    return { description: '', backerText: '', fundText: '', commentCountText: '0', title: '' };
+  }
+  if (blockTracker) blockTracker.recordSuccess();
 
   return await page.evaluate(() => {
     // Description — try multiple selectors in priority order
@@ -279,14 +297,23 @@ async function scrapeProjectPage(page, projectUrl) {
  * Scrape backer comments from /comments page.
  * Scrolls to load more comments (Kickstarter uses infinite scroll).
  */
-async function scrapeProjectComments(page, projectUrl, maxComments = 60) {
+async function scrapeProjectComments(page, projectUrl, maxComments = 60, blockTracker = null) {
   // Strip all query params — search ref params break the /comments URL
   const cleanUrl = stripQuery(projectUrl).replace(/\/$/, '');
   const commentsUrl = cleanUrl + '/comments';
   log(`[crowdfunding] comments: ${commentsUrl}`);
 
   await page.goto(commentsUrl, { waitUntil: 'networkidle2', timeout: 45000 });
-  await sleep(2000);
+  await sleep(1500 + Math.floor(Math.random() * 1000));
+
+  // Check for block
+  const blockResult = await detectBlockInPage(page);
+  if (blockResult.blocked) {
+    log(`[crowdfunding] comments page blocked (${blockResult.reason}): ${commentsUrl}`);
+    if (blockTracker) blockTracker.recordBlock(blockResult.reason);
+    return [];
+  }
+  if (blockTracker) blockTracker.recordSuccess();
 
   // Kickstarter's comments section is React-rendered. Navigating to /comments
   // loads the page shell; the actual comment list is injected by clicking the tab.
@@ -614,6 +641,7 @@ async function cmdScan(args) {
   log(`[crowdfunding-scan] domain="${domain}", limit=${limit}, sources=${sources}`);
 
   const allEnriched = [];
+  const blockTracker = createBlockTracker('crowdfunding');
 
   // ─── Kickstarter path (Puppeteer browser) ───────────────────────────────
   if (sources === 'kickstarter' || sources === 'both') {
@@ -624,15 +652,17 @@ async function cmdScan(args) {
       page = await browser.newPage();
       // Set realistic UA once — avoids Cloudflare bot detection
       await page.setUserAgent(REALISTIC_UA);
+      await page.setViewport({ width: 1280, height: 900 });
 
       const queries = buildSearchQueries(domain);
       const projectsBySlug = new Map();
 
       // Phase 1: collect project stubs from search pages
       for (const query of queries) {
+        if (blockTracker.shouldStop) break;
         log(`[crowdfunding-scan] query="${query}"`);
         try {
-          const results = await scrapeKickstarterSearch(page, query);
+          const results = await scrapeKickstarterSearch(page, query, blockTracker);
           log(`[crowdfunding-scan]   found ${results.length} projects`);
           for (const p of results) {
             if (p.slug && !projectsBySlug.has(p.slug)) {
@@ -654,12 +684,14 @@ async function cmdScan(args) {
       const stubs = [...projectsBySlug.values()].slice(0, Math.min(15, projectsBySlug.size));
 
       for (const stub of stubs) {
+        if (blockTracker.shouldStop) break;
         log(`[crowdfunding-scan] enriching: ${stub.url}`);
         try {
-          const projectData = await scrapeProjectPage(page, stub.url);
+          const projectData = await scrapeProjectPage(page, stub.url, blockTracker);
           await politeDelay();
 
-          const comments = await scrapeProjectComments(page, stub.url, maxComments);
+          if (blockTracker.shouldStop) break;
+          const comments = await scrapeProjectComments(page, stub.url, maxComments, blockTracker);
           log(`[crowdfunding-scan]   ${comments.length} comments`);
           await politeDelay();
 
@@ -751,6 +783,8 @@ async function cmdScan(args) {
     stats: {
       total_enriched: allEnriched.length,
       after_filter: cleaned.length,
+      blocked: blockTracker ? blockTracker.stats.blocked : 0,
+      rateLimitWarnings: blockTracker ? blockTracker.stats.rateLimitWarnings : 0,
     },
   });
 }

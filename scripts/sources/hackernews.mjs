@@ -16,7 +16,11 @@ const HN_ALGOLIA_HOST = 'hn.algolia.com';
 const SEARCH_PATH = '/api/v1/search';
 const ITEMS_PATH = '/api/v1/items';
 
-const MIN_DELAY_MS = 1000;
+const MIN_DELAY_MS = 1200; // Polite delay for Algolia (no official limit, but be courteous)
+
+// Track rate limit warnings across a scan
+let rateLimitWarnings = 0;
+let totalRequests = 0;
 
 // Date windowing: year ranges from 2019 to 2026
 const DATE_WINDOWS = [
@@ -33,7 +37,24 @@ const DATE_WINDOWS = [
 // ─── HTTP client (uses shared lib/http.mjs) ──────────────────────────────────
 
 async function fetchWithRetry(hostname, path) {
-  return httpGetWithRetry(hostname, path, { maxRetries: 3 });
+  try {
+    return await httpGetWithRetry(hostname, path, { maxRetries: 3 });
+  } catch (err) {
+    const code = err.statusCode || 0;
+    if (code === 429) {
+      rateLimitWarnings++;
+      log(`[hackernews] WARNING: rate limit approaching — received 429 Too Many Requests`);
+      // Back off heavily on 429, then return null to allow partial results
+      await sleep(10000);
+      return null;
+    }
+    if (code === 403) {
+      rateLimitWarnings++;
+      log(`[hackernews] WARNING: received 403 Forbidden — possible rate limit or IP block`);
+      return null;
+    }
+    throw err;
+  }
 }
 
 // ─── rate limiter ────────────────────────────────────────────────────────────
@@ -46,6 +67,11 @@ async function rateLimit() {
     await sleep(MIN_DELAY_MS - elapsed);
   }
   lastRequestAt = Date.now();
+  totalRequests++;
+  // Algolia has no published rate limit, but log a warning if we're making a lot of requests
+  if (totalRequests > 0 && totalRequests % 100 === 0) {
+    log(`[hackernews] INFO: ${totalRequests} requests made this session — pacing at ${MIN_DELAY_MS}ms between requests`);
+  }
 }
 
 // ─── Algolia HN API helpers ──────────────────────────────────────────────────
@@ -315,6 +341,10 @@ async function cmdScan(args) {
   const maxPages = args.maxPages || 10;
   const includeComments = args.includeComments === true || args.includeComments === 'true';
 
+  // Reset per-scan counters
+  rateLimitWarnings = 0;
+  totalRequests = 0;
+
   log(`[scan] domain="${domain}", limit=${limit}, maxPages=${maxPages}, includeComments=${includeComments}`);
 
   const painQueries = buildPainQueries(domain);
@@ -415,6 +445,8 @@ async function cmdScan(args) {
       raw_posts: postsById.size,
       comment_stories: commentStoriesById.size,
       after_filter: Math.min(scored.length, limit),
+      totalRequests,
+      rateLimitWarnings,
     },
   });
 }

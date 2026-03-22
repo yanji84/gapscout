@@ -16,6 +16,30 @@ export const MAX_RETRIES = 5;
 export const BACKOFF_BASE_MS = 2000;
 export const REQUEST_TIMEOUT_MS = 15000;
 
+/**
+ * Reddit-compliant User-Agent string.
+ * Reddit requires: <platform>:<app_id>:<version> (by /u/<username>)
+ */
+export const REDDIT_USER_AGENT = 'node:pain-point-finder:5.0 (by /u/pain-point-finder-bot)';
+
+/** Generic User-Agent for non-Reddit APIs */
+export const DEFAULT_USER_AGENT = 'pain-point-finder/5.0';
+
+/**
+ * Global _rateLimitWarning flag. When set to true, rate limit warnings
+ * are emitted to stderr so the user sees them immediately.
+ */
+export let _rateLimitWarning = false;
+
+export function setRateLimitWarning(value) {
+  _rateLimitWarning = value;
+}
+
+function emitRateLimitWarning(message) {
+  setRateLimitWarning(true);
+  process.stderr.write(`\n⚠ RATE LIMIT WARNING: ${message}\n\n`);
+}
+
 // ─── RateLimiter ─────────────────────────────────────────────────────────────
 
 /**
@@ -40,14 +64,37 @@ export class RateLimiter {
 
   async wait() {
     if (this.totalRequests >= this.maxPerRun) {
+      emitRateLimitWarning(`max ${this.maxPerRun} requests per run exceeded — stopping`);
       throw new Error(`Rate limit: max ${this.maxPerRun} requests per run exceeded`);
     }
+
+    // Warn when approaching per-run limit (90% threshold)
+    if (this.maxPerRun < Infinity) {
+      const remaining = this.maxPerRun - this.totalRequests;
+      const threshold = Math.max(10, Math.floor(this.maxPerRun * 0.1));
+      if (remaining === threshold) {
+        emitRateLimitWarning(`approaching rate limit: ${remaining} requests remaining out of ${this.maxPerRun}`);
+      }
+    }
+
     const now = Date.now();
     this.timestamps = this.timestamps.filter(t => now - t < 60000);
+
+    // Warn when approaching per-minute limit (80% threshold)
+    const perMinRemaining = this.maxPerMin - this.timestamps.length;
+    if (perMinRemaining <= Math.max(3, Math.floor(this.maxPerMin * 0.2)) && perMinRemaining > 0) {
+      if (!this._perMinWarned) {
+        this._perMinWarned = true;
+        emitRateLimitWarning(`approaching per-minute rate limit: ${perMinRemaining} requests remaining this minute (max ${this.maxPerMin}/min)`);
+      }
+    } else {
+      this._perMinWarned = false;
+    }
+
     if (this.timestamps.length >= this.maxPerMin) {
       const oldest = this.timestamps[0];
       const waitMs = 60000 - (now - oldest) + 100;
-      log(`[rate] per-minute cap hit, sleeping ${waitMs}ms`);
+      emitRateLimitWarning(`per-minute cap hit (${this.maxPerMin}/min), sleeping ${waitMs}ms`);
       await sleep(waitMs);
     }
     const elapsed = Date.now() - this.lastRequestAt;
@@ -78,7 +125,7 @@ export class RateLimiter {
 export function httpGet(hostname, path, options = {}) {
   const timeout = options.timeout ?? REQUEST_TIMEOUT_MS;
   const headers = {
-    'User-Agent': 'pain-point-finder/4.0',
+    'User-Agent': options.headers?.['User-Agent'] || DEFAULT_USER_AGENT,
     ...(options.headers || {}),
   };
 
@@ -95,6 +142,19 @@ export function httpGet(hostname, path, options = {}) {
         if (res.statusCode === 200) {
           try { resolve(JSON.parse(body)); }
           catch { reject(new Error(`Non-JSON response: ${body.slice(0, 200)}`)); }
+        } else if (res.statusCode === 429) {
+          emitRateLimitWarning(`HTTP 429 Too Many Requests from ${hostname} — being rate limited`);
+          const err = new Error(`HTTP 429 (rate limited)`);
+          err.statusCode = 429;
+          // Parse Retry-After header if present
+          const retryAfter = res.headers['retry-after'];
+          if (retryAfter) err.retryAfterSec = parseInt(retryAfter, 10) || 60;
+          reject(err);
+        } else if (res.statusCode === 403) {
+          emitRateLimitWarning(`HTTP 403 Forbidden from ${hostname} — possible IP ban or auth failure`);
+          const err = new Error(`HTTP 403 (forbidden/blocked)`);
+          err.statusCode = 403;
+          reject(err);
         } else {
           const err = new Error(`HTTP ${res.statusCode}`);
           err.statusCode = res.statusCode;
@@ -138,20 +198,30 @@ export async function httpGetWithRetry(hostname, path, options = {}) {
     } catch (err) {
       lastErr = err;
       const code = err.statusCode || 0;
-      if (code === 403 || code === 404) throw err;
+
+      // 404 is not retryable
+      if (code === 404) throw err;
+
+      // 403 — possible ban; do not retry, let caller handle gracefully
+      if (code === 403) throw err;
 
       // Determine max retries for this error type
       let maxForType = maxRetries;
-      if (code >= 500) maxForType = Math.min(maxRetries, 3);
+      if (code === 429) maxForType = maxRetries; // always allow full retries for 429
+      else if (code >= 500) maxForType = Math.min(maxRetries, 3);
       else if (err.message === 'timeout') maxForType = Math.min(maxRetries, 1);
 
       if (attempt >= maxForType) break;
 
-      if (rateLimiter) {
-        const backoff = backoffBaseMs * Math.pow(2, attempt);
-        log(`[http] ${err.message} -- retry ${attempt + 1} in ${backoff}ms`);
-        await sleep(backoff);
+      // Exponential backoff; respect Retry-After header for 429s
+      let backoff;
+      if (code === 429 && err.retryAfterSec) {
+        backoff = err.retryAfterSec * 1000;
+      } else {
+        backoff = backoffBaseMs * Math.pow(2, attempt);
       }
+      log(`[http] ${err.message} — retry ${attempt + 1}/${maxForType} in ${backoff}ms`);
+      await sleep(backoff);
     }
   }
   throw lastErr;

@@ -28,6 +28,9 @@ const AUTHENTICATED = Boolean(GH_TOKEN);
 const MIN_DELAY_MS = AUTHENTICATED ? 500 : 2000; // Auth: 5,000/hr allows faster polling
 const REQUEST_TIMEOUT_MS = 15000;
 
+// Track rate limit warnings across a scan
+let rateLimitWarnings = 0;
+
 let _tipShown = false;
 
 if (AUTHENTICATED) {
@@ -77,11 +80,38 @@ async function ghApiGet(path) {
         const body = Buffer.concat(chunks).toString('utf8');
         try {
           const data = JSON.parse(body);
+          const remaining = parseInt(res.headers['x-ratelimit-remaining'] || '0', 10);
+          const limit = parseInt(res.headers['x-ratelimit-limit'] || '0', 10);
+          const resetEpoch = parseInt(res.headers['x-ratelimit-reset'] || '0', 10);
+          const resetDate = resetEpoch ? new Date(resetEpoch * 1000).toISOString() : 'unknown';
 
+          // Log rate limit info when approaching the limit
+          const threshold = AUTHENTICATED ? 500 : 10;
+          if (remaining > 0 && remaining <= threshold) {
+            rateLimitWarnings++;
+            log(`[github-issues] WARNING: rate limit approaching — ${remaining} requests remaining (limit: ${limit}, resets: ${resetDate})`);
+          }
+
+          // Handle 429 Too Many Requests — return partial results, don't crash
+          if (res.statusCode === 429) {
+            rateLimitWarnings++;
+            const retryAfter = parseInt(res.headers['retry-after'] || '60', 10);
+            log(`[github-issues] WARNING: rate limit approaching — 0 requests remaining (429 received, retry after ${retryAfter}s)`);
+            const err = new Error(`GitHub API 429: rate limited — retry after ${retryAfter}s`);
+            err.statusCode = 429;
+            err.retryAfter = retryAfter;
+            reject(err);
+            return;
+          }
+
+          // Handle 403 — often rate limiting
           if (res.statusCode === 403) {
-            const rateLimitReset = res.headers['x-ratelimit-reset'];
-            const msg = data.message || 'Rate limited';
-            reject(new Error(`GitHub API 403: ${msg} (resets at ${rateLimitReset})`));
+            rateLimitWarnings++;
+            const msg = data.message || 'Forbidden';
+            log(`[github-issues] WARNING: rate limit approaching — ${remaining} requests remaining (403: ${msg}, resets: ${resetDate})`);
+            const err = new Error(`GitHub API 403: ${msg} (resets at ${resetDate})`);
+            err.statusCode = 403;
+            reject(err);
             return;
           }
 
@@ -92,7 +122,9 @@ async function ghApiGet(path) {
 
           resolve({
             data,
-            rateLimitRemaining: parseInt(res.headers['x-ratelimit-remaining'] || '0', 10),
+            rateLimitRemaining: remaining,
+            rateLimitLimit: limit,
+            rateLimitReset: resetDate,
           });
         } catch (err) {
           reject(new Error(`Failed to parse GitHub API response: ${err.message}`));
@@ -171,16 +203,29 @@ async function cmdScan(args) {
   const limit = args.limit || 50;
   const maxPages = args.maxPages || 2;
 
+  // Reset per-scan counters
+  rateLimitWarnings = 0;
+  let stoppedEarly = false;
+
   log(`[github-issues] scan domain="${domain}", limit=${limit}, maxPages=${maxPages}`);
 
   const queries = buildPainQueries(domain);
   const issuesById = new Map();
-  let rateLimitRemaining = 60;
+  let rateLimitRemaining = AUTHENTICATED ? 5000 : 60;
 
   for (const query of queries) {
+    if (stoppedEarly) break;
+
     if (rateLimitRemaining < 5) {
-      log(`[github-issues] rate limit low (${rateLimitRemaining}), stopping early`);
+      log(`[github-issues] rate limit critically low (${rateLimitRemaining}), stopping early — returning partial results`);
       break;
+    }
+
+    // Warn when approaching limit
+    const warnThreshold = AUTHENTICATED ? 500 : 10;
+    if (rateLimitRemaining <= warnThreshold && rateLimitRemaining > 5) {
+      log(`[github-issues] WARNING: rate limit approaching — ${rateLimitRemaining} requests remaining`);
+      rateLimitWarnings++;
     }
 
     for (let page = 1; page <= maxPages; page++) {
@@ -189,15 +234,25 @@ async function cmdScan(args) {
         result = await searchIssues(query, { page, perPage: 50 });
       } catch (err) {
         log(`[github-issues] query "${query}" page ${page} failed: ${err.message}`);
-        if (err.message.includes('403')) {
-          log(`[github-issues] rate limited, stopping all queries`);
+        // On 429, back off and return partial results
+        if (err.statusCode === 429) {
+          const retryAfter = err.retryAfter || 60;
+          log(`[github-issues] 429 rate limited — backing off ${retryAfter}s, returning partial results`);
+          await sleep(retryAfter * 1000);
+          stoppedEarly = true;
+          rateLimitRemaining = 0;
+        }
+        // On 403, stop but don't crash
+        if (err.statusCode === 403) {
+          log(`[github-issues] 403 received, stopping — returning partial results`);
+          stoppedEarly = true;
           rateLimitRemaining = 0;
         }
         break;
       }
 
       rateLimitRemaining = result.rateLimitRemaining;
-      log(`[github-issues] query="${query}" page=${page}: ${result.items.length} items (rate limit: ${rateLimitRemaining})`);
+      log(`[github-issues] query="${query}" page=${page}: ${result.items.length} items (rate limit: ${rateLimitRemaining}/${result.rateLimitLimit}, resets: ${result.rateLimitReset})`);
 
       for (const item of result.items) {
         if (!issuesById.has(item.id)) {
@@ -248,6 +303,7 @@ async function cmdScan(args) {
       raw_issues: issuesById.size,
       after_filter: Math.min(scored.length, limit),
       rate_limit_remaining: rateLimitRemaining,
+      rateLimitWarnings,
     },
   });
 }

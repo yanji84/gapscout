@@ -13,7 +13,7 @@ import {
   SCAN_QUERIES, computePainScore, analyzeComments, enrichPost,
   getPostPainCategories, matchSignals,
 } from '../lib/scoring.mjs';
-import { RateLimiter, httpGet as httpGetBase } from '../lib/http.mjs';
+import { RateLimiter, httpGet as httpGetBase, REDDIT_USER_AGENT, _rateLimitWarning } from '../lib/http.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -109,7 +109,9 @@ function httpGet(urlPath, params) {
     if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
   }
   const fullPath = `${urlPath}?${qs.toString()}`;
-  return httpGetBase(PULLPUSH_HOST, fullPath);
+  return httpGetBase(PULLPUSH_HOST, fullPath, {
+    headers: { 'User-Agent': REDDIT_USER_AGENT },
+  });
 }
 
 async function fetchWithRetry(urlPath, params) {
@@ -121,15 +123,29 @@ async function fetchWithRetry(urlPath, params) {
     } catch (err) {
       lastErr = err;
       const code = err.statusCode || 0;
-      if (code === 403) { log(`[http] 403 blocked`); throw err; }
+
+      // 403 = blocked/banned — do not retry, throw so caller can handle gracefully
+      if (code === 403) {
+        process.stderr.write(`\n⚠ RATE LIMIT WARNING: 403 Forbidden — possible IP ban or API block. Returning partial results.\n\n`);
+        throw err;
+      }
+
       let maxForType;
       if (code === 429) maxForType = MAX_RETRIES_429;
       else if (code >= 500) maxForType = MAX_RETRIES_5XX;
       else if (err.message === 'timeout') maxForType = MAX_RETRIES_TIMEOUT;
       else maxForType = 1;
       if (attempt >= maxForType) break;
-      const backoff = BACKOFF_BASE_MS * Math.pow(2, attempt);
-      log(`[http] ${err.message} — retry ${attempt + 1} in ${backoff}ms`);
+
+      // Exponential backoff; respect Retry-After header for 429s
+      let backoff;
+      if (code === 429 && err.retryAfterSec) {
+        backoff = err.retryAfterSec * 1000;
+        process.stderr.write(`\n⚠ RATE LIMIT WARNING: 429 Too Many Requests — server says retry after ${err.retryAfterSec}s\n\n`);
+      } else {
+        backoff = BACKOFF_BASE_MS * Math.pow(2, attempt);
+      }
+      log(`[http] ${err.message} — retry ${attempt + 1}/${maxForType} in ${backoff}ms`);
       await sleep(backoff);
     }
   }
@@ -262,7 +278,7 @@ async function getRedditOAuthToken() {
       headers: {
         'Authorization': `Basic ${auth}`,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'pain-point-finder/4.0',
+        'User-Agent': REDDIT_USER_AGENT,
         'Content-Length': Buffer.byteLength(postData),
       },
       timeout: 15000,
@@ -305,7 +321,7 @@ function redditOAuthGet(path, token) {
       path,
       headers: {
         'Authorization': `Bearer ${token}`,
-        'User-Agent': 'pain-point-finder/4.0',
+        'User-Agent': REDDIT_USER_AGENT,
       },
       timeout: 15000,
     }, (res) => {
@@ -313,8 +329,32 @@ function redditOAuthGet(path, token) {
       res.on('data', chunk => body += chunk);
       res.on('end', () => {
         if (res.statusCode === 200) {
+          // Check X-Ratelimit headers from Reddit API and warn if approaching limits
+          const remaining = res.headers['x-ratelimit-remaining'];
+          const used = res.headers['x-ratelimit-used'];
+          const resetSec = res.headers['x-ratelimit-reset'];
+          if (remaining !== undefined) {
+            const rem = parseFloat(remaining);
+            if (rem <= 10) {
+              process.stderr.write(`\n⚠ RATE LIMIT WARNING: Reddit API — ${rem} requests remaining (resets in ${resetSec || '?'}s)\n\n`);
+            } else if (rem <= 30) {
+              log(`[reddit-oauth] approaching rate limit: ${rem} requests remaining (used ${used || '?'}, resets in ${resetSec || '?'}s)`);
+            }
+          }
           try { resolve(JSON.parse(body)); }
           catch { reject(new Error(`Reddit API: non-JSON response`)); }
+        } else if (res.statusCode === 429) {
+          const retryAfter = res.headers['retry-after'];
+          process.stderr.write(`\n⚠ RATE LIMIT WARNING: Reddit OAuth API 429 — Too Many Requests (retry-after: ${retryAfter || 'unknown'}s)\n\n`);
+          const err = new Error(`Reddit API: HTTP 429 (rate limited)`);
+          err.statusCode = 429;
+          if (retryAfter) err.retryAfterSec = parseInt(retryAfter, 10) || 60;
+          reject(err);
+        } else if (res.statusCode === 403) {
+          process.stderr.write(`\n⚠ RATE LIMIT WARNING: Reddit OAuth API 403 — Forbidden (possible ban or auth failure)\n\n`);
+          const err = new Error(`Reddit API: HTTP 403 (forbidden)`);
+          err.statusCode = 403;
+          reject(err);
         } else {
           const err = new Error(`Reddit API: HTTP ${res.statusCode}`);
           err.statusCode = res.statusCode;
@@ -759,6 +799,15 @@ async function cmdScan(args) {
   }
 
   scored.sort((a, b) => b.painScore - a.painScore);
+
+  const warnings = [];
+  if (pullpushFailed) warnings.push('PullPush API returned errors — results may be incomplete');
+  if (_rateLimitWarning) warnings.push('Rate limits were hit during this scan — results may be incomplete');
+
+  if (warnings.length > 0) {
+    process.stderr.write(`\n⚠ SCAN COMPLETED WITH WARNINGS:\n${warnings.map(w => `  - ${w}`).join('\n')}\n\n`);
+  }
+
   ok({
     mode: globalMode ? 'api-global' : 'api',
     posts: scored.slice(0, limit),
@@ -772,6 +821,7 @@ async function cmdScan(args) {
       include_comments: includeComments,
       data_source: dataSource,
     },
+    ...(warnings.length > 0 ? { warnings } : {}),
   });
 }
 

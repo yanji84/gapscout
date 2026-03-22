@@ -14,7 +14,7 @@ import https from 'node:https';
 import http from 'node:http';
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
-import { connectBrowser, politeDelay as politeDelayBase } from '../lib/browser.mjs';
+import { connectBrowser, politeDelay as politeDelayBase, detectBlockInPage, createBlockTracker } from '../lib/browser.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -382,12 +382,34 @@ async function nitterSearchQuery(hostname, query, cursor = null) {
 
 // ─── Browser (x.com) scraping ────────────────────────────────────────────────
 
-async function scrapeXcomSearch(page, query, scrollCount = 5) {
+async function scrapeXcomSearch(page, query, scrollCount = 5, blockTracker = null) {
   const url = `https://x.com/search?q=${encodeURIComponent(query)}&src=typed_query&f=live`;
   log(`[twitter/browser] navigating to x.com search: "${query.substring(0, 50)}"`);
 
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
-  await sleep(3000);
+  await sleep(2500 + Math.floor(Math.random() * 1000));
+
+  // Check for block/login wall
+  const blockResult = await detectBlockInPage(page);
+  if (blockResult.blocked) {
+    log(`[twitter/browser] blocked (${blockResult.reason}) on search page`);
+    if (blockTracker) blockTracker.recordBlock(blockResult.reason);
+    return [];
+  }
+
+  // Also check for x.com login wall (not logged in)
+  const loginWall = await page.evaluate(() => {
+    const body = document.body ? document.body.textContent.substring(0, 3000).toLowerCase() : '';
+    return body.includes('sign in to x') || body.includes('log in to x') ||
+           document.querySelector('[data-testid="loginButton"]') !== null;
+  });
+  if (loginWall) {
+    log(`[twitter/browser] x.com login wall detected, cannot scrape without auth`);
+    if (blockTracker) blockTracker.recordBlock('login-wall');
+    return [];
+  }
+
+  if (blockTracker) blockTracker.recordSuccess();
 
   const tweets = [];
   const seenIds = new Set();
@@ -395,7 +417,7 @@ async function scrapeXcomSearch(page, query, scrollCount = 5) {
   for (let scroll = 0; scroll <= scrollCount; scroll++) {
     if (scroll > 0) {
       await page.evaluate(() => window.scrollBy(0, window.innerHeight * 3));
-      await sleep(2500);
+      await sleep(2000 + Math.floor(Math.random() * 1000));
     }
 
     const batch = await page.evaluate(() => {
@@ -479,6 +501,7 @@ async function cmdScan(args) {
   const queries = PAIN_QUERY_TEMPLATES.map(t => t.replace('{domain}', domain));
 
   const postsById = new Map();
+  const blockTracker = createBlockTracker('twitter');
 
   // ── Strategy 1: Nitter ─────────────────────────────────────────────────────
   let nitterHost = null;
@@ -490,18 +513,31 @@ async function cmdScan(args) {
     log(`[twitter/nitter] scraping via ${nitterHost}`);
 
     for (const query of queries) {
+      if (blockTracker.shouldStop) break;
       log(`[twitter/nitter] query: "${query.substring(0, 60)}"`);
       let cursor = null;
       let pageCount = 0;
 
       while (pageCount < maxPages) {
         try {
-          const { tweets, nextCursor } = await nitterSearchQuery(nitterHost, query, cursor);
+          const { tweets, nextCursor, html } = await nitterSearchQuery(nitterHost, query, cursor);
           pageCount++;
+
+          // Check Nitter response for block indicators
+          if (html) {
+            const { detectBlock } = await import('../lib/browser.mjs');
+            const blockResult = detectBlock(html);
+            if (blockResult.blocked) {
+              log(`[twitter/nitter] blocked (${blockResult.reason}), stopping`);
+              const shouldStop = blockTracker.recordBlock(blockResult.reason);
+              if (shouldStop) break;
+            }
+          }
 
           for (const t of tweets) {
             if (t.id && !postsById.has(t.id)) postsById.set(t.id, t);
           }
+          if (tweets.length > 0) blockTracker.recordSuccess();
           log(`[twitter/nitter]   page ${pageCount}: ${tweets.length} tweets (${postsById.size} total)`);
 
           if (!nextCursor || tweets.length === 0) break;
@@ -512,6 +548,7 @@ async function cmdScan(args) {
           // If instance goes down mid-run, try next
           if (err.message.includes('503') || err.message.includes('timeout')) {
             log('[twitter/nitter] instance unhealthy, stopping Nitter queries');
+            blockTracker.recordBlock('instance-down');
             break;
           }
           break;
@@ -534,7 +571,7 @@ async function cmdScan(args) {
   const needsBrowser = !nitterHost || args.browser || postsById.size < 50;
   let browserAvailable = false;
 
-  if (needsBrowser) {
+  if (needsBrowser && !blockTracker.shouldStop) {
     log(`[twitter/browser] falling back to x.com browser scraping`);
     let browser = null;
     let page = null;
@@ -553,9 +590,9 @@ async function cmdScan(args) {
       const scrollsPerQuery = Math.max(3, Math.ceil(10 / queries.length));
 
       for (const query of queries) {
-        if (postsById.size >= limit * 3) break;
+        if (postsById.size >= limit * 3 || blockTracker.shouldStop) break;
         try {
-          const tweets = await scrapeXcomSearch(page, query, scrollsPerQuery);
+          const tweets = await scrapeXcomSearch(page, query, scrollsPerQuery, blockTracker);
           for (const t of tweets) {
             if (t.id && !postsById.has(t.id)) postsById.set(t.id, t);
           }
@@ -586,6 +623,8 @@ async function cmdScan(args) {
         raw_tweets: 0,
         after_scoring: 0,
         returned: 0,
+        blocked: blockTracker.stats.blocked,
+        rateLimitWarnings: blockTracker.stats.rateLimitWarnings,
         error: !nitterHost && !browserAvailable
           ? 'no working instances'
           : 'No tweets collected. Check domain query or network access.',
@@ -612,6 +651,8 @@ async function cmdScan(args) {
       raw_tweets: postsById.size,
       after_scoring: scored.length,
       returned: Math.min(scored.length, limit),
+      blocked: blockTracker.stats.blocked,
+      rateLimitWarnings: blockTracker.stats.rateLimitWarnings,
     },
   });
 }

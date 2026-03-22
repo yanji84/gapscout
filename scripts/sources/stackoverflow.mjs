@@ -28,6 +28,9 @@ const SE_API_HOST = 'api.stackexchange.com';
 const SE_KEY = process.env.STACKEXCHANGE_KEY || '';
 const MIN_DELAY_MS = 1000;
 
+// Track rate limit warnings across a scan
+let rateLimitWarnings = 0;
+
 let _tipShown = false;
 
 if (SE_KEY) {
@@ -84,10 +87,40 @@ async function seApiGet(path) {
             body = buffer.toString('utf8');
           }
           const data = JSON.parse(body);
+
+          // Handle 429 Too Many Requests
+          if (res.statusCode === 429) {
+            rateLimitWarnings++;
+            const backoff = data.backoff || 30;
+            const err = new Error(`SE API 429: rate limited — backoff ${backoff}s`);
+            err.statusCode = 429;
+            err.backoff = backoff;
+            log(`[stackoverflow] WARNING: rate limit approaching — received 429, backing off ${backoff}s`);
+            reject(err);
+            return;
+          }
+
+          // Handle 403 Forbidden
+          if (res.statusCode === 403) {
+            rateLimitWarnings++;
+            const err = new Error(`SE API 403: ${data.error_message || 'Forbidden'}`);
+            err.statusCode = 403;
+            log(`[stackoverflow] WARNING: received 403 Forbidden — ${data.error_message || 'possible rate limit'}`);
+            reject(err);
+            return;
+          }
+
           if (data.error_id) {
             reject(new Error(`SE API error ${data.error_id}: ${data.error_message}`));
             return;
           }
+
+          // Log backoff header if SE asks us to slow down
+          if (data.backoff) {
+            log(`[stackoverflow] WARNING: SE API requested backoff of ${data.backoff}s`);
+            rateLimitWarnings++;
+          }
+
           resolve(data);
         } catch (err) {
           reject(new Error(`Failed to parse SE API response: ${err.message}`));
@@ -125,6 +158,7 @@ async function searchQuestions(query, { page = 1, pageSize = 50, sort = 'votes' 
     items: data.items || [],
     hasMore: data.has_more || false,
     quotaRemaining: data.quota_remaining,
+    backoff: data.backoff || 0,
   };
 }
 
@@ -195,22 +229,48 @@ async function cmdScan(args) {
   const limit = args.limit || 50;
   const maxPages = args.maxPages || 3;
 
+  // Reset per-scan counters
+  rateLimitWarnings = 0;
+  let quotaRemaining = undefined;
+  let stoppedEarly = false;
+
   log(`[stackoverflow] scan domain="${domain}", limit=${limit}, maxPages=${maxPages}`);
 
   const queries = buildPainQueries(domain);
   const questionsById = new Map();
 
   for (const query of queries) {
+    if (stoppedEarly) break;
+
     for (let page = 1; page <= maxPages; page++) {
       let result;
       try {
         result = await searchQuestions(query, { page, pageSize: 50 });
       } catch (err) {
         log(`[stackoverflow] query "${query}" page ${page} failed: ${err.message}`);
+        // On 429, respect backoff and continue with partial results
+        if (err.statusCode === 429) {
+          const backoff = err.backoff || 30;
+          log(`[stackoverflow] backing off ${backoff}s due to 429, returning partial results`);
+          await sleep(backoff * 1000);
+          stoppedEarly = true;
+        }
+        // On 403, stop collecting but don't crash
+        if (err.statusCode === 403) {
+          log(`[stackoverflow] stopping due to 403, returning partial results`);
+          stoppedEarly = true;
+        }
         break;
       }
 
-      log(`[stackoverflow] query="${query}" page=${page}: ${result.items.length} items (quota: ${result.quotaRemaining})`);
+      quotaRemaining = result.quotaRemaining;
+      log(`[stackoverflow] query="${query}" page=${page}: ${result.items.length} items (quota: ${quotaRemaining})`);
+
+      // Handle SE backoff field (in response data)
+      if (result.backoff) {
+        log(`[stackoverflow] SE requested backoff of ${result.backoff}s, sleeping`);
+        await sleep(result.backoff * 1000);
+      }
 
       for (const item of result.items) {
         if (!questionsById.has(item.question_id)) {
@@ -220,9 +280,16 @@ async function cmdScan(args) {
 
       if (!result.hasMore || result.items.length < 50) break;
 
-      // Stop if quota is getting low
-      if (result.quotaRemaining !== undefined && result.quotaRemaining < 20) {
-        log(`[stackoverflow] quota low (${result.quotaRemaining}), stopping`);
+      // Warn when quota is getting low (< 50)
+      if (quotaRemaining !== undefined && quotaRemaining < 50) {
+        log(`[stackoverflow] WARNING: rate limit approaching — ${quotaRemaining} requests remaining`);
+        rateLimitWarnings++;
+      }
+
+      // Stop if quota is critically low
+      if (quotaRemaining !== undefined && quotaRemaining < 20) {
+        log(`[stackoverflow] quota critically low (${quotaRemaining}), stopping to preserve remaining quota`);
+        stoppedEarly = true;
         break;
       }
     }
@@ -258,6 +325,8 @@ async function cmdScan(args) {
       queries_run: queries.length,
       raw_questions: questionsById.size,
       after_filter: Math.min(scored.length, limit),
+      quotaRemaining,
+      rateLimitWarnings,
     },
   });
 }
