@@ -14,35 +14,10 @@ import { readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join, dirname, basename } from 'node:path';
 import { log, ok, fail } from '../lib/utils.mjs';
+import { resolveSourceName } from '../lib/command-registry.mjs';
+import { applySourceQuality } from '../lib/scoring.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// ─── source name aliases (mirrors cli.mjs SOURCE_ALIASES) ───────────────────
-
-const SOURCE_ALIASES = {
-  api: 'reddit-api',
-  browser: 'reddit-browser',
-  google: 'google-autocomplete',
-  hn: 'hackernews',
-  hackernews: 'hackernews',
-  reviews: 'reviews',
-  ph: 'producthunt',
-  producthunt: 'producthunt',
-  kickstarter: 'crowdfunding',
-  crowdfunding: 'crowdfunding',
-  appstore: 'appstore',
-  'reddit-api': 'reddit-api',
-  'reddit-browser': 'reddit-browser',
-  'google-autocomplete': 'google-autocomplete',
-};
-
-/**
- * Resolve a possibly-aliased source name to its canonical module basename.
- * e.g. 'hn' -> 'hackernews', 'api' -> 'reddit-api'
- */
-function resolveSourceName(name) {
-  return SOURCE_ALIASES[name] || name;
-}
 
 // ─── source discovery ───────────────────────────────────────────────────────
 
@@ -102,7 +77,7 @@ async function discoverSources(allowList = null) {
 // ─── deduplication ──────────────────────────────────────────────────────────
 
 /**
- * Normalize a title for similarity comparison:
+ * Normalize text for similarity comparison:
  * lowercase, strip punctuation, split into words, remove stopwords.
  */
 const STOPWORDS = new Set([
@@ -110,20 +85,55 @@ const STOPWORDS = new Set([
   'of', 'and', 'or', 'but', 'with', 'my', 'i', 'we', 'you', 'your',
   'this', 'that', 'are', 'was', 'be', 'been', 'have', 'has', 'had',
   'do', 'does', 'did', 'by', 'from', 'as', 'so', 'its', 'their',
+  'not', 'no', 'just', 'can', 'will', 'would', 'should', 'could',
+  'about', 'what', 'when', 'where', 'how', 'why', 'who', 'which',
+  'any', 'all', 'some', 'there', 'here', 'than', 'then', 'if',
+  'very', 'really', 'also', 'been', 'being', 'get', 'got', 'getting',
+  'like', 'know', 'think', 'want', 'need', 'use', 'using', 'used',
 ]);
 
-function normalizeTitle(title) {
-  if (!title) return new Set();
-  const words = title
+/**
+ * Normalize text into an array of cleaned words (no stopwords, lowercase, no punctuation).
+ */
+function normalizeToWords(text) {
+  if (!text) return [];
+  return text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length > 1 && !STOPWORDS.has(w));
-  return new Set(words);
+}
+
+function normalizeTitle(title) {
+  return new Set(normalizeToWords(title));
 }
 
 /**
- * Jaccard similarity between two word sets.
+ * Generate bigrams from a word array.
+ * Returns a Set of "word1 word2" strings.
+ */
+function generateBigrams(words) {
+  const bigrams = new Set();
+  for (let i = 0; i < words.length - 1; i++) {
+    bigrams.add(`${words[i]} ${words[i + 1]}`);
+  }
+  return bigrams;
+}
+
+/**
+ * Generate trigrams from a word array.
+ * Returns a Set of "word1 word2 word3" strings.
+ */
+function generateTrigrams(words) {
+  const trigrams = new Set();
+  for (let i = 0; i < words.length - 2; i++) {
+    trigrams.add(`${words[i]} ${words[i + 1]} ${words[i + 2]}`);
+  }
+  return trigrams;
+}
+
+/**
+ * Jaccard similarity between two sets.
  */
 function jaccardSimilarity(setA, setB) {
   if (setA.size === 0 && setB.size === 0) return 1.0;
@@ -137,31 +147,109 @@ function jaccardSimilarity(setA, setB) {
 }
 
 /**
- * Deduplicate posts across sources by title similarity.
- * When two posts are similar (Jaccard >= threshold), keep the one with
- * higher painScore. The other post's source is appended to the winner's
- * `sources` array so provenance is preserved.
+ * Compute a combined similarity score using unigram, bigram, and trigram Jaccard.
+ * Weights: unigram 0.4, bigram 0.4, trigram 0.2
+ * Falls back gracefully when n-grams are empty (short titles).
+ */
+function combinedSimilarity(wordsA, wordsB) {
+  const unigramSim = jaccardSimilarity(new Set(wordsA), new Set(wordsB));
+
+  const bigramsA = generateBigrams(wordsA);
+  const bigramsB = generateBigrams(wordsB);
+  const bigramSim = (bigramsA.size > 0 && bigramsB.size > 0)
+    ? jaccardSimilarity(bigramsA, bigramsB)
+    : unigramSim; // fall back to unigram if no bigrams
+
+  const trigramsA = generateTrigrams(wordsA);
+  const trigramsB = generateTrigrams(wordsB);
+  const trigramSim = (trigramsA.size > 0 && trigramsB.size > 0)
+    ? jaccardSimilarity(trigramsA, trigramsB)
+    : bigramSim; // fall back to bigram if no trigrams
+
+  return unigramSim * 0.4 + bigramSim * 0.4 + trigramSim * 0.2;
+}
+
+/**
+ * Normalize a URL for comparison: strip protocol, www, trailing slashes, query params.
+ */
+function normalizeUrl(url) {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    return (u.hostname.replace(/^www\./, '') + u.pathname).replace(/\/+$/, '').toLowerCase();
+  } catch {
+    return url.toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '').replace(/\?.*$/, '');
+  }
+}
+
+/**
+ * Deduplicate posts across sources by URL identity and title similarity.
+ * Uses n-gram overlap (bigrams/trigrams) in addition to unigram Jaccard.
+ * Cross-source dedup uses a lower threshold to catch same content from different platforms.
+ *
+ * When two posts are similar, keep the one with higher painScore.
+ * The other post's source is appended to the winner's `sources` array.
  *
  * @param {Array} posts - All posts with a `source` field
- * @param {number} threshold - Jaccard similarity threshold (default 0.6)
+ * @param {number} threshold - Combined similarity threshold for same-source dedup (default 0.6)
+ * @param {number} crossSourceThreshold - Threshold for cross-source dedup (default 0.45)
  */
-function deduplicateByTitle(posts, threshold = 0.6) {
-  // Sort descending by painScore so we keep the best-scored version
+function deduplicateByTitle(posts, threshold = 0.6, crossSourceThreshold = 0.45) {
+  // Phase 1: URL-based dedup (definite duplicates)
+  const urlMap = new Map(); // normalizedUrl -> index in sorted
   const sorted = [...posts].sort((a, b) => (b.painScore || 0) - (a.painScore || 0));
-  const kept = [];
-  const keptSets = [];
 
-  for (const post of sorted) {
-    const postSet = normalizeTitle(post.title);
+  // Mark URL-based duplicates
+  const urlDuplicateOf = new Map(); // post index -> winner index
+  for (let i = 0; i < sorted.length; i++) {
+    const normUrl = normalizeUrl(sorted[i].url);
+    if (!normUrl) continue;
+    if (urlMap.has(normUrl)) {
+      urlDuplicateOf.set(i, urlMap.get(normUrl));
+    } else {
+      urlMap.set(normUrl, i);
+    }
+  }
+
+  // Phase 2: Title/content similarity dedup with n-grams
+  const kept = [];
+  const keptWords = [];   // parallel array of word arrays for n-gram comparison
+  const keptSources = []; // parallel array of source names
+
+  for (let i = 0; i < sorted.length; i++) {
+    const post = sorted[i];
+
+    // Handle URL-based duplicates
+    if (urlDuplicateOf.has(i)) {
+      const winnerIdx = urlDuplicateOf.get(i);
+      // Find the winner in kept array
+      for (const k of kept) {
+        if (k.url === sorted[winnerIdx].url || normalizeUrl(k.url) === normalizeUrl(sorted[winnerIdx].url)) {
+          if (!k.sources) k.sources = [k.source];
+          if (post.source && !k.sources.includes(post.source)) {
+            k.sources.push(post.source);
+          }
+          break;
+        }
+      }
+      continue;
+    }
+
+    const postWords = normalizeToWords(post.title);
     let isDuplicate = false;
 
-    for (let i = 0; i < kept.length; i++) {
-      const sim = jaccardSimilarity(postSet, keptSets[i]);
-      if (sim >= threshold) {
-        // Merge provenance: add this post's source to the kept entry
-        const winner = kept[i];
+    for (let j = 0; j < kept.length; j++) {
+      const sim = combinedSimilarity(postWords, keptWords[j]);
+
+      // Use lower threshold for cross-source dedup
+      const isCrossSource = post.source !== keptSources[j];
+      const effectiveThreshold = isCrossSource ? crossSourceThreshold : threshold;
+
+      if (sim >= effectiveThreshold) {
+        // Merge provenance
+        const winner = kept[j];
         if (!winner.sources) winner.sources = [winner.source];
-        if (!winner.sources.includes(post.source)) {
+        if (post.source && !winner.sources.includes(post.source)) {
           winner.sources.push(post.source);
         }
         isDuplicate = true;
@@ -171,7 +259,8 @@ function deduplicateByTitle(posts, threshold = 0.6) {
 
     if (!isDuplicate) {
       kept.push({ ...post, sources: [post.source] });
-      keptSets.push(postSet);
+      keptWords.push(postWords);
+      keptSources.push(post.source);
     }
   }
 
@@ -348,9 +437,10 @@ async function cmdScan(args) {
       errors[result.sourceName] = result.error;
     }
 
-    // Tag each post with its source
+    // Tag each post with its source and apply quality multiplier
     for (const post of result.posts) {
-      allPosts.push({ ...post, source: result.sourceName });
+      const adjustedScore = applySourceQuality(post.painScore || 0, result.sourceName);
+      allPosts.push({ ...post, source: result.sourceName, painScore: adjustedScore });
     }
   }
 

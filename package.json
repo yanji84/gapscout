@@ -3,13 +3,33 @@
   "version": "4.0.0",
   "description": "Modular pain point discovery — Reddit API, browser scraping, and more. Find frustrations, unmet needs, and startup ideas.",
   "type": "module",
-  "keywords": ["clawdbot-skill", "reddit", "pain-points", "pullpush", "puppeteer", "browser", "research"],
+  "keywords": [
+    "clawdbot-skill",
+    "reddit",
+    "pain-points",
+    "pullpush",
+    "puppeteer",
+    "browser",
+    "research",
+    "market-research",
+    "competitor-analysis",
+    "user-feedback",
+    "product-discovery",
+    "hackernews",
+    "producthunt",
+    "g2-reviews",
+    "google-autocomplete"
+  ],
   "author": "Lobster",
   "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "bin": {
     "pain-points": "./scripts/cli.mjs"
   },
   "scripts": {
+    "test": "echo \"No tests yet\"",
     "discover": "node scripts/cli.mjs api discover",
     "scan": "node scripts/cli.mjs api scan",
     "deep-dive": "node scripts/cli.mjs api deep-dive",

@@ -12,6 +12,47 @@
  */
 
 import { excerpt } from './utils.mjs';
+import { blendLLMScores } from './llm.mjs';
+
+// ─── source quality multipliers ─────────────────────────────────────────────
+// Each source has different signal quality. These multipliers are applied to
+// the final painScore of each post based on its source.
+
+export const SOURCE_QUALITY_MULTIPLIERS = {
+  'reddit-api': 1.0,       // High signal, real discussions
+  'reddit-browser': 1.0,   // High signal, real discussions
+  hackernews: 0.95,         // High signal, technical
+  stackoverflow: 1.0,       // High signal, real developer pain
+  producthunt: 0.85,        // Mixed signal
+  reviews: 0.9,             // Verified reviews (G2/Capterra)
+  trustpilot: 0.85,         // Review bombing risk
+  'google-autocomplete': 0.6, // Noisy, not actual posts
+  appstore: 0.75,           // Noise-heavy, complaint-biased
+  twitter: 0.7,             // Short-form, context-poor
+  crowdfunding: 0.8,        // Kickstarter/Indiegogo
+  websearch: 0.8,           // Blogs, forums, wider web
+  'github-issues': 0.9,     // Real issues with reaction validation
+};
+
+/**
+ * Get the quality multiplier for a given source name.
+ * Returns 1.0 for unknown sources.
+ */
+export function getSourceQualityMultiplier(source) {
+  if (!source) return 1.0;
+  return SOURCE_QUALITY_MULTIPLIERS[source] || 1.0;
+}
+
+/**
+ * Apply source quality multiplier to a pain score.
+ * @param {number} painScore - Raw pain score
+ * @param {string} source - Source name (e.g. 'hackernews', 'twitter')
+ * @returns {number} Adjusted pain score
+ */
+export function applySourceQuality(painScore, source) {
+  const multiplier = getSourceQualityMultiplier(source);
+  return Math.round(painScore * multiplier * 10) / 10;
+}
 
 // ─── pain signal keywords ────────────────────────────────────────────────────
 
@@ -632,7 +673,7 @@ export function enrichPost(post, domain = '', domainKeywords = []) {
 
   painScore = Math.round(painScore * 10) / 10;
 
-  return {
+  let enriched = {
     id: post.id,
     title: post.title || '',
     subreddit: post.subreddit || '',
@@ -652,6 +693,14 @@ export function enrichPost(post, domain = '', domainKeywords = []) {
     intensity,
     flair: post.flair || null,
   };
+
+  // Carry over LLM augmentation if present on the input post, and blend scores
+  if (post.llmAugmentation) {
+    enriched.llmAugmentation = post.llmAugmentation;
+    enriched = blendLLMScores(enriched);
+  }
+
+  return enriched;
 }
 
 /**
@@ -665,3 +714,15 @@ export function getPostPainCategories(post) {
   if (matchSignals(postText, 'cost').length) cats.push('cost');
   return cats;
 }
+
+// ─── scoring-engine registration ────────────────────────────────────────────
+// Register functions with the PainScorer class for delegation.
+// This avoids circular dependencies while allowing the OO interface.
+
+import { registerScoringFunctions } from './scoring-engine.mjs';
+registerScoringFunctions({ computePainScore, analyzeComments, enrichPost });
+
+// Re-export signal and context modules for convenience
+export { getSignalProfile, listProfiles } from './signals/index.mjs';
+export { SignalMatcher } from './signals/matcher.mjs';
+export { PainScorer } from './scoring-engine.mjs';

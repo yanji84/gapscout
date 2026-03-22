@@ -9,10 +9,9 @@
  */
 
 import https from 'node:https';
-import http from 'node:http';
-import puppeteer from 'puppeteer-core';
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
+import { connectBrowser, politeDelay as politeDelayBase } from '../lib/browser.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -42,84 +41,7 @@ const PAIN_QUERY_TEMPLATES = [
 ];
 
 async function politeDelay() {
-  await sleep(PAGE_DELAY_MS + Math.floor(Math.random() * JITTER_MS));
-}
-
-// ─── browser connection (copied from reddit-browser.mjs) ────────────────────
-
-async function probePort(port) {
-  return new Promise((resolve) => {
-    const req = http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        try {
-          const info = JSON.parse(body);
-          resolve(info.webSocketDebuggerUrl || null);
-        } catch { resolve(null); }
-      });
-    });
-    req.setTimeout(2000, () => { req.destroy(); resolve(null); });
-    req.on('error', () => resolve(null));
-  });
-}
-
-async function findChromeWSEndpoint() {
-  const fs = await import('node:fs');
-  const path = await import('node:path');
-  const os = await import('node:os');
-  const tmpdir = os.default.tmpdir();
-  const entries = fs.default.readdirSync(tmpdir);
-  for (const entry of entries) {
-    if (entry.startsWith('puppeteer_dev_chrome_profile')) {
-      const portFile = path.default.join(tmpdir, entry, 'DevToolsActivePort');
-      if (fs.default.existsSync(portFile)) {
-        const content = fs.default.readFileSync(portFile, 'utf8').trim();
-        const lines = content.split('\n');
-        if (lines.length >= 2) {
-          const port = parseInt(lines[0].trim(), 10);
-          const wsPath = lines[1].trim();
-          const wsUrl = await probePort(port);
-          if (wsUrl) {
-            log(`[twitter] found Chrome at ws://127.0.0.1:${port}${wsPath}`);
-            return wsUrl;
-          }
-        }
-      }
-    }
-  }
-  return null;
-}
-
-async function getWSFromPort(port) {
-  return new Promise((resolve, reject) => {
-    http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        try { resolve(JSON.parse(body).webSocketDebuggerUrl); }
-        catch (err) { reject(new Error(`Cannot parse Chrome debug info: ${err.message}`)); }
-      });
-    }).on('error', reject);
-  });
-}
-
-async function connectBrowser(args) {
-  if (args.wsUrl) {
-    log(`[twitter] connecting to ${args.wsUrl}`);
-    return await puppeteer.connect({ browserWSEndpoint: args.wsUrl });
-  }
-  if (args.port) {
-    const wsUrl = await getWSFromPort(args.port);
-    log(`[twitter] connecting via port ${args.port}`);
-    return await puppeteer.connect({ browserWSEndpoint: wsUrl });
-  }
-  const wsUrl = await findChromeWSEndpoint();
-  if (wsUrl) {
-    try { return await puppeteer.connect({ browserWSEndpoint: wsUrl }); }
-    catch (err) { log(`[twitter] auto-detect failed: ${err.message}`); }
-  }
-  fail('No Chrome browser found. Start puppeteer-mcp-server, or pass --ws-url / --port');
+  await politeDelayBase(PAGE_DELAY_MS, JITTER_MS);
 }
 
 // ─── Nitter scraping ─────────────────────────────────────────────────────────

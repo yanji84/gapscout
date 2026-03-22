@@ -18,10 +18,9 @@
  *   - Reviews: data-test contains "review"
  */
 
-import puppeteer from 'puppeteer-core';
-import http from 'node:http';
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
+import { connectBrowser as connectBrowserBase, politeDelay as politeDelayBase } from '../lib/browser.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -50,113 +49,18 @@ const DOMAIN_TO_CATEGORY = {
 };
 
 async function politeDelay(ms = PAGE_DELAY_MS) {
-  await sleep(ms);
-}
-
-// ─── browser connection ──────────────────────────────────────────────────────
-
-const CHROME_EXECUTABLES = [
-  '/usr/bin/google-chrome-stable',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium-browser',
-  '/usr/bin/chromium',
-  '/usr/local/bin/chromium',
-];
-
-async function findChromeExecutable() {
-  const { existsSync } = await import('node:fs').then(m => m.default || m);
-  for (const exe of CHROME_EXECUTABLES) {
-    if (existsSync(exe)) return exe;
-  }
-  return null;
-}
-
-async function findChromeWSEndpoint() {
-  const fs = await import('node:fs');
-  const path = await import('node:path');
-  const os = await import('node:os');
-  const tmpdir = os.default.tmpdir();
-  let entries;
-  try { entries = fs.default.readdirSync(tmpdir); } catch { return null; }
-  for (const entry of entries) {
-    if (entry.startsWith('puppeteer_dev_chrome_profile')) {
-      const portFile = path.default.join(tmpdir, entry, 'DevToolsActivePort');
-      if (fs.default.existsSync(portFile)) {
-        const content = fs.default.readFileSync(portFile, 'utf8').trim();
-        const lines = content.split('\n');
-        if (lines.length >= 2) {
-          const port = lines[0].trim();
-          const wsPath = lines[1].trim();
-          const wsUrl = `ws://127.0.0.1:${port}${wsPath}`;
-          // Verify it's alive
-          try {
-            await new Promise((resolve, reject) => {
-              http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
-                let body = '';
-                res.on('data', c => body += c);
-                res.on('end', () => {
-                  try { JSON.parse(body); resolve(); } catch { reject(new Error('bad json')); }
-                });
-              }).on('error', reject);
-            });
-            log(`[ph] found Chrome at ${wsUrl}`);
-            return wsUrl;
-          } catch { continue; }
-        }
-      }
-    }
-  }
-  return null;
-}
-
-function getWSFromPort(port) {
-  return new Promise((resolve, reject) => {
-    http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        try { resolve(JSON.parse(body).webSocketDebuggerUrl); }
-        catch (err) { reject(new Error(`Cannot parse Chrome debug info: ${err.message}`)); }
-      });
-    }).on('error', reject);
-  });
+  await politeDelayBase(ms, 0);
 }
 
 let _launchedBrowser = null;
 
 async function connectBrowser(args) {
-  if (args.wsUrl) {
-    log(`[ph] connecting to ${args.wsUrl}`);
-    return await puppeteer.connect({ browserWSEndpoint: args.wsUrl });
+  const browser = await connectBrowserBase(args, { logTag: 'ph', canLaunch: true });
+  // Track if we launched it ourselves so we can close it later
+  if (!args.wsUrl && !args.port) {
+    _launchedBrowser = browser;
   }
-  if (args.port) {
-    const wsUrl = await getWSFromPort(args.port);
-    log(`[ph] connecting via port ${args.port}`);
-    return await puppeteer.connect({ browserWSEndpoint: wsUrl });
-  }
-  const wsUrl = await findChromeWSEndpoint();
-  if (wsUrl) {
-    try { return await puppeteer.connect({ browserWSEndpoint: wsUrl }); }
-    catch (err) { log(`[ph] auto-detect failed: ${err.message}`); }
-  }
-  // Fall back to launching our own Chrome
-  const execPath = await findChromeExecutable();
-  if (!execPath) {
-    fail('No Chrome browser found. Install Google Chrome or pass --ws-url / --port');
-  }
-  log(`[ph] launching Chrome: ${execPath}`);
-  _launchedBrowser = await puppeteer.launch({
-    executablePath: execPath,
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--window-size=1280,900',
-    ],
-  });
-  return _launchedBrowser;
+  return browser;
 }
 
 // ─── realistic browser helpers ───────────────────────────────────────────────

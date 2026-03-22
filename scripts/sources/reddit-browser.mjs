@@ -5,105 +5,23 @@
  * instance (e.g. from puppeteer-mcp-server) or accepts --ws-url / --port.
  */
 
-import puppeteer from 'puppeteer-core';
 import { readFileSync } from 'node:fs';
-import http from 'node:http';
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import {
   computePainScore, analyzeComments, enrichPost,
   matchSignals, getPostPainCategories,
 } from '../lib/scoring.mjs';
+import { connectBrowser, politeDelay } from '../lib/browser.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
 const OLD_REDDIT = 'https://old.reddit.com';
-const PAGE_DELAY_MS = 1000;   // was 2000
-const JITTER_MS = 300;        // was 500
-const MAX_PAGES_PER_RUN = 200; // was 50
+const PAGE_DELAY_MS = 1000;
+const JITTER_MS = 300;
+const MAX_PAGES_PER_RUN = 200;
 
-async function politeDelay() {
-  await sleep(PAGE_DELAY_MS + Math.floor(Math.random() * JITTER_MS));
-}
-
-// ─── browser connection ─────────────────────────────────────────────────────
-
-async function probePort(port) {
-  return new Promise((resolve) => {
-    const req = http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        try {
-          const info = JSON.parse(body);
-          resolve(info.webSocketDebuggerUrl || null);
-        } catch { resolve(null); }
-      });
-    });
-    req.setTimeout(2000, () => { req.destroy(); resolve(null); });
-    req.on('error', () => resolve(null));
-  });
-}
-
-async function findChromeWSEndpoint() {
-  const fs = await import('node:fs');
-  const path = await import('node:path');
-  const os = await import('node:os');
-  const tmpdir = os.default.tmpdir();
-  const entries = fs.default.readdirSync(tmpdir);
-  const candidates = [];
-  for (const entry of entries) {
-    if (entry.startsWith('puppeteer_dev_chrome_profile')) {
-      const portFile = path.default.join(tmpdir, entry, 'DevToolsActivePort');
-      if (fs.default.existsSync(portFile)) {
-        const content = fs.default.readFileSync(portFile, 'utf8').trim();
-        const lines = content.split('\n');
-        if (lines.length >= 2) {
-          candidates.push({ port: lines[0].trim(), wsPath: lines[1].trim() });
-        }
-      }
-    }
-  }
-  // Validate each candidate by probing the HTTP endpoint
-  for (const { port, wsPath } of candidates) {
-    const wsUrl = await probePort(parseInt(port, 10));
-    if (wsUrl) {
-      log(`[browser] found Chrome at ws://127.0.0.1:${port}${wsPath}`);
-      return wsUrl;
-    }
-    log(`[browser] Chrome port ${port} not responding, skipping`);
-  }
-  return null;
-}
-
-function getWSFromPort(port) {
-  return new Promise((resolve, reject) => {
-    http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        try { resolve(JSON.parse(body).webSocketDebuggerUrl); }
-        catch (err) { reject(new Error(`Cannot parse Chrome debug info: ${err.message}`)); }
-      });
-    }).on('error', reject);
-  });
-}
-
-async function connectBrowser(args) {
-  if (args.wsUrl) {
-    log(`[browser] connecting to ${args.wsUrl}`);
-    return await puppeteer.connect({ browserWSEndpoint: args.wsUrl });
-  }
-  if (args.port) {
-    const wsUrl = await getWSFromPort(args.port);
-    log(`[browser] connecting via port ${args.port}`);
-    return await puppeteer.connect({ browserWSEndpoint: wsUrl });
-  }
-  const wsUrl = await findChromeWSEndpoint();
-  if (wsUrl) {
-    try { return await puppeteer.connect({ browserWSEndpoint: wsUrl }); }
-    catch (err) { log(`[browser] auto-detect failed: ${err.message}`); }
-  }
-  fail('No Chrome browser found. Start puppeteer-mcp-server, or pass --ws-url / --port');
+async function politeDelayLocal() {
+  await politeDelay(PAGE_DELAY_MS, JITTER_MS);
 }
 
 // ─── scraping functions ─────────────────────────────────────────────────────
@@ -203,7 +121,7 @@ async function scrapeSearchResultsAllPages(page, startUrl, maxPages, postsById, 
           log(`[browser-scan]   no next page found, stopping pagination`);
           break;
         }
-        await politeDelay();
+        await politeDelayLocal();
       }
     } catch (err) {
       log(`[browser-scan]   failed: ${err.message}`);
@@ -474,7 +392,7 @@ async function cmdDeepDive(args) {
         log(`[browser-deep-dive] failed for ${postUrl}: ${err.message}`);
         results.push({ post: { url: postUrl }, error: err.message });
       }
-      await politeDelay();
+      await politeDelayLocal();
     }
 
     ok({ mode: 'browser', results, pages_loaded: postUrls.length });

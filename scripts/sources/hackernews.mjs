@@ -3,12 +3,12 @@
  * Uses the Algolia HN Search API (no browser needed)
  */
 
-import https from 'node:https';
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import {
   computePainScore, analyzeComments, enrichPost,
   getPostPainCategories,
 } from '../lib/scoring.mjs';
+import { httpGet, httpGetWithRetry } from '../lib/http.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -17,10 +17,6 @@ const SEARCH_PATH = '/api/v1/search';
 const ITEMS_PATH = '/api/v1/items';
 
 const MIN_DELAY_MS = 1000;
-const REQUEST_TIMEOUT_MS = 15000;
-
-const MAX_RETRIES = 3;
-const BACKOFF_BASE_MS = 2000;
 
 // Date windowing: year ranges from 2019 to 2026
 const DATE_WINDOWS = [
@@ -34,52 +30,10 @@ const DATE_WINDOWS = [
   { start: new Date('2026-01-01').getTime() / 1000 | 0, end: new Date('2027-01-01').getTime() / 1000 | 0 },
 ];
 
-// ─── HTTP client ─────────────────────────────────────────────────────────────
-
-function httpGet(hostname, path) {
-  return new Promise((resolve, reject) => {
-    const req = https.get({
-      hostname,
-      path,
-      headers: { 'User-Agent': 'pain-point-finder/3.0' },
-      timeout: REQUEST_TIMEOUT_MS,
-    }, (res) => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        if (res.statusCode === 200) {
-          try { resolve(JSON.parse(body)); }
-          catch { reject(new Error(`Non-JSON response: ${body.slice(0, 200)}`)); }
-        } else {
-          const err = new Error(`HTTP ${res.statusCode}`);
-          err.statusCode = res.statusCode;
-          reject(err);
-        }
-      });
-    });
-    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-    req.on('error', reject);
-  });
-}
+// ─── HTTP client (uses shared lib/http.mjs) ──────────────────────────────────
 
 async function fetchWithRetry(hostname, path) {
-  let lastErr;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      if (attempt > 0) {
-        const backoff = BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
-        log(`[http] retry ${attempt} in ${backoff}ms`);
-        await sleep(backoff);
-      }
-      return await httpGet(hostname, path);
-    } catch (err) {
-      lastErr = err;
-      const code = err.statusCode || 0;
-      if (code === 403 || code === 404) throw err;
-      log(`[http] ${err.message}`);
-    }
-  }
-  throw lastErr;
+  return httpGetWithRetry(hostname, path, { maxRetries: 3 });
 }
 
 // ─── rate limiter ────────────────────────────────────────────────────────────
@@ -545,16 +499,243 @@ async function cmdDeepDive(args) {
   ok({ source: 'hackernews', results });
 }
 
+// ─── frontpage command ───────────────────────────────────────────────────────
+
+const HN_FIREBASE_HOST = 'hacker-news.firebaseio.com';
+
+function firebaseGet(path) {
+  return httpGet(HN_FIREBASE_HOST, path);
+}
+
+/**
+ * Extract domain from a URL string, stripping www. prefix.
+ */
+function extractDomain(url) {
+  if (!url) return null;
+  try {
+    const host = new URL(url).hostname;
+    return host.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Classify a story into broad topic categories based on title keywords.
+ */
+function classifyTopics(title) {
+  const t = (title || '').toLowerCase();
+  const topics = [];
+
+  const topicKeywords = {
+    'AI / ML': ['ai', 'llm', 'gpt', 'machine learning', 'deep learning', 'neural', 'transformer', 'openai', 'anthropic', 'chatgpt', 'claude', 'gemini', 'diffusion', 'generative'],
+    'DevTools / Infrastructure': ['api', 'sdk', 'framework', 'docker', 'kubernetes', 'k8s', 'ci/cd', 'devops', 'terraform', 'aws', 'cloud', 'serverless', 'database', 'postgres', 'redis', 'git', 'ide', 'compiler', 'rust', 'go ', 'golang', 'python', 'typescript', 'javascript'],
+    'Security / Privacy': ['security', 'vulnerability', 'hack', 'breach', 'encryption', 'privacy', 'surveillance', 'vpn', 'malware', 'ransomware', 'zero-day', 'exploit', 'auth', 'oauth'],
+    'Startup / Business': ['startup', 'founder', 'yc ', 'y combinator', 'fundrais', 'series a', 'revenue', 'saas', 'bootstrap', 'acquisition', 'ipo', 'valuation', 'pivot'],
+    'Hardware / Electronics': ['chip', 'semiconductor', 'cpu', 'gpu', 'fpga', 'arduino', 'raspberry pi', 'hardware', 'sensor', 'pcb', 'risc-v', 'arm'],
+    'Web / Frontend': ['css', 'html', 'react', 'vue', 'svelte', 'nextjs', 'browser', 'dom', 'web', 'frontend', 'responsive'],
+    'Data / Analytics': ['data', 'analytics', 'metrics', 'dashboard', 'etl', 'warehouse', 'bigquery', 'snowflake', 'dbt', 'visualization'],
+    'Crypto / Web3': ['crypto', 'bitcoin', 'ethereum', 'blockchain', 'nft', 'defi', 'web3', 'token'],
+    'Health / Biotech': ['health', 'medical', 'biotech', 'pharma', 'drug', 'fda', 'clinical', 'genomic', 'crispr', 'longevity'],
+    'Productivity / Tools': ['productivity', 'note', 'calendar', 'email', 'workflow', 'automation', 'no-code', 'low-code', 'zapier', 'notion'],
+    'Open Source': ['open source', 'open-source', 'oss', 'foss', 'mit license', 'gpl', 'apache license'],
+    'Hiring / Careers': ['hiring', 'job', 'career', 'interview', 'resume', 'salary', 'remote work', 'layoff'],
+    'Regulation / Policy': ['regulation', 'antitrust', 'gdpr', 'eu ', 'fcc', 'copyright', 'patent', 'lawsuit', 'ban'],
+    'Show HN / Launch': ['show hn'],
+    'Ask HN': ['ask hn'],
+  };
+
+  for (const [topic, keywords] of Object.entries(topicKeywords)) {
+    if (keywords.some(kw => t.includes(kw))) {
+      topics.push(topic);
+    }
+  }
+
+  if (topics.length === 0) topics.push('General / Other');
+  return topics;
+}
+
+/**
+ * Analyze frontpage stories and produce niche/domain suggestions.
+ */
+function analyzeFrontpage(stories) {
+  // Count topics, domains, and gather story metadata
+  const topicCounts = {};
+  const domainCounts = {};
+  const topicStories = {};
+  const domainStories = {};
+
+  for (const story of stories) {
+    const topics = classifyTopics(story.title);
+    const domain = extractDomain(story.url);
+
+    for (const topic of topics) {
+      topicCounts[topic] = (topicCounts[topic] || 0) + 1;
+      if (!topicStories[topic]) topicStories[topic] = [];
+      topicStories[topic].push({
+        id: story.id,
+        title: story.title,
+        score: story.score || 0,
+        comments: story.descendants || 0,
+        url: story.url || `https://news.ycombinator.com/item?id=${story.id}`,
+      });
+    }
+
+    if (domain) {
+      domainCounts[domain] = (domainCounts[domain] || 0) + 1;
+      if (!domainStories[domain]) domainStories[domain] = [];
+      domainStories[domain].push({
+        id: story.id,
+        title: story.title,
+        score: story.score || 0,
+        comments: story.descendants || 0,
+      });
+    }
+  }
+
+  // Compute engagement-weighted topic scores
+  const topicScores = {};
+  for (const [topic, storyList] of Object.entries(topicStories)) {
+    const totalScore = storyList.reduce((s, st) => s + st.score, 0);
+    const totalComments = storyList.reduce((s, st) => s + st.comments, 0);
+    const count = storyList.length;
+    // Weight: count * 10 + avg_score + avg_comments * 2
+    const avgScore = count > 0 ? totalScore / count : 0;
+    const avgComments = count > 0 ? totalComments / count : 0;
+    topicScores[topic] = {
+      count,
+      totalScore,
+      totalComments,
+      avgScore: Math.round(avgScore),
+      avgComments: Math.round(avgComments),
+      relevanceScore: Math.round(count * 10 + avgScore + avgComments * 2),
+      topStories: storyList.sort((a, b) => b.score - a.score).slice(0, 5),
+    };
+  }
+
+  // Sort topics by relevance score
+  const rankedTopics = Object.entries(topicScores)
+    .map(([topic, data]) => ({ topic, ...data }))
+    .sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+  // Identify multi-appearance domains (signals trending companies/products)
+  const trendingDomains = Object.entries(domainCounts)
+    .filter(([, count]) => count >= 2)
+    .map(([domain, count]) => ({
+      domain,
+      count,
+      stories: domainStories[domain].sort((a, b) => b.score - a.score),
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  // Generate niche suggestions with reasoning
+  const suggestions = rankedTopics
+    .filter(t => t.topic !== 'General / Other')
+    .map((t, i) => {
+      const highEngagement = t.avgComments > 50;
+      const highVolume = t.count >= 3;
+      const reasoning = [];
+
+      if (highVolume) reasoning.push(`${t.count} stories on frontpage right now`);
+      else reasoning.push(`${t.count} story/stories on frontpage`);
+
+      if (highEngagement) reasoning.push(`high discussion (avg ${t.avgComments} comments)`);
+      if (t.avgScore > 100) reasoning.push(`strong upvotes (avg ${t.avgScore} points)`);
+
+      reasoning.push(`top story: "${t.topStories[0]?.title}"`);
+
+      return {
+        rank: i + 1,
+        niche: t.topic,
+        storyCount: t.count,
+        avgScore: t.avgScore,
+        avgComments: t.avgComments,
+        relevanceScore: t.relevanceScore,
+        reasoning: reasoning.join('; '),
+        sampleStories: t.topStories.slice(0, 3).map(s => ({
+          title: s.title,
+          hnUrl: `https://news.ycombinator.com/item?id=${s.id}`,
+          score: s.score,
+          comments: s.comments,
+        })),
+      };
+    });
+
+  return { suggestions, trendingDomains };
+}
+
+async function cmdFrontpage(args) {
+  const limit = args.limit || 30; // how many top stories to fetch
+  const topN = args.top || 10;    // how many niche suggestions to return
+
+  log(`[frontpage] fetching top ${limit} HN stories via Firebase API`);
+
+  // 1. Get top story IDs
+  await rateLimit();
+  let storyIds;
+  try {
+    storyIds = await firebaseGet('/v0/topstories.json');
+  } catch (err) {
+    fail(`Failed to fetch HN top stories: ${err.message}`);
+  }
+
+  if (!Array.isArray(storyIds) || storyIds.length === 0) {
+    fail('No stories returned from HN API');
+  }
+
+  storyIds = storyIds.slice(0, limit);
+  log(`[frontpage] fetching details for ${storyIds.length} stories`);
+
+  // 2. Fetch each story's details
+  const stories = [];
+  // Batch fetch with rate limiting
+  for (const id of storyIds) {
+    await rateLimit();
+    try {
+      const story = await firebaseGet(`/v0/item/${id}.json`);
+      if (story && story.type === 'story') {
+        stories.push(story);
+      }
+    } catch (err) {
+      log(`[frontpage] failed to fetch story ${id}: ${err.message}`);
+    }
+  }
+
+  log(`[frontpage] fetched ${stories.length} stories, analyzing`);
+
+  // 3. Analyze and rank
+  const { suggestions, trendingDomains } = analyzeFrontpage(stories);
+
+  ok({
+    source: 'hackernews-frontpage',
+    fetchedAt: new Date().toISOString(),
+    storiesAnalyzed: stories.length,
+    suggestions: suggestions.slice(0, topN),
+    trendingDomains: trendingDomains.slice(0, 10),
+    allStories: stories.map(s => ({
+      id: s.id,
+      title: s.title,
+      url: s.url || null,
+      hnUrl: `https://news.ycombinator.com/item?id=${s.id}`,
+      score: s.score || 0,
+      comments: s.descendants || 0,
+      domain: extractDomain(s.url),
+      topics: classifyTopics(s.title),
+    })),
+  });
+}
+
 // ─── source export ───────────────────────────────────────────────────────────
 
 export default {
   name: 'hackernews',
   description: 'Hacker News — Algolia search API, no browser needed',
-  commands: ['scan', 'deep-dive'],
+  commands: ['scan', 'deep-dive', 'frontpage'],
   async run(command, args) {
     switch (command) {
       case 'scan': return cmdScan(args);
       case 'deep-dive': return cmdDeepDive(args);
+      case 'frontpage': return cmdFrontpage(args);
       default: fail(`Unknown command: ${command}`);
     }
   },
@@ -564,6 +745,7 @@ hackernews source — Algolia HN Search API
 Commands:
   scan       Search HN for pain-point posts related to a domain
   deep-dive  Deep comment analysis for specific HN stories
+  frontpage  Scan HN front page to suggest trending domains/niches
 
 scan options:
   --domain <str>          Domain to search (required)
@@ -577,5 +759,9 @@ deep-dive options:
   --from-scan <file>      JSON file from scan
   --stdin                 Read scan JSON from stdin
   --top <n>               Top N posts from scan (default: 10)
+
+frontpage options:
+  --limit <n>             Number of top stories to analyze (default: 30)
+  --top <n>               Number of niche suggestions to return (default: 10)
 `,
 };

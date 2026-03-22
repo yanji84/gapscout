@@ -27,28 +27,10 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { log } from './lib/utils.mjs';
+import { resolveSourceName } from './lib/command-registry.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = resolve(__dirname, 'cli.mjs');
-
-// ─── source name aliases (mirrors cli.mjs SOURCE_ALIASES) ───────────────────
-
-const SOURCE_ALIASES = {
-  api: 'reddit-api',
-  browser: 'reddit-browser',
-  google: 'google-autocomplete',
-  hn: 'hackernews',
-  hackernews: 'hackernews',
-  reviews: 'reviews',
-  ph: 'producthunt',
-  producthunt: 'producthunt',
-  kickstarter: 'crowdfunding',
-  crowdfunding: 'crowdfunding',
-  appstore: 'appstore',
-  twitter: 'twitter',
-  x: 'twitter',
-  trustpilot: 'trustpilot',
-};
 
 // ─── config loading ──────────────────────────────────────────────────────────
 
@@ -165,7 +147,7 @@ function spawnSource(cliArgs, timeoutMs = 180000) {
  * e.g. "api" -> "reddit-api", "hn" -> "hackernews"
  */
 function resolveSourceAlias(name) {
-  return SOURCE_ALIASES[name] || name;
+  return resolveSourceName(name);
 }
 
 /**

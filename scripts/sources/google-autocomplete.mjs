@@ -14,11 +14,10 @@
  *  - Related searches scraping from bottom of SERP
  */
 
-import puppeteer from 'puppeteer-core';
-import http from 'node:http';
 import https from 'node:https';
 import { sleep, log, ok, fail } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
+import { connectBrowser as connectBrowserBase, politeDelay as politeDelayBase } from '../lib/browser.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -30,7 +29,7 @@ const AUTOCOMPLETE_API = 'https://suggestqueries.google.com/complete/search?clie
 const AUTOCOMPLETE_API_LANG = 'https://suggestqueries.google.com/complete/search?client=firefox&hl=';
 
 async function politeDelay() {
-  await sleep(SEARCH_DELAY_MS + Math.floor(Math.random() * JITTER_MS));
+  await politeDelayBase(SEARCH_DELAY_MS, JITTER_MS);
 }
 
 // ─── seed generation ──────────────────────────────────────────────────────────
@@ -101,62 +100,8 @@ function buildSeeds(domain, langs) {
   return [...seeds];
 }
 
-// ─── browser connection (copied from reddit-browser.mjs) ────────────────────
-
-async function findChromeWSEndpoint() {
-  const fs = await import('node:fs');
-  const path = await import('node:path');
-  const os = await import('node:os');
-  const tmpdir = os.default.tmpdir();
-  const entries = fs.default.readdirSync(tmpdir);
-  for (const entry of entries) {
-    if (entry.startsWith('puppeteer_dev_chrome_profile')) {
-      const portFile = path.default.join(tmpdir, entry, 'DevToolsActivePort');
-      if (fs.default.existsSync(portFile)) {
-        const content = fs.default.readFileSync(portFile, 'utf8').trim();
-        const lines = content.split('\n');
-        if (lines.length >= 2) {
-          const port = lines[0].trim();
-          const wsPath = lines[1].trim();
-          const wsUrl = `ws://127.0.0.1:${port}${wsPath}`;
-          log(`[browser] found Chrome at ${wsUrl}`);
-          return wsUrl;
-        }
-      }
-    }
-  }
-  return null;
-}
-
-function getWSFromPort(port) {
-  return new Promise((resolve, reject) => {
-    http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        try { resolve(JSON.parse(body).webSocketDebuggerUrl); }
-        catch (err) { reject(new Error(`Cannot parse Chrome debug info: ${err.message}`)); }
-      });
-    }).on('error', reject);
-  });
-}
-
 async function connectBrowser(args) {
-  if (args.wsUrl) {
-    log(`[browser] connecting to ${args.wsUrl}`);
-    return await puppeteer.connect({ browserWSEndpoint: args.wsUrl });
-  }
-  if (args.port) {
-    const wsUrl = await getWSFromPort(args.port);
-    log(`[browser] connecting via port ${args.port}`);
-    return await puppeteer.connect({ browserWSEndpoint: wsUrl });
-  }
-  const wsUrl = await findChromeWSEndpoint();
-  if (wsUrl) {
-    try { return await puppeteer.connect({ browserWSEndpoint: wsUrl }); }
-    catch (err) { log(`[browser] auto-detect failed: ${err.message}`); }
-  }
-  throw new Error('No Chrome browser found. Start puppeteer-mcp-server, or pass --ws-url / --port');
+  return connectBrowserBase(args, { logTag: 'google', throwOnFail: true });
 }
 
 // ─── ID hashing ──────────────────────────────────────────────────────────────

@@ -2,24 +2,18 @@
  * reddit-api.mjs — PullPush API source for pain-point-finder
  */
 
-import https from 'node:https';
 import { sleep, log, ok, fail, excerpt, unixNow, daysAgoUnix, utcToDate } from '../lib/utils.mjs';
 import {
   SCAN_QUERIES, computePainScore, analyzeComments, enrichPost,
   getPostPainCategories, matchSignals,
 } from '../lib/scoring.mjs';
+import { RateLimiter, httpGet as httpGetBase } from '../lib/http.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
 const PULLPUSH_HOST = 'api.pullpush.io';
 const SUBMISSION_PATH = '/reddit/search/submission/';
 const COMMENT_PATH = '/reddit/search/comment/';
-
-const MIN_DELAY_MS = 1000;
-const JITTER_MS = 200;
-const MAX_PER_MIN = 30;
-const MAX_PER_RUN = 1000;
-const REQUEST_TIMEOUT_MS = 15000;
 
 const MAX_RETRIES_429 = 5;
 const MAX_RETRIES_5XX = 3;
@@ -97,39 +91,7 @@ Customer Service / Support:
 
 // ─── rate limiter ───────────────────────────────────────────────────────────
 
-class RateLimiter {
-  constructor() {
-    this.timestamps = [];
-    this.totalRequests = 0;
-    this.lastRequestAt = 0;
-  }
-
-  async wait() {
-    if (this.totalRequests >= MAX_PER_RUN) {
-      throw new Error(`Rate limit: max ${MAX_PER_RUN} requests per run exceeded`);
-    }
-    const now = Date.now();
-    this.timestamps = this.timestamps.filter(t => now - t < 60000);
-    if (this.timestamps.length >= MAX_PER_MIN) {
-      const oldest = this.timestamps[0];
-      const waitMs = 60000 - (now - oldest) + 100;
-      log(`[rate] per-minute cap hit, sleeping ${waitMs}ms`);
-      await sleep(waitMs);
-    }
-    const elapsed = Date.now() - this.lastRequestAt;
-    const minWait = MIN_DELAY_MS + Math.floor(Math.random() * JITTER_MS);
-    if (elapsed < minWait) {
-      await sleep(minWait - elapsed);
-    }
-    this.timestamps.push(Date.now());
-    this.lastRequestAt = Date.now();
-    this.totalRequests++;
-  }
-
-  get count() { return this.totalRequests; }
-}
-
-const rateLimiter = new RateLimiter();
+const rateLimiter = new RateLimiter({ maxPerRun: 1000 });
 
 // ─── HTTP client ────────────────────────────────────────────────────────────
 
@@ -139,29 +101,7 @@ function httpGet(urlPath, params) {
     if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
   }
   const fullPath = `${urlPath}?${qs.toString()}`;
-  return new Promise((resolve, reject) => {
-    const req = https.get({
-      hostname: PULLPUSH_HOST,
-      path: fullPath,
-      headers: { 'User-Agent': 'pain-point-finder/3.0' },
-      timeout: REQUEST_TIMEOUT_MS,
-    }, (res) => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        if (res.statusCode === 200) {
-          try { resolve(JSON.parse(body)); }
-          catch { reject(new Error(`Non-JSON response: ${body.slice(0, 200)}`)); }
-        } else {
-          const err = new Error(`HTTP ${res.statusCode}`);
-          err.statusCode = res.statusCode;
-          reject(err);
-        }
-      });
-    });
-    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-    req.on('error', reject);
-  });
+  return httpGetBase(PULLPUSH_HOST, fullPath);
 }
 
 async function fetchWithRetry(urlPath, params) {

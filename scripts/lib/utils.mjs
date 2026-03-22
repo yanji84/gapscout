@@ -2,19 +2,41 @@
  * utils.mjs — Shared utilities for pain-point-finder
  */
 
+import { PainError, handleError } from './errors.mjs';
+import { outputSuccess, outputError } from './output-envelope.mjs';
+
 export function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+/**
+ * Log to stderr. When called with a Logger instance as the first argument,
+ * delegates to logger.info(). Otherwise writes plain text to stderr (backwards compat).
+ */
 export function log(...args) {
   process.stderr.write(args.join(' ') + '\n');
 }
 
-export function ok(data) {
-  console.log(JSON.stringify({ ok: true, data }, null, 2));
+/**
+ * Output success JSON. Optionally uses the standardized envelope when
+ * `useEnvelope` is true (for source modules that opt in).
+ */
+export function ok(data, { useEnvelope = false, meta = {} } = {}) {
+  if (useEnvelope) {
+    console.log(JSON.stringify(outputSuccess(data, meta), null, 2));
+  } else {
+    console.log(JSON.stringify({ ok: true, data }, null, 2));
+  }
 }
 
+/**
+ * Output failure JSON and exit.
+ * Internally uses PainError for structured error data, but maintains
+ * the original { ok: false, error: { message, details } } shape for
+ * backwards compatibility.
+ */
 export function fail(message, details) {
+  // Maintain exact backwards-compatible output shape
   console.log(JSON.stringify({ ok: false, error: { message, details } }, null, 2));
   process.exit(1);
 }
@@ -82,6 +104,7 @@ export function normalizeArgs(argv) {
   if (args.maxApps) args.maxApps = parseInt(args.maxApps, 10);
   if (args.maxReviewsPerApp) args.maxReviewsPerApp = parseInt(args.maxReviewsPerApp, 10);
   if (args.maxAge) args.maxAge = parseInt(args.maxAge, 10);
+  if (args.batchSize) args.batchSize = parseInt(args.batchSize, 10);
   if (args.port) args.port = parseInt(args.port, 10);
   if (args.serve) args.serve = parseInt(args.serve, 10);
   if (typeof args.subreddits === 'string') {

@@ -10,10 +10,9 @@
  *   pain-points trustpilot scan --companies "ticketmaster.com,stubhub.com" --limit 200
  */
 
-import puppeteer from 'puppeteer-core';
-import http from 'node:http';
 import { sleep, log, ok, fail } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
+import { connectBrowser, politeDelay as politeDelayBase } from '../lib/browser.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -38,87 +37,7 @@ const DOMAIN_MAP = {
 };
 
 async function politeDelay() {
-  await sleep(PAGE_DELAY_MS + Math.floor(Math.random() * JITTER_MS));
-}
-
-// ─── browser connection (copied from reddit-browser.mjs) ─────────────────────
-
-async function probePort(port) {
-  return new Promise((resolve) => {
-    const req = http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        try {
-          const info = JSON.parse(body);
-          resolve(info.webSocketDebuggerUrl || null);
-        } catch { resolve(null); }
-      });
-    });
-    req.setTimeout(2000, () => { req.destroy(); resolve(null); });
-    req.on('error', () => resolve(null));
-  });
-}
-
-async function findChromeWSEndpoint() {
-  const fs = await import('node:fs');
-  const path = await import('node:path');
-  const os = await import('node:os');
-  const tmpdir = os.default.tmpdir();
-  const entries = fs.default.readdirSync(tmpdir);
-  const candidates = [];
-  for (const entry of entries) {
-    if (entry.startsWith('puppeteer_dev_chrome_profile')) {
-      const portFile = path.default.join(tmpdir, entry, 'DevToolsActivePort');
-      if (fs.default.existsSync(portFile)) {
-        const content = fs.default.readFileSync(portFile, 'utf8').trim();
-        const lines = content.split('\n');
-        if (lines.length >= 2) {
-          candidates.push({ port: lines[0].trim(), wsPath: lines[1].trim() });
-        }
-      }
-    }
-  }
-  for (const { port, wsPath } of candidates) {
-    const wsUrl = await probePort(parseInt(port, 10));
-    if (wsUrl) {
-      log(`[trustpilot] found Chrome at ws://127.0.0.1:${port}${wsPath}`);
-      return wsUrl;
-    }
-    log(`[trustpilot] Chrome port ${port} not responding, skipping`);
-  }
-  return null;
-}
-
-function getWSFromPort(port) {
-  return new Promise((resolve, reject) => {
-    http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        try { resolve(JSON.parse(body).webSocketDebuggerUrl); }
-        catch (err) { reject(new Error(`Cannot parse Chrome debug info: ${err.message}`)); }
-      });
-    }).on('error', reject);
-  });
-}
-
-async function connectBrowser(args) {
-  if (args.wsUrl) {
-    log(`[trustpilot] connecting to ${args.wsUrl}`);
-    return await puppeteer.connect({ browserWSEndpoint: args.wsUrl });
-  }
-  if (args.port) {
-    const wsUrl = await getWSFromPort(args.port);
-    log(`[trustpilot] connecting via port ${args.port}`);
-    return await puppeteer.connect({ browserWSEndpoint: wsUrl });
-  }
-  const wsUrl = await findChromeWSEndpoint();
-  if (wsUrl) {
-    try { return await puppeteer.connect({ browserWSEndpoint: wsUrl }); }
-    catch (err) { log(`[trustpilot] auto-detect failed: ${err.message}`); }
-  }
-  fail('No Chrome browser found. Start puppeteer-mcp-server, or pass --ws-url / --port');
+  await politeDelayBase(PAGE_DELAY_MS, JITTER_MS);
 }
 
 // ─── domain → company slug resolution ────────────────────────────────────────
@@ -158,14 +77,21 @@ async function scrapeTrustpilotPage(page, url) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await sleep(1500);
 
-    // Check for anti-bot / CAPTCHA
+    // Check for anti-bot / CAPTCHA — only flag if it's a real challenge page, not
+    // Trustpilot's own page which embeds reCaptcha site keys in its JSON scripts.
     const blocked = await page.evaluate(() => {
       var title = (document.title || '').toLowerCase();
-      var body = document.body ? document.body.textContent.toLowerCase() : '';
-      return title.includes('blocked') || title.includes('captcha') ||
-             body.includes('you have been blocked') || body.includes('captcha') ||
-             body.includes('access denied') || body.includes('verify you are human') ||
-             body.includes('unusual traffic');
+      // Title-based checks are reliable
+      if (title.includes('blocked') || title.includes('captcha') || title.includes('access denied')) return true;
+      // Check for visible challenge elements (not just text in scripts)
+      if (document.querySelector('#challenge-form, .cf-challenge-running, .cf-error-code, [id*="captcha-container"], iframe[src*="captcha"]')) return true;
+      // Check body text but only for phrases that wouldn't appear in normal page scripts
+      var bodyText = document.body ? document.body.textContent : '';
+      if (bodyText.includes('you have been blocked') ||
+          bodyText.includes('verify you are human') ||
+          bodyText.includes('unusual traffic') ||
+          bodyText.includes('Access denied')) return true;
+      return false;
     });
 
     if (blocked) {
