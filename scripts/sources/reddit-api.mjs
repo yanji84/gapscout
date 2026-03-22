@@ -18,7 +18,7 @@ const COMMENT_PATH = '/reddit/search/comment/';
 const MIN_DELAY_MS = 1000;
 const JITTER_MS = 200;
 const MAX_PER_MIN = 30;
-const MAX_PER_RUN = 300;
+const MAX_PER_RUN = 1000;
 const REQUEST_TIMEOUT_MS = 15000;
 
 const MAX_RETRIES_429 = 5;
@@ -27,6 +27,73 @@ const MAX_RETRIES_TIMEOUT = 1;
 const BACKOFF_BASE_MS = 2000;
 
 const PAGE_SIZE = 100;
+
+// ─── expanded SCAN_QUERIES (30+ terms, domain-specific sets) ─────────────────
+
+const DOMAIN_SCAN_QUERIES = {
+  // General pain signals
+  frustration: [
+    'frustrated', 'nightmare', 'terrible', 'unusable', 'hate',
+    'broken', 'awful', 'garbage', 'worst experience', 'ridiculous',
+  ],
+  desire: [
+    'alternative', 'looking for', 'switched from', 'wish',
+    'need something better', 'replacement for', 'move away from',
+  ],
+  cost: [
+    'expensive', 'overpriced', 'not worth', 'price hike', 'hidden fees',
+    'ripoff', 'gouging',
+  ],
+  willingness_to_pay: [
+    'paid for', 'would pay', 'wasted hours', 'hired',
+    'worth paying', 'take my money',
+  ],
+  // Tickets domain
+  tickets: [
+    'bot bought tickets', 'queue bot', 'presale bot',
+    'ticketmaster bot', 'sold out instantly',
+  ],
+  // Sneakers domain
+  sneakers: [
+    'sneaker bot', 'SNKRS bot', 'checkout bot', 'raffle bot',
+  ],
+  // GPU / electronics domain
+  gpu: [
+    'scalper gpu', 'bot bought gpu', 'sold out gpu',
+  ],
+  // General scalper / fairness
+  general_scalper: [
+    'scalper', 'resale markup', 'face value', 'anti-bot', 'queue fairness',
+  ],
+};
+
+// ─── recommended subreddits help text ────────────────────────────────────────
+
+const RECOMMENDED_SUBREDDITS = `
+Tickets / Events:
+  Ticketmaster, LiveNation, concerts, festivals, taylor_swift, beyonce,
+  livenation, stubhub, seatgeek, eventim, coachella
+
+Sneakers:
+  Sneakers, Sneakerhead, Nike, Adidas, SNKRS, FashionReps,
+  yeezy, jordans, streetwear, hypebeast
+
+Gaming / GPUs / Electronics:
+  hardware, buildapc, pcmasterrace, nvidia, amd, GameDeals,
+  ps5, xbox, gaming, consoles, GamersNexus
+
+General Commerce / Scalping:
+  OutOfTheLoop, mildlyinfuriating, Scams, personalfinance,
+  antiwork, technology, business, Entrepreneur
+
+SaaS / Software:
+  SaaS, startups, Entrepreneur, webdev, programming,
+  productivity, remotework, digitalnomad
+
+Customer Service / Support:
+  mildlyinfuriating, TrueOffMyChest, complaints, CustomerService,
+  legaladvice, smallbusiness, freelance
+`;
 
 // ─── rate limiter ───────────────────────────────────────────────────────────
 
@@ -133,7 +200,7 @@ async function searchComments(params) {
   return result?.data || [];
 }
 
-async function paginateSubmissions(params, maxPages = 1) {
+async function paginateSubmissions(params, maxPages = 20) {
   const all = [];
   let currentParams = { ...params };
   for (let page = 0; page < maxPages; page++) {
@@ -143,6 +210,22 @@ async function paginateSubmissions(params, maxPages = 1) {
     if (!posts.length) break;
     all.push(...posts);
     const last = posts[posts.length - 1];
+    if (!last.created_utc) break;
+    currentParams = { ...currentParams, before: Math.floor(last.created_utc) };
+  }
+  return all;
+}
+
+async function paginateCommentSearch(params, maxPages = 20) {
+  const all = [];
+  let currentParams = { ...params };
+  for (let page = 0; page < maxPages; page++) {
+    let comments;
+    try { comments = await searchComments(currentParams); }
+    catch (err) { log(`[comment-search] page ${page + 1} failed: ${err.message}`); break; }
+    if (!comments.length) break;
+    all.push(...comments);
+    const last = comments[comments.length - 1];
     if (!last.created_utc) break;
     currentParams = { ...currentParams, before: Math.floor(last.created_utc) };
   }
@@ -189,6 +272,73 @@ function normalizePost(p) {
     flair: p.link_flair_text || '',
     created_utc: p.created_utc || 0,
   };
+}
+
+// ─── comment search helper ──────────────────────────────────────────────────
+
+/**
+ * Search comments for a query term, fetch parent post metadata for each
+ * unique parent post, and return enriched post objects with matching comment
+ * counts attached. Groups comments by parent post to avoid duplicates.
+ */
+async function searchCommentsByQuery({ q, subreddit, after, minScore, maxPages, domain }) {
+  const params = { q, size: PAGE_SIZE, after };
+  if (subreddit) params.subreddit = subreddit;
+
+  log(`[comment-search] q=${q}${subreddit ? ` r/${subreddit}` : ''}`);
+  let comments;
+  try {
+    comments = await paginateCommentSearch(params, maxPages);
+  } catch (err) {
+    log(`[comment-search] failed: ${err.message}`);
+    return [];
+  }
+
+  // Group by parent post link_id (strip t3_ prefix)
+  const commentsByPost = new Map();
+  for (const c of comments) {
+    if (!c.link_id) continue;
+    const postId = c.link_id.replace(/^t3_/, '');
+    if (!commentsByPost.has(postId)) commentsByPost.set(postId, []);
+    commentsByPost.get(postId).push(c);
+  }
+
+  log(`[comment-search] ${comments.length} comments → ${commentsByPost.size} unique posts`);
+
+  // Fetch parent post metadata for each unique post
+  const postsById = new Map();
+  const postIds = [...commentsByPost.keys()];
+  // Batch fetch: PullPush supports comma-separated ids
+  const BATCH_SIZE = 20;
+  for (let i = 0; i < postIds.length; i += BATCH_SIZE) {
+    const batch = postIds.slice(i, i + BATCH_SIZE);
+    let batchPosts;
+    try {
+      batchPosts = await searchSubmissions({ ids: batch.join(','), size: batch.length });
+    } catch (err) {
+      log(`[comment-search] batch fetch failed: ${err.message}`);
+      continue;
+    }
+    for (const p of batchPosts) {
+      postsById.set(p.id, p);
+    }
+  }
+
+  // Build enriched posts with comment hit counts
+  const results = [];
+  for (const [postId, postComments] of commentsByPost) {
+    const rawPost = postsById.get(postId);
+    if (!rawPost) continue;
+    if ((rawPost.score || 0) < minScore) continue;
+    const post = normalizePost(rawPost);
+    post._commentHits = postComments.length;
+    post._matchingComments = postComments.map(c => ({
+      body: (c.body || '').slice(0, 300),
+      score: c.score || 0,
+    }));
+    results.push(post);
+  }
+  return results;
 }
 
 // ─── commands ───────────────────────────────────────────────────────────────
@@ -258,7 +408,8 @@ async function cmdScan(args) {
   const minScore = args.minScore || 1;
   const minComments = args.minComments || 3;
   const limit = args.limit || 30;
-  const pages = args.pages || 2;
+  const maxPages = args.maxPages || 20;
+  const includeComments = args['include-comments'] || args.includeComments || false;
 
   // Domain-only mode: no subreddits — search globally using domain-focused queries
   const globalMode = !subreddits || !subreddits.length;
@@ -271,9 +422,9 @@ async function cmdScan(args) {
   const after = effectiveNow - days * 86400;
 
   if (globalMode) {
-    log(`[scan] global domain mode: domain="${domain}", days=${days}`);
+    log(`[scan] global domain mode: domain="${domain}", days=${days}, maxPages=${maxPages}`);
   } else {
-    log(`[scan] subreddits=${subreddits.join(',')}, days=${days}`);
+    log(`[scan] subreddits=${subreddits.join(',')}, days=${days}, maxPages=${maxPages}`);
   }
 
   const queries = [];
@@ -288,13 +439,23 @@ async function cmdScan(args) {
     queries.push({ q: `${q} hate`, category: 'domain' });
     queries.push({ q: `${q} overpriced`, category: 'domain' });
   } else {
+    // Use expanded domain-specific query sets
+    for (const cat of Object.keys(DOMAIN_SCAN_QUERIES)) {
+      for (const q of DOMAIN_SCAN_QUERIES[cat]) queries.push({ q, category: cat });
+    }
+    // Also include the original SCAN_QUERIES for backwards compatibility
     for (const cat of Object.keys(SCAN_QUERIES)) {
-      for (const q of SCAN_QUERIES[cat]) queries.push({ q, category: cat });
+      for (const q of SCAN_QUERIES[cat]) {
+        // Avoid duplicates
+        if (!queries.find(x => x.q === q)) queries.push({ q, category: cat });
+      }
     }
     if (domain) {
       queries.push({ q: `${domain} frustrated`, category: 'domain' });
       queries.push({ q: `${domain} terrible`, category: 'domain' });
       queries.push({ q: `${domain} alternative`, category: 'domain' });
+      queries.push({ q: `${domain} bot`, category: 'domain' });
+      queries.push({ q: `${domain} scalper`, category: 'domain' });
     }
   }
 
@@ -311,7 +472,7 @@ async function cmdScan(args) {
         posts = await paginateSubmissions({
           q, score: `>${minScore}`,
           sort: 'desc', sort_type: 'num_comments', after,
-        }, pages);
+        }, maxPages);
       } catch (err) {
         if (err.statusCode === 403) break;
         log(`[scan] failed: ${err.message}`); continue;
@@ -330,13 +491,36 @@ async function cmdScan(args) {
           posts = await paginateSubmissions({
             q, subreddit: sub, score: `>${minScore}`,
             sort: 'desc', sort_type: 'num_comments', after,
-          }, pages);
+          }, maxPages);
         } catch (err) {
           if (err.statusCode === 403) break;
           log(`[scan] failed: ${err.message}`); continue;
         }
         for (const p of posts) {
           if (!postsById.has(p.id)) postsById.set(p.id, p);
+        }
+      }
+
+      // Comment search mode: search comments for query terms and surface parent posts
+      if (includeComments) {
+        log(`[scan] comment-search mode for r/${sub}`);
+        const commentQueries = domain
+          ? [domain, ...Object.values(DOMAIN_SCAN_QUERIES).flat().slice(0, 10)]
+          : Object.values(DOMAIN_SCAN_QUERIES).flat().slice(0, 15);
+
+        for (const q of commentQueries) {
+          queriesRun++;
+          const commentPosts = await searchCommentsByQuery({
+            q, subreddit: sub, after, minScore, maxPages: Math.min(maxPages, 5), domain,
+          });
+          for (const p of commentPosts) {
+            if (!postsById.has(p.id)) postsById.set(p.id, p);
+            else {
+              // Merge comment hit data onto existing post
+              const existing = postsById.get(p.id);
+              existing._commentHits = (existing._commentHits || 0) + (p._commentHits || 0);
+            }
+          }
         }
       }
     }
@@ -348,6 +532,9 @@ async function cmdScan(args) {
   for (const rawPost of postsById.values()) {
     if ((rawPost.num_comments || 0) < minComments) continue;
     const post = normalizePost(rawPost);
+    // Carry over comment hit metadata if present
+    if (rawPost._commentHits) post._commentHits = rawPost._commentHits;
+    if (rawPost._matchingComments) post._matchingComments = rawPost._matchingComments;
     const enriched = enrichPost(post, domain);
     if (enriched) scored.push(enriched);
   }
@@ -363,6 +550,7 @@ async function cmdScan(args) {
       api_calls: rateLimiter.count,
       raw_posts: postsById.size,
       after_filter: Math.min(scored.length, limit),
+      include_comments: includeComments,
     },
   });
 }
@@ -463,7 +651,8 @@ scan options:
   --minScore <n>        Min post score (default: 1)
   --minComments <n>     Min comments (default: 3)
   --limit <n>           Max posts (default: 30)
-  --pages <n>           Pages per query (default: 2)
+  --max-pages <n>       Pages per query (default: 20, was 2)
+  --include-comments    Also search comments for matching terms (10-100x more coverage)
 
 deep-dive options:
   --post <id|url>       Single post
@@ -471,5 +660,8 @@ deep-dive options:
   --stdin               Read scan JSON from stdin
   --top <n>             Top N posts (default: 10)
   --maxComments <n>     Max comments per post (default: 200)
+
+Recommended subreddits:
+${RECOMMENDED_SUBREDDITS}
 `,
 };

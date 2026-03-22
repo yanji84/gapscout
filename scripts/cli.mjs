@@ -50,6 +50,9 @@ const SOURCE_ALIASES = {
   kickstarter: 'crowdfunding',
   crowdfunding: 'crowdfunding',
   appstore: 'appstore',
+  twitter: 'twitter',
+  x: 'twitter',
+  trustpilot: 'trustpilot',
   all: 'coordinator',
   coordinator: 'coordinator',
   'reddit-api': 'reddit-api',
@@ -58,6 +61,8 @@ const SOURCE_ALIASES = {
   'reviews': 'reviews',
   'crowdfunding': 'crowdfunding',
   'appstore': 'appstore',
+  'twitter': 'twitter',
+  'trustpilot': 'trustpilot',
 };
 
 // ─── main ────────────────────────────────────────────────────────────────────

@@ -17,9 +17,9 @@ import {
 // ─── constants ───────────────────────────────────────────────────────────────
 
 const OLD_REDDIT = 'https://old.reddit.com';
-const PAGE_DELAY_MS = 2000;
-const JITTER_MS = 500;
-const MAX_PAGES_PER_RUN = 50;
+const PAGE_DELAY_MS = 1000;   // was 2000
+const JITTER_MS = 300;        // was 500
+const MAX_PAGES_PER_RUN = 200; // was 50
 
 async function politeDelay() {
   await sleep(PAGE_DELAY_MS + Math.floor(Math.random() * JITTER_MS));
@@ -160,6 +160,60 @@ async function scrapeSearchResults(page, url) {
   });
 }
 
+/**
+ * Get the "next page" URL from old.reddit.com search results.
+ * Returns null if there is no next page.
+ */
+async function getNextPageUrl(page) {
+  return await page.evaluate(() => {
+    var nextEl = document.querySelector('a[rel="nofollow next"], .nav-buttons .next-button a');
+    return nextEl ? nextEl.href : null;
+  });
+}
+
+/**
+ * Scrape multiple pages of search results for a single query URL.
+ * Follows pagination up to maxPages pages.
+ */
+async function scrapeSearchResultsAllPages(page, startUrl, maxPages, postsById, label) {
+  let url = startUrl;
+  let pageNum = 0;
+  let totalNewPosts = 0;
+
+  while (url && pageNum < maxPages) {
+    log(`[browser-scan] ${label} page ${pageNum + 1}${maxPages > 1 ? `/${maxPages}` : ''} ${url.substring(0, 80)}`);
+    try {
+      const posts = await scrapeSearchResults(page, url);
+      pageNum++;
+      let newCount = 0;
+      for (const p of posts) {
+        if (p.id && !postsById.has(p.id)) {
+          postsById.set(p.id, p);
+          newCount++;
+        }
+      }
+      totalNewPosts += newCount;
+      log(`[browser-scan]   ${posts.length} posts on page (${newCount} new, ${postsById.size} total unique)`);
+
+      if (posts.length === 0) break; // empty page, stop paginating
+
+      if (pageNum < maxPages) {
+        url = await getNextPageUrl(page);
+        if (!url) {
+          log(`[browser-scan]   no next page found, stopping pagination`);
+          break;
+        }
+        await politeDelay();
+      }
+    } catch (err) {
+      log(`[browser-scan]   failed: ${err.message}`);
+      break;
+    }
+  }
+
+  return pageNum;
+}
+
 async function scrapePostPage(page, postUrl, maxComments = 200) {
   let url = postUrl.replace('www.reddit.com', 'old.reddit.com');
   if (!url.includes('old.reddit.com')) url = url.replace('reddit.com', 'old.reddit.com');
@@ -200,6 +254,43 @@ async function scrapePostPage(page, postUrl, maxComments = 200) {
   }, maxComments);
 }
 
+// ─── parallel tab worker ─────────────────────────────────────────────────────
+
+/**
+ * Run one worker: opens a new page on the browser, scrapes all assigned
+ * (subreddit, sortMode, query) triples with pagination, and closes the page.
+ */
+async function runWorker(browser, workItems, maxPages, postsById, globalMode, timeFilter, domain) {
+  const page = await browser.newPage();
+  let pagesLoaded = 0;
+  try {
+    for (const item of workItems) {
+      const { sub, sortMode, query } = item;
+      const encodedQuery = encodeURIComponent(query);
+      let startUrl;
+      if (globalMode) {
+        startUrl = `${OLD_REDDIT}/search?q=${encodedQuery}&sort=${sortMode}&t=${timeFilter}`;
+      } else {
+        startUrl = `${OLD_REDDIT}/r/${sub}/search?q=${encodedQuery}&restrict_sr=on&sort=${sortMode}&t=${timeFilter}`;
+      }
+      const label = globalMode
+        ? `global sort=${sortMode} q="${query.substring(0, 35)}"`
+        : `r/${sub} sort=${sortMode} q="${query.substring(0, 35)}"`;
+
+      const pages = await scrapeSearchResultsAllPages(page, startUrl, maxPages, postsById, label);
+      pagesLoaded += pages;
+
+      if (pagesLoaded >= MAX_PAGES_PER_RUN) {
+        log(`[browser-scan] worker hit MAX_PAGES_PER_RUN (${MAX_PAGES_PER_RUN})`);
+        break;
+      }
+    }
+  } finally {
+    await page.close();
+  }
+  return pagesLoaded;
+}
+
 // ─── commands ───────────────────────────────────────────────────────────────
 
 async function cmdScan(args) {
@@ -215,16 +306,16 @@ async function cmdScan(args) {
   const timeFilter = args.time || 'year';
   const minComments = args.minComments || 3;
   const globalMode = !subreddits || !subreddits.length;
+  const maxPages = args.maxPages || 10;       // pagination depth per query (default 10 = up to 250 results)
+  const parallelTabs = Math.max(1, Math.min(args.parallelTabs || 1, 5)); // 1–5 tabs
 
   if (globalMode) {
-    log(`[browser-scan] global domain mode: domain="${domain}", time=${timeFilter}`);
+    log(`[browser-scan] global domain mode: domain="${domain}", time=${timeFilter}, maxPages=${maxPages}, parallelTabs=${parallelTabs}`);
   } else {
-    log(`[browser-scan] subreddits=${subreddits.join(',')}, domain="${domain}", time=${timeFilter}`);
+    log(`[browser-scan] subreddits=${subreddits.join(',')}, domain="${domain}", time=${timeFilter}, maxPages=${maxPages}, parallelTabs=${parallelTabs}`);
   }
 
   const browser = await connectBrowser(args);
-  const page = await browser.newPage();
-  let pagesLoaded = 0;
 
   try {
     const searchQueries = [];
@@ -257,58 +348,36 @@ async function cmdScan(args) {
     const sortModes = ['comments', 'relevance'];
     const postsById = new Map();
 
+    // Build full list of work items
+    const workItems = [];
     if (globalMode) {
-      // Global Reddit search — no subreddit restriction
       for (const sortMode of sortModes) {
         for (const query of searchQueries) {
-          if (pagesLoaded >= MAX_PAGES_PER_RUN) {
-            log(`[browser-scan] max pages reached (${MAX_PAGES_PER_RUN})`);
-            break;
-          }
-          const encodedQuery = encodeURIComponent(query);
-          const url = `${OLD_REDDIT}/search?q=${encodedQuery}&sort=${sortMode}&t=${timeFilter}`;
-          log(`[browser-scan] global sort=${sortMode} q="${query.substring(0, 40)}..."`);
-          try {
-            const posts = await scrapeSearchResults(page, url);
-            pagesLoaded++;
-            for (const p of posts) {
-              if (p.id && !postsById.has(p.id)) postsById.set(p.id, p);
-            }
-            log(`[browser-scan]   found ${posts.length} posts (${postsById.size} total unique)`);
-          } catch (err) {
-            log(`[browser-scan]   failed: ${err.message}`);
-          }
-          await politeDelay();
+          workItems.push({ sub: null, sortMode, query });
         }
       }
     } else {
       for (const sub of subreddits) {
         for (const sortMode of sortModes) {
           for (const query of searchQueries) {
-            if (pagesLoaded >= MAX_PAGES_PER_RUN) {
-              log(`[browser-scan] max pages reached (${MAX_PAGES_PER_RUN})`);
-              break;
-            }
-            const encodedQuery = encodeURIComponent(query);
-            const url = `${OLD_REDDIT}/r/${sub}/search?q=${encodedQuery}&restrict_sr=on&sort=${sortMode}&t=${timeFilter}`;
-            log(`[browser-scan] r/${sub} sort=${sortMode} q="${query.substring(0, 40)}..."`);
-            try {
-              const posts = await scrapeSearchResults(page, url);
-              pagesLoaded++;
-              for (const p of posts) {
-                if (p.id && !postsById.has(p.id)) postsById.set(p.id, p);
-              }
-              log(`[browser-scan]   found ${posts.length} posts (${postsById.size} total unique)`);
-            } catch (err) {
-              log(`[browser-scan]   failed: ${err.message}`);
-            }
-            await politeDelay();
+            workItems.push({ sub, sortMode, query });
           }
         }
       }
     }
 
-    log(`[browser-scan] ${postsById.size} unique posts after dedup`);
+    // Partition work items across tabs
+    const workerChunks = Array.from({ length: parallelTabs }, () => []);
+    workItems.forEach((item, i) => workerChunks[i % parallelTabs].push(item));
+
+    log(`[browser-scan] ${workItems.length} query combinations across ${parallelTabs} tab(s)`);
+
+    const pagesLoadedPerWorker = await Promise.all(
+      workerChunks.map(chunk => runWorker(browser, chunk, maxPages, postsById, globalMode, timeFilter, domain))
+    );
+    const pagesLoaded = pagesLoadedPerWorker.reduce((a, b) => a + b, 0);
+
+    log(`[browser-scan] ${postsById.size} unique posts after dedup (${pagesLoaded} pages loaded)`);
 
     const scored = [];
     for (const post of postsById.values()) {
@@ -327,10 +396,12 @@ async function cmdScan(args) {
         pages_loaded: pagesLoaded,
         raw_posts: postsById.size,
         after_filter: Math.min(scored.length, limit),
+        max_pages_per_query: maxPages,
+        parallel_tabs: parallelTabs,
       },
     });
   } finally {
-    await page.close();
+    await browser.disconnect();
   }
 }
 
@@ -438,6 +509,8 @@ scan options:
   --time <period>       hour, day, week, month, year, all (default: year)
   --minComments <n>     Min comments (default: 3)
   --limit <n>           Max posts (default: 30)
+  --max-pages <n>       Pages of results per query (default: 10 = ~250 results)
+  --parallel-tabs <n>   Parallel browser tabs (default: 1, max: 5)
 
 deep-dive options:
   --post <url|id>       Single post URL or ID

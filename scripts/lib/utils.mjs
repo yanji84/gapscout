@@ -78,6 +78,9 @@ export function normalizeArgs(argv) {
   if (args.pages) args.pages = parseInt(args.pages, 10);
   if (args.top) args.top = parseInt(args.top, 10);
   if (args.maxComments) args.maxComments = parseInt(args.maxComments, 10);
+  if (args.maxPages) args.maxPages = parseInt(args.maxPages, 10);
+  if (args.maxApps) args.maxApps = parseInt(args.maxApps, 10);
+  if (args.maxReviewsPerApp) args.maxReviewsPerApp = parseInt(args.maxReviewsPerApp, 10);
   if (args.port) args.port = parseInt(args.port, 10);
   if (typeof args.subreddits === 'string') {
     args.subreddits = args.subreddits.split(',').map(s => s.trim()).filter(Boolean);
