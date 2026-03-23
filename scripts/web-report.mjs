@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * web-report.mjs — Beautiful self-contained HTML report generator (thin orchestrator)
+ * web-report.mjs — Pain discovery research document generator (thin orchestrator)
  *
  * Delegates to:
  *   - lib/web-report/html-generator.mjs — section builders
@@ -20,9 +20,8 @@ import { resolve } from 'node:path';
 import { normalizeArgs, log } from './lib/utils.mjs';
 import { escHtml } from './lib/web-report/helpers.mjs';
 import {
-  buildHero, buildCategoryCards, buildMatrix,
-  buildSourceCoverage, buildEvidenceWall, buildCompetitorSection,
-  buildLeaderboard, buildIdeaSketches,
+  buildHero, buildCategoryCards,
+  buildSourceCoverage, buildEvidenceWall, buildDataWarnings,
 } from './lib/web-report/html-generator.mjs';
 import { buildCss, buildJs } from './lib/web-report/styling.mjs';
 
@@ -35,27 +34,25 @@ function generateHtml(reportData, generatedAt = new Date().toISOString()) {
 
   if (!groups.length) throw new Error('No pain categories found in report data.');
 
-  const navLinks = [
+  const navItems = [
     ['#hero', 'Summary'],
-    ['#categories', 'Categories'],
-    ['#matrix', 'Matrix'],
+    ['#categories', 'Pain Points'],
     ['#sources', 'Sources'],
     ['#evidence', 'Evidence'],
-    ['#competitors', 'Competitors'],
-    ['#leaderboard', 'Leaderboard'],
-    ['#idea-sketches', 'Ideas'],
-  ].map(([href, label]) => `<a class="nav-link" href="${href}">${label}</a>`).join('');
-
-  const topCat = groups[0]?.category || 'Pain Analysis';
-  const totalWtp = groups.reduce((s, g) => s + (g.moneyTrail?.totalCount || 0), 0);
+  ];
+  if (meta.rateMonitorSummary) {
+    navItems.push(['#warnings', 'Warnings']);
+  }
+  const navLinks = navItems
+    .map(([href, label]) => `<a class="nav-link" href="${href}">${label}</a>`).join('');
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Pain point analysis report — ${escHtml(topCat)}">
-  <title>Pain Report — ${escHtml(topCat)}</title>
+  <meta name="description" content="Pain discovery research report">
+  <title>Pain Discovery Report</title>
   <style>${buildCss()}</style>
 </head>
 <body>
@@ -67,17 +64,13 @@ function generateHtml(reportData, generatedAt = new Date().toISOString()) {
   <div class="container">
     ${buildHero(data)}
     ${buildCategoryCards(groups)}
-    ${buildMatrix(groups)}
     ${buildSourceCoverage(meta, groups)}
     ${buildEvidenceWall(groups)}
-    ${buildCompetitorSection(groups)}
-    ${buildLeaderboard(groups)}
-    ${buildIdeaSketches(groups)}
+    ${buildDataWarnings(meta)}
     <footer class="report-footer">
       Generated ${new Date(generatedAt).toLocaleString()} &nbsp;&middot;&nbsp;
       ${meta.totalPosts || '?'} posts &nbsp;&middot;&nbsp;
-      ${(meta.sources || []).join(', ')} &nbsp;&middot;&nbsp;
-      ${totalWtp} WTP signals
+      ${(meta.sources || []).join(', ')}
     </footer>
   </div>
   <script>${buildJs()}</script>
@@ -159,7 +152,7 @@ async function main() {
   const args = normalizeArgs(argv);
 
   const helpText = `
-pain-points web-report — Generate a beautiful self-contained HTML report
+pain-points web-report — Generate a pain discovery research document (HTML)
 
 Usage:
   pain-points web-report --input report.json --output report.html

@@ -2,7 +2,7 @@
  * report/markdown-renderer.mjs — Markdown and JSON rendering for reports
  */
 
-import { generateIdeaSketches, buildOpportunityText } from './synthesis.mjs';
+import { buildOpportunityText } from './synthesis.mjs';
 
 // ─── constants ──────────────────────────────────────────────────────────────
 
@@ -480,18 +480,6 @@ export function renderMarkdown(groups, meta) {
     lines.push('');
   }
 
-  // Phase 8: Idea Sketches
-  const ideaSketches = generateIdeaSketches(groups);
-  if (ideaSketches.length > 0) {
-    lines.push('## Phase 8: Idea Sketches');
-    lines.push('');
-    lines.push('Actionable startup sketches for each validated or needs-more-evidence pain point.');
-    lines.push('');
-    for (const sketch of ideaSketches) {
-      formatIdeaSketch(sketch, lines);
-    }
-  }
-
   // Weak Signals Appendix
   if (weakGroups.length > 0) {
     lines.push('## Appendix: Weak Signals (1 post each — needs more data)');
@@ -522,12 +510,10 @@ export function renderMarkdown(groups, meta) {
 // ─── JSON renderer ──────────────────────────────────────────────────────────
 
 export function renderJson(groups, meta) {
-  const ideaSketches = generateIdeaSketches(groups);
   const data = {
     generated: new Date().toISOString(),
     meta,
     groups,
-    ideaSketches,
   };
 
   // Include rate monitor summary if present

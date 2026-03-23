@@ -29,19 +29,6 @@ export const DEPTH_COLOR = {
   surface: { css: 'var(--color-surface)', label: 'Surface', hex: '#3b82f6' },
 };
 
-export const VERDICT_META = {
-  validated:      { label: 'VALIDATED',       cls: 'badge-green'  },
-  needs_evidence: { label: 'NEEDS EVIDENCE',  cls: 'badge-amber'  },
-  too_weak:       { label: 'TOO WEAK',        cls: 'badge-red'    },
-};
-
-export const MATRIX_LABELS = {
-  primary:    { label: 'Primary Target',    quadrant: 'top-right',    cls: 'q-primary'    },
-  hidden_gem: { label: 'Hidden Gem',        quadrant: 'bottom-right', cls: 'q-hidden'     },
-  background: { label: 'Background Noise',  quadrant: 'top-left',     cls: 'q-background' },
-  ignore:     { label: 'Ignore',            quadrant: 'bottom-left',  cls: 'q-ignore'     },
-};
-
 export const SOURCE_ICONS = {
   reddit:     'R',
   hackernews: 'Y',
@@ -52,5 +39,8 @@ export const SOURCE_ICONS = {
   crowdfunding:'K',
   trustpilot: 'TP',
   reviews:    'RV',
+  kickstarter:'KS',
+  websearch:  'W',
+  'github-issues': 'GH',
   unknown:    '?',
 };

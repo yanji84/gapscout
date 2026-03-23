@@ -24,7 +24,7 @@ import {
 } from './lib/report/analysis.mjs';
 import {
   buildWorthinessScore, determineVerdict, buildOpportunityText,
-  generateIdeaSketches, getAudience,
+  getAudience,
 } from './lib/report/synthesis.mjs';
 import { renderMarkdown, renderJson } from './lib/report/markdown-renderer.mjs';
 
