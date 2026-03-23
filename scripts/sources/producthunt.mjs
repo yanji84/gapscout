@@ -173,31 +173,14 @@ async function gql(token, query, variables = {}, maxRetries = 3) {
 
 // ─── GraphQL queries ─────────────────────────────────────────────────────────
 
-const SEARCH_POSTS_QUERY = `
-query SearchPosts($query: String!, $first: Int!, $after: String) {
-  posts(order: VOTES, search: $query, first: $first, after: $after) {
+const SEARCH_TOPICS_QUERY = `
+query SearchTopics($query: String!, $first: Int!, $after: String) {
+  topics(query: $query, first: $first, after: $after) {
     edges {
       node {
         id
         slug
         name
-        tagline
-        description
-        votesCount
-        commentsCount
-        reviewsCount
-        reviewsRating
-        url
-        website
-        createdAt
-        topics {
-          edges {
-            node {
-              slug
-              name
-            }
-          }
-        }
       }
     }
     pageInfo {
@@ -277,31 +260,62 @@ query PostComments($slug: String!, $first: Int!, $after: String) {
  * Search for posts via the PH GraphQL API.
  * Returns array of post node objects.
  */
-async function apiSearchPosts(token, query, limit = 20) {
-  const allPosts = [];
+async function apiSearchTopics(token, query, limit = 10) {
+  const allTopics = [];
   let cursor = null;
-  const perPage = Math.min(limit, 20); // PH API max per page is 20
+  const perPage = Math.min(limit, 20);
 
-  while (allPosts.length < limit) {
+  while (allTopics.length < limit) {
     const variables = { query, first: perPage };
     if (cursor) variables.after = cursor;
 
-    log(`[ph-api] searching posts: query="${query}", first=${perPage}, after=${cursor || 'null'}`);
-    const data = await gql(token, SEARCH_POSTS_QUERY, variables);
+    log(`[ph-api] searching topics: query="${query}", first=${perPage}, after=${cursor || 'null'}`);
+    const data = await gql(token, SEARCH_TOPICS_QUERY, variables);
 
-    const edges = data?.posts?.edges || [];
+    const edges = data?.topics?.edges || [];
     if (edges.length === 0) break;
 
     for (const edge of edges) {
-      if (edge.node) allPosts.push(edge.node);
+      if (edge.node) allTopics.push(edge.node);
     }
 
-    const pageInfo = data?.posts?.pageInfo;
+    const pageInfo = data?.topics?.pageInfo;
     if (!pageInfo?.hasNextPage || !pageInfo?.endCursor) break;
     cursor = pageInfo.endCursor;
   }
 
-  log(`[ph-api] search returned ${allPosts.length} posts`);
+  log(`[ph-api] topic search returned ${allTopics.length} topics`);
+  return allTopics.slice(0, limit);
+}
+
+async function apiSearchPosts(token, query, limit = 20) {
+  // PH API v2 doesn't support search on posts — search topics first, then fetch posts
+  const topics = await apiSearchTopics(token, query, 10);
+  if (topics.length === 0) {
+    log(`[ph-api] no topics found for "${query}"`);
+    return [];
+  }
+
+  const allPosts = [];
+  const seenSlugs = new Set();
+  const postsPerTopic = Math.max(20, Math.ceil(limit / topics.length));
+
+  for (const topic of topics) {
+    if (allPosts.length >= limit) break;
+    try {
+      const posts = await apiGetPostsByTopic(token, topic.slug, postsPerTopic);
+      for (const p of posts) {
+        if (p.slug && !seenSlugs.has(p.slug)) {
+          seenSlugs.add(p.slug);
+          allPosts.push(p);
+        }
+      }
+    } catch (err) {
+      log(`[ph-api] failed to fetch posts for topic "${topic.slug}": ${err.message}`);
+    }
+  }
+
+  log(`[ph-api] search via topics returned ${allPosts.length} posts`);
   return allPosts.slice(0, limit);
 }
 
@@ -473,15 +487,22 @@ async function cmdScanApi(args, token) {
     }
   }
 
-  // Strategy 2: search by domain name
+  // Strategy 2: search topics by domain name (and individual words as fallback)
   if (postsBySlug.size < limit) {
-    try {
-      const searchPosts = await apiSearchPosts(token, domain, limit);
-      for (const p of searchPosts) {
-        if (p.slug && !postsBySlug.has(p.slug)) postsBySlug.set(p.slug, p);
+    const queries = [domain];
+    // Also try individual words if domain is multi-word
+    const words = domain.split(/\s+/).filter(w => w.length > 2);
+    if (words.length > 1) queries.push(...words);
+    for (const q of queries) {
+      if (postsBySlug.size >= limit) break;
+      try {
+        const searchPosts = await apiSearchPosts(token, q, limit);
+        for (const p of searchPosts) {
+          if (p.slug && !postsBySlug.has(p.slug)) postsBySlug.set(p.slug, p);
+        }
+      } catch (err) {
+        log(`[ph-api] search query "${q}" failed: ${err.message}`);
       }
-    } catch (err) {
-      log(`[ph-api] search query failed: ${err.message}`);
     }
   }
 

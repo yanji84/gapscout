@@ -101,8 +101,8 @@ function fetchHtml(urlPath) {
       headers: HTTP_HEADERS,
       timeout: HTTP_TIMEOUT_MS,
     }, (res) => {
-      // Follow redirects (301/302)
-      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+      // Follow redirects (301/302/307/308)
+      if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
         const loc = res.headers.location;
         // If relative URL, recurse; if absolute, parse and recurse
         if (loc.startsWith('/')) {
