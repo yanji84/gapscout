@@ -8,6 +8,7 @@
  */
 
 import https from 'node:https';
+import { writeFileSync } from 'node:fs';
 import { sleep, log, ok, fail, excerpt, unixNow, daysAgoUnix, utcToDate } from '../lib/utils.mjs';
 import {
   SCAN_QUERIES, computePainScore, analyzeComments, enrichPost,
@@ -799,6 +800,16 @@ async function cmdScan(args) {
   }
 
   log(`[scan] ${postsById.size} unique posts (source: ${dataSource})`);
+
+  // Save ALL raw posts before filtering for LLM batch-evaluation
+  try {
+    const allRawPosts = [...postsById.values()].map(p => normalizePost(p));
+    const rawOutput = { ok: true, data: { source: 'reddit-api', posts: allRawPosts, stats: { raw: true, total: allRawPosts.length } } };
+    writeFileSync('/tmp/ppf-reddit-api-raw.json', JSON.stringify(rawOutput));
+    log(`[scan] saved ${allRawPosts.length} raw posts to /tmp/ppf-reddit-api-raw.json`);
+  } catch (err) {
+    log(`[scan] failed to save raw posts: ${err.message}`);
+  }
 
   const scored = [];
   for (const rawPost of postsById.values()) {

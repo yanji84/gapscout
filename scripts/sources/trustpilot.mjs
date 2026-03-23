@@ -13,6 +13,7 @@
  */
 
 import https from 'node:https';
+import { writeFileSync } from 'node:fs';
 import { sleep, log, ok, fail } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
 import { RateLimiter } from '../lib/http.mjs';
@@ -866,6 +867,19 @@ async function cmdScan(args) {
   }
 
   log(`[trustpilot] unique reviews: ${uniqueReviews.length}`);
+
+  // Save ALL raw reviews before filtering for LLM batch-evaluation
+  try {
+    const allRawPosts = uniqueReviews.map(r => {
+      const companyName = r.companySlug ? r.companySlug.replace(/\.com$/, '').replace(/[.-]/g, ' ') : domain;
+      return normalizeReview(r, companyName);
+    });
+    const rawOutput = { ok: true, data: { source: 'trustpilot', posts: allRawPosts, stats: { raw: true, total: allRawPosts.length } } };
+    writeFileSync('/tmp/ppf-trustpilot-raw.json', JSON.stringify(rawOutput));
+    log(`[trustpilot] saved ${allRawPosts.length} raw posts to /tmp/ppf-trustpilot-raw.json`);
+  } catch (err) {
+    log(`[trustpilot] failed to save raw posts: ${err.message}`);
+  }
 
   // Normalize and enrich
   const scored = [];

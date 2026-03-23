@@ -8,6 +8,7 @@
 
 import gplay from 'google-play-scraper';
 import store from 'app-store-scraper';
+import { writeFileSync } from 'node:fs';
 import { log, ok, fail } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
 
@@ -421,6 +422,15 @@ async function cmdScan(args) {
   }
 
   log(`[appstore-scan] ${postsRaw.length} raw reviews, scoring...`);
+
+  // Save ALL raw posts before filtering for LLM batch-evaluation
+  try {
+    const rawOutput = { ok: true, data: { source: 'appstore', posts: postsRaw, stats: { raw: true, total: postsRaw.length } } };
+    writeFileSync('/tmp/ppf-appstore-raw.json', JSON.stringify(rawOutput));
+    log(`[appstore-scan] saved ${postsRaw.length} raw posts to /tmp/ppf-appstore-raw.json`);
+  } catch (err) {
+    log(`[appstore-scan] failed to save raw posts: ${err.message}`);
+  }
 
   const scored = [];
   for (const post of postsRaw) {

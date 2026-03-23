@@ -3,6 +3,7 @@
  * Uses the Algolia HN Search API (no browser needed)
  */
 
+import { writeFileSync } from 'node:fs';
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import {
   computePainScore, analyzeComments, enrichPost,
@@ -389,6 +390,35 @@ async function cmdScan(args) {
 
   // Build domain word set for relevance filtering
   const domainWords = domain.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+
+  // Save ALL raw posts before filtering for LLM batch-evaluation
+  try {
+    const allRawPosts = [...postsById.values()].map(hit => normalizePost(hit));
+    // Also include comment-search pseudo-posts if includeComments
+    if (includeComments) {
+      for (const entry of commentStoriesById.values()) {
+        if (!postsById.has(entry.storyId)) {
+          allRawPosts.push({
+            id: entry.storyId,
+            title: entry.storyTitle || `[Story ${entry.storyId}]`,
+            selftext: entry.commentTexts.slice(0, 5).join('\n\n'),
+            subreddit: 'hackernews',
+            url: entry.storyUrl,
+            score: 0,
+            num_comments: entry.commentTexts.length,
+            upvote_ratio: 0,
+            flair: 'comment_match',
+            created_utc: entry.created_at_i,
+          });
+        }
+      }
+    }
+    const rawOutput = { ok: true, data: { source: 'hackernews', posts: allRawPosts, stats: { raw: true, total: allRawPosts.length } } };
+    writeFileSync('/tmp/ppf-hn-raw.json', JSON.stringify(rawOutput));
+    log(`[scan] saved ${allRawPosts.length} raw posts to /tmp/ppf-hn-raw.json`);
+  } catch (err) {
+    log(`[scan] failed to save raw posts: ${err.message}`);
+  }
 
   const scored = [];
 

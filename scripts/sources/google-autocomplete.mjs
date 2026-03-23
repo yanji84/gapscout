@@ -15,6 +15,7 @@
  */
 
 import https from 'node:https';
+import { writeFileSync } from 'node:fs';
 import { sleep, log, ok, fail } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
 import { connectBrowser as connectBrowserBase, politeDelay as politeDelayBase, detectBlockInPage, createBlockTracker } from '../lib/browser.mjs';
@@ -342,6 +343,16 @@ function makePost({ text, source, position, queryPattern }) {
 
 function scoreAndOutput({ rawPosts, domain, limit, queryPatterns, blockStats }) {
   log(`[google-autocomplete] ${rawPosts.length} raw items, scoring...`);
+
+  // Save ALL raw posts before filtering for LLM batch-evaluation
+  try {
+    const rawOutput = { ok: true, data: { source: 'google-autocomplete', posts: rawPosts, stats: { raw: true, total: rawPosts.length } } };
+    writeFileSync('/tmp/ppf-google-raw.json', JSON.stringify(rawOutput));
+    log(`[google-autocomplete] saved ${rawPosts.length} raw posts to /tmp/ppf-google-raw.json`);
+  } catch (err) {
+    log(`[google-autocomplete] failed to save raw posts: ${err.message}`);
+  }
+
   const scored = [];
   for (const post of rawPosts) {
     const enriched = enrichPost(post, domain);
