@@ -1,7 +1,7 @@
 ---
 name: judge
 description: Quality judge that evaluates data source outputs at each pipeline stage, generates rubrics, scores quality dimensions, and feeds improvement suggestions to the documenter agent.
-model: sonnet
+model: opus
 ---
 
 # Stage Judge
@@ -21,6 +21,8 @@ Read all output files produced by the current stage's agents. For each data sour
 - Note the source name, file path, record count, and stage context
 
 ### Step 2: Spawn Evaluation Team
+
+**IMPORTANT: You MUST spawn eval sub-agents using the Agent tool — one per source output file. Do NOT evaluate sources yourself.** After eval agents complete, verify `eval-<source>.json` files exist before computing the overall verdict. If you find yourself reading source data and scoring rubrics inline, STOP — spawn eval agents instead.
 
 Launch parallel evaluator agents, one per source or source-group:
 

@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: Master orchestrator that coordinates the entire GapScout pipeline end-to-end. Has full awareness of agent topology, makes runtime decisions about agent counts/configs, owns all stage transitions and QA feedback loops.
-model: sonnet
+model: opus
 ---
 
 # Pipeline Orchestrator
@@ -179,6 +179,19 @@ All agents receive:
 
 Wait for: `/tmp/gapscout-<scan-id>/stage-complete-discovery.json`
 
+#### Verify Intermediate Artifacts
+
+```
+VERIFY intermediate files exist:
+- discovery-map-websearch.json, discovery-map-ph.json, discovery-map-hn.json, discovery-map-crawl.json
+- profile-batch-*.json (at least 2 files)
+- subreddits-*.json (at least 2 files)
+- queries-*.json (at least 2 files)
+IF intermediate files are missing but final files exist:
+  - Log warning: "Coordinator did work inline instead of spawning sub-agents"
+  - Re-run the coordinator with explicit instruction: "You MUST use the Agent tool to spawn sub-agents. Do NOT do the work yourself."
+```
+
 Read discovery results. Adjust plan if needed:
 ```
 IF competitors found < spec.discoverySpec.competitorTargetRange.min:
@@ -195,6 +208,9 @@ IF new market segments discovered (not in original spec):
 ```
 
 ### Step 3: Spawn Discovery QA
+
+Judge spawns eval agents that are LEAF agents.
+QA is exactly 2 levels deep: orchestrator → judge → eval-<source> leaf agents.
 
 Spawn **in a single message** (parallel):
 1. **`judge-discovery`** — Evaluates discovery outputs
@@ -220,26 +236,28 @@ IF verdict == "FAIL":
   - Max 2 discovery retries before proceeding with degraded data
 ```
 
-### Step 4: Spawn Scanner Team
+### Step 4: Spawn Scanner Team (FLATTENED)
 
-Based on orchestration-config.json, spawn the scanning team **in a single message** (parallel).
+Spawn ALL scanning agents in a **SINGLE message**. This includes both leaf scanners AND coordinators. The goal is to minimize nesting depth — leaf scanners run at ONE level (orchestrator → leaf), not two.
 
 Only spawn agents listed in your config — skip any marked as "skip":
 
-**Category A (competitor-specific):**
-- For each coordinator in `categoryACoordinators`: spawn with competitor list + batch count from config
-- Skip coordinators in `categoryASkip`
+**Leaf scanners (do actual scanning work — ONE level of nesting):**
+- `scanner-reddit` (subagent_type: scanner-reddit) — if in `categoryBScanners`
+- `scanner-hn` (subagent_type: scanner-hn) — if in `categoryBScanners`
+- `scanner-producthunt` (subagent_type: scanner-producthunt) — if in `categoryBScanners`
+- `scanner-google-autocomplete` (subagent_type: scanner-google-autocomplete) — if in `categoryBScanners`
 
-**Category B (market-wide):**
-- For each scanner in `categoryBScanners`: spawn
-- Skip scanners in `categoryBSkip`
+**Coordinator scanners (spawn their own batch sub-agents — TWO levels max):**
+- `scanner-trustpilot` (subagent_type: scanner-trustpilot) — if in `categoryACoordinators`. Spawns batch agents per competitor chunk.
+- `scanner-websearch` (subagent_type: scanner-websearch) — if in `specialistAgents`. Spawns per-target agents.
+- Other `categoryACoordinators` (reviews, appstore, etc.) — spawn with competitor list + batch count from config. Skip coordinators in `categoryASkip`.
 
-**Specialists:**
-- Spawn each agent in `specialistAgents`
-- Always spawn `scan-orchestrator` (manages broadening)
+**Broadening manager:**
+- `scan-orchestrator` (subagent_type: scan-orchestrator) — Always spawn. Monitors for new competitors. Tell it `maxBroadeningRounds` from config.
 
-**Always spawn:**
-- `scan-orchestrator` — Manages the broadening loop. Tell it `maxBroadeningRounds` from config.
+All leaf scanners run at ONE level of nesting (orchestrator → leaf), not two.
+Only coordinators that need batching (trustpilot, websearch) get a second level.
 
 All agents receive:
 - scan-spec.json
@@ -247,6 +265,14 @@ All agents receive:
 - competitor-map, profiles, subreddits, queries from discovery
 
 Wait for: `/tmp/gapscout-<scan-id>/stage-complete-scanning.json`
+
+#### Verify Intermediate Artifacts
+
+```
+VERIFY intermediate files exist:
+- scan-trustpilot-batch-*.json (if trustpilot coordinator was spawned)
+IF missing: log warning, accept results but note degraded fan-out
+```
 
 Read scanning results. Adjust synthesis plan:
 ```
@@ -293,7 +319,25 @@ Spawn **`synthesizer-coordinator`** with:
 
 The synthesizer-coordinator runs 7 sequential sprints internally. You do NOT manage individual sprints — the coordinator owns that.
 
+The synthesizer-coordinator spawns sub-agents that are LEAF agents (subagent_type references).
+This means synthesis is exactly 2 levels deep: orchestrator → synthesizer-coordinator → leaf analysts.
+The leaf analysts do NOT spawn further sub-agents.
+
 Wait for: `/tmp/gapscout-<scan-id>/stage-complete-synthesis.json`
+
+#### Verify Sprint Intermediate Artifacts
+
+```
+VERIFY sprint intermediate files exist:
+- Sprint 1: s1-original-competitors.json, s1-broadened-competitors.json
+- Sprint 2: s2-pain-reviews.json, s2-pain-reddit.json, s2-pain-websearch.json
+- Sprint 3: s3-needs-reddit.json, s3-needs-hn-web.json, s3-needs-other.json
+- Sprint 5: s5-feature-list.json, s5-complaint-gaps.json
+- Sprint 6: s6-scores.json, s6-idea-sketches.json
+IF intermediate files missing but final synthesis-N file exists:
+  - Log: "Sprint N coordinator did work inline — sub-agent fan-out failed"
+  - Accept results (don't block pipeline) but flag in QA
+```
 
 ### Step 7: Spawn Synthesis QA + Iteration Loop
 
