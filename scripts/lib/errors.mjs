@@ -1,5 +1,5 @@
 /**
- * errors.mjs — Structured error handling for pain-point-finder
+ * errors.mjs — Structured error handling for gapscout
  */
 
 // ─── error codes ─────────────────────────────────────────────────────────────

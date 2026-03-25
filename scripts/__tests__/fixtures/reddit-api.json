@@ -1,0 +1,72 @@
+{
+  "pullpushSubmissions": {
+    "data": [
+      {
+        "id": "abc123",
+        "title": "Kubernetes is frustrating and broken for small teams",
+        "selftext": "I'm so tired of dealing with Kubernetes. The YAML configuration is a nightmare and I've wasted hours trying to get a simple deployment working. Looking for alternatives.",
+        "subreddit": "devops",
+        "permalink": "/r/devops/comments/abc123/kubernetes_frustrating/",
+        "score": 156,
+        "num_comments": 87,
+        "upvote_ratio": 0.92,
+        "link_flair_text": "rant",
+        "created_utc": 1700000000
+      },
+      {
+        "id": "def456",
+        "title": "Is there a better alternative to Kubernetes?",
+        "selftext": "We've been using k8s for a year and the complexity is annoying. Would pay for something simpler.",
+        "subreddit": "programming",
+        "permalink": "/r/programming/comments/def456/alternative_to_kubernetes/",
+        "score": 234,
+        "num_comments": 145,
+        "upvote_ratio": 0.88,
+        "link_flair_text": "",
+        "created_utc": 1700100000
+      }
+    ]
+  },
+  "pullpushComments": {
+    "data": [
+      {
+        "id": "com789",
+        "body": "Same here. I switched to Docker Swarm and it's so much simpler. Can confirm this is a widespread problem.",
+        "score": 45,
+        "link_id": "t3_abc123",
+        "created_utc": 1700001000
+      },
+      {
+        "id": "com790",
+        "body": "Me too. The documentation is terrible.",
+        "score": 23,
+        "link_id": "t3_abc123",
+        "created_utc": 1700002000
+      }
+    ]
+  },
+  "emptyResponse": {
+    "data": []
+  },
+  "redditOAuthResponse": {
+    "data": {
+      "children": [
+        {
+          "data": {
+            "id": "xyz999",
+            "title": "Kubernetes alternatives for frustrated devs",
+            "selftext": "After years of frustration with k8s, I need something better.",
+            "subreddit": "devops",
+            "permalink": "/r/devops/comments/xyz999/k8s_alternatives/",
+            "score": 89,
+            "num_comments": 56,
+            "upvote_ratio": 0.91,
+            "link_flair_text": "help",
+            "created_utc": 1700300000
+          }
+        }
+      ],
+      "after": null
+    }
+  }
+}

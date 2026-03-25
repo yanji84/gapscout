@@ -1,0 +1,87 @@
+{
+  "searchResults": {
+    "hits": [
+      {
+        "objectID": "38001234",
+        "title": "Ask HN: Why is Kubernetes so frustrating to set up?",
+        "story_text": "I&#x27;ve been trying to deploy a simple app on Kubernetes for two weeks. The documentation is terrible and I&#x27;m tired of fighting YAML files. Has anyone found a better alternative to k8s?",
+        "url": "",
+        "points": 245,
+        "num_comments": 187,
+        "created_at_i": 1700000000
+      },
+      {
+        "objectID": "38005678",
+        "title": "Show HN: I built a Kubernetes dashboard",
+        "story_text": "After being frustrated with existing tools, I built my own dashboard.",
+        "url": "https://example.com/k8s-dash",
+        "points": 89,
+        "num_comments": 45,
+        "created_at_i": 1700100000
+      },
+      {
+        "objectID": "38009999",
+        "title": "Kubernetes is overpriced for small teams",
+        "story_text": "The cost of running k8s on any cloud provider is too expensive for a startup. We switched from EKS after the bill hit $3000/month for a simple app.",
+        "url": "",
+        "points": 312,
+        "num_comments": 256,
+        "created_at_i": 1700200000
+      }
+    ],
+    "nbHits": 3,
+    "page": 0,
+    "nbPages": 1,
+    "hitsPerPage": 50
+  },
+  "emptyResults": {
+    "hits": [],
+    "nbHits": 0,
+    "page": 0,
+    "nbPages": 0,
+    "hitsPerPage": 50
+  },
+  "itemDetail": {
+    "id": 38001234,
+    "title": "Ask HN: Why is Kubernetes so frustrating to set up?",
+    "text": "I&#x27;ve been trying to deploy a simple app on Kubernetes for two weeks.",
+    "points": 245,
+    "type": "story",
+    "children": [
+      {
+        "id": 38001235,
+        "type": "comment",
+        "text": "Same here. I wasted weeks on this. The documentation is awful and confusing.",
+        "points": null,
+        "children": [
+          {
+            "id": 38001236,
+            "type": "comment",
+            "text": "I switched to Nomad and never looked back. Worth paying for the simplicity.",
+            "points": null,
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": 38001237,
+        "type": "comment",
+        "text": "Have you tried k3s? It&#x27;s a lightweight alternative that works great for small teams.",
+        "points": null,
+        "children": []
+      }
+    ]
+  },
+  "commentSearchResults": {
+    "hits": [
+      {
+        "objectID": "38001235",
+        "story_id": 38001234,
+        "story_title": "Ask HN: Why is Kubernetes so frustrating to set up?",
+        "story_url": "",
+        "comment_text": "Same here. I wasted weeks on this. The documentation is awful.",
+        "created_at_i": 1700001000
+      }
+    ]
+  }
+}

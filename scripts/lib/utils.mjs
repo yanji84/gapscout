@@ -1,5 +1,5 @@
 /**
- * utils.mjs — Shared utilities for pain-point-finder
+ * utils.mjs — Shared utilities for gapscout
  */
 
 import { PainError, handleError } from './errors.mjs';
@@ -107,6 +107,7 @@ export function normalizeArgs(argv) {
   if (args.batchSize) args.batchSize = parseInt(args.batchSize, 10);
   if (args.port) args.port = parseInt(args.port, 10);
   if (args.serve) args.serve = parseInt(args.serve, 10);
+  if (args.timeout) args.timeout = parseInt(args.timeout, 10);
   if (typeof args.subreddits === 'string') {
     args.subreddits = args.subreddits.split(',').map(s => s.trim()).filter(Boolean);
   }

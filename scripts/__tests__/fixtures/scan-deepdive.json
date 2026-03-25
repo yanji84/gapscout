@@ -1,0 +1,79 @@
+{
+  "data": {
+    "source": "reddit",
+    "results": [
+      {
+        "post": {
+          "id": "deep-001",
+          "title": "Comprehensive analysis: Why Ticketmaster has no competition",
+          "url": "https://reddit.com/r/concerts/deep1",
+          "selftext_excerpt": "Live Nation controls the venues, so competing ticketing platforms cannot get a foothold",
+          "score": 1200,
+          "num_comments": 300,
+          "created_utc": 1700400000,
+          "subreddit": "concerts",
+          "painScore": 15,
+          "intensity": 3,
+          "painCategories": ["frustration", "desire"],
+          "painSubcategories": ["product-availability", "company-policy"],
+          "painSignals": ["alternative to"],
+          "wtpSignals": ["would pay", "subscription", "per month"],
+          "citeKey": "RD-deep001"
+        },
+        "analysis": {
+          "intensityLevel": "extreme",
+          "validationStrength": "strong",
+          "moneyTrailCount": 5,
+          "moneyTrail": [
+            { "body": "I'd happily pay $10/month for a bot-free queue", "url": "https://reddit.com/r/concerts/deep1/comment1", "signals": ["per month"] },
+            { "body": "Bought a VPN and queue bypass service already", "url": "https://reddit.com/r/concerts/deep1/comment2", "signals": ["bought"] }
+          ],
+          "topQuotes": [
+            { "body": "Ticketmaster is a monopoly that needs to be broken up", "score": 450, "url": "https://reddit.com/r/concerts/deep1/q1" },
+            { "body": "I was a venue booking director and even we hated working with them", "score": 280, "url": "https://reddit.com/r/concerts/deep1/q2" },
+            { "body": "The whole system is rigged against regular fans", "score": 150, "url": "https://reddit.com/r/concerts/deep1/q3" }
+          ],
+          "solutionAttempts": [
+            { "body": "Built my own alert system but it still can't beat the bots", "url": "https://reddit.com/r/concerts/deep1/s1" },
+            { "body": "Using a workaround with multiple browsers but didn't work half the time", "url": "https://reddit.com/r/concerts/deep1/s2" }
+          ],
+          "mentionedTools": ["AXS", "DICE", "SeatGeek", "StubHub"],
+          "totalComments": 300
+        }
+      },
+      {
+        "post": {
+          "id": "deep-002",
+          "title": "I built a Chrome extension to fight ticket scalpers",
+          "url": "https://reddit.com/r/sideproject/deep2",
+          "selftext_excerpt": "Launched this weekend, it auto-refreshes and alerts you when tickets are available",
+          "score": 400,
+          "num_comments": 67,
+          "created_utc": 1700500000,
+          "subreddit": "sideproject",
+          "painScore": 7,
+          "intensity": 2,
+          "painCategories": ["desire"],
+          "painSubcategories": ["product-availability"],
+          "painSignals": ["looking for"],
+          "wtpSignals": [],
+          "citeKey": "RD-deep002"
+        },
+        "analysis": {
+          "intensityLevel": "moderate",
+          "validationStrength": "moderate",
+          "moneyTrailCount": 0,
+          "moneyTrail": [],
+          "topQuotes": [
+            { "body": "This is exactly what I needed, take my money", "score": 85, "url": "https://reddit.com/r/sideproject/deep2/q1" }
+          ],
+          "solutionAttempts": [
+            { "body": "I tried using Page Monitor extension but it still wasn't fast enough", "url": "https://reddit.com/r/sideproject/deep2/s1" }
+          ],
+          "mentionedTools": ["PartAlert"],
+          "totalComments": 67
+        }
+      }
+    ]
+  }
+}

@@ -1,5 +1,5 @@
 /**
- * plan.mjs — Scan Plan Generator for pain-point-finder
+ * plan.mjs — Scan Plan Generator for gapscout
  *
  * Checks configured tokens and Chrome availability, then calculates
  * expected posts, estimated time, and status for each data source

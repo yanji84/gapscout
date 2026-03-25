@@ -9,12 +9,14 @@
 import gplay from 'google-play-scraper';
 import store from 'app-store-scraper';
 import { writeFileSync } from 'node:fs';
-import { log, ok, fail } from '../lib/utils.mjs';
+import { sleep, log, ok, fail } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
 const DEFAULT_MAX_REVIEWS_PER_APP = 50;
+const FETCH_DELAY_MS = 3000;
+const FETCH_JITTER_MS = 1500;
 
 // Pain language patterns to look for in reviews
 const PAIN_PATTERNS = [
@@ -419,6 +421,9 @@ async function cmdScan(args) {
     } catch (err) {
       log(`[appstore-scan] failed for ${label}: ${err.message}`);
     }
+    if (app !== apps[apps.length - 1]) {
+      await sleep(FETCH_DELAY_MS + Math.floor(Math.random() * FETCH_JITTER_MS));
+    }
   }
 
   log(`[appstore-scan] ${postsRaw.length} raw reviews, scoring...`);
@@ -426,8 +431,8 @@ async function cmdScan(args) {
   // Save ALL raw posts before filtering for LLM batch-evaluation
   try {
     const rawOutput = { ok: true, data: { source: 'appstore', posts: postsRaw, stats: { raw: true, total: postsRaw.length } } };
-    writeFileSync('/tmp/ppf-appstore-raw.json', JSON.stringify(rawOutput));
-    log(`[appstore-scan] saved ${postsRaw.length} raw posts to /tmp/ppf-appstore-raw.json`);
+    writeFileSync('/tmp/gapscout-appstore-raw.json', JSON.stringify(rawOutput));
+    log(`[appstore-scan] saved ${postsRaw.length} raw posts to /tmp/gapscout-appstore-raw.json`);
   } catch (err) {
     log(`[appstore-scan] failed to save raw posts: ${err.message}`);
   }

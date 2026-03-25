@@ -1,0 +1,74 @@
+{
+  "data": {
+    "source": "reddit",
+    "posts": [
+      {
+        "id": "reddit-001",
+        "title": "Ticketmaster bots are ruining everything for real fans",
+        "url": "https://reddit.com/r/concerts/abc",
+        "selftext_excerpt": "I tried to buy Taylor Swift tickets and bots bought them all in seconds",
+        "score": 3500,
+        "num_comments": 455,
+        "created_utc": 1700000000,
+        "subreddit": "concerts",
+        "painScore": 14,
+        "intensity": 3,
+        "painCategories": ["frustration", "desire"],
+        "painSubcategories": ["product-availability"],
+        "painSignals": ["looking for", "alternative to"],
+        "wtpSignals": ["would pay", "subscription"],
+        "citeKey": "HN-abc123"
+      },
+      {
+        "id": "reddit-002",
+        "title": "Making it illegal to resell tickets at higher than face value",
+        "url": "https://reddit.com/r/concerts/def",
+        "selftext_excerpt": "We need legislation to stop scalpers from buying up all the tickets",
+        "score": 2800,
+        "num_comments": 320,
+        "created_utc": 1700100000,
+        "subreddit": "concerts",
+        "painScore": 12,
+        "intensity": 2,
+        "painCategories": ["frustration"],
+        "painSubcategories": ["product-availability", "pricing"],
+        "painSignals": ["is there a"],
+        "wtpSignals": ["per month"],
+        "citeKey": "RD-def456"
+      },
+      {
+        "id": "reddit-003",
+        "title": "Ticketmaster app keeps crashing during presales",
+        "url": "https://reddit.com/r/concerts/ghi",
+        "selftext_excerpt": "The app crashed 5 times while I was in the queue",
+        "score": 450,
+        "num_comments": 89,
+        "created_utc": 1700200000,
+        "subreddit": "concerts",
+        "painScore": 10,
+        "intensity": 2,
+        "painCategories": ["frustration"],
+        "painSubcategories": ["digital-platform"],
+        "painSignals": [],
+        "wtpSignals": [],
+        "citeKey": "RD-ghi789"
+      },
+      {
+        "id": "reddit-004",
+        "title": "I give up trying to buy concert tickets honestly",
+        "url": "https://reddit.com/r/music/jkl",
+        "selftext_excerpt": "I'm done with this whole system, quitting trying to see live shows",
+        "score": 120,
+        "num_comments": 45,
+        "created_utc": 1700300000,
+        "subreddit": "music",
+        "painScore": 8,
+        "intensity": 1,
+        "painCategories": ["frustration"],
+        "painSubcategories": ["burnout"],
+        "painSignals": [],
+        "wtpSignals": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "data": {
+    "source": "appstore",
+    "posts": [
+      {
+        "id": "review-001",
+        "title": "App crashes every time I try to buy tickets",
+        "url": "https://apps.apple.com/review/1",
+        "body": "This app is terrible. Crashes during checkout, lost my spot in the queue 3 times.",
+        "score": 1,
+        "num_comments": 0,
+        "created_utc": 1700250000,
+        "subreddit": "appstore",
+        "painScore": 13,
+        "intensity": 3,
+        "painCategories": ["frustration"],
+        "painSubcategories": ["digital-platform"],
+        "painSignals": [],
+        "wtpSignals": [],
+        "citeKey": "AS-rev001"
+      },
+      {
+        "id": "review-002",
+        "title": "Too expensive service fees",
+        "url": "https://apps.apple.com/review/2",
+        "body": "The ticket was $50 but the fees added another $30. Total ripoff.",
+        "score": 2,
+        "num_comments": 0,
+        "created_utc": 1700350000,
+        "subreddit": "appstore",
+        "painScore": 11,
+        "intensity": 2,
+        "painCategories": ["frustration"],
+        "painSubcategories": ["pricing"],
+        "painSignals": [],
+        "wtpSignals": [],
+        "citeKey": "AS-rev002"
+      }
+    ]
+  }
+}

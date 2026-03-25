@@ -1,5 +1,5 @@
 /**
- * usage-tracker.mjs — Daily API usage tracking for pain-point-finder
+ * usage-tracker.mjs — Daily API usage tracking for gapscout
  *
  * Tracks API request counts per source per day, persisted to ~/.pain-points-usage.json.
  * Auto-detects keyed/authed mode by checking ~/.pain-pointsrc tokens.
@@ -25,6 +25,8 @@ const DAILY_LIMITS = {
   'crowdfunding':         { default: 300 },
   'appstore':             { default: Infinity },
   'websearch':            { default: Infinity },
+  'cfpb':                 { default: Infinity },
+  'bluesky':              { default: 3000 },
 };
 
 // ─── Token detection ─────────────────────────────────────────────────────────

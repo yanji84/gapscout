@@ -1,5 +1,5 @@
 /**
- * logger.mjs — Structured logging for pain-point-finder
+ * logger.mjs — Structured logging for gapscout
  */
 
 // ─── log levels ──────────────────────────────────────────────────────────────

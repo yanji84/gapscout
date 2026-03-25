@@ -1,6 +1,6 @@
-# pain-point-finder
+# GapScout
 
-Discover validated pain points, frustrations, and unmet needs from Reddit, Hacker News, Product Hunt, Google, G2/Capterra reviews, Kickstarter, and the Play Store. Posts and reviews are scored using a shared signal engine — pain language, willingness-to-pay evidence, engagement, and negation awareness — then ranked for actionability. Run all sources at once with `pain-points all scan --domain "X"`. No API keys required for most sources.
+Discover validated pain points, frustrations, and unmet needs from Reddit, Hacker News, Product Hunt, Google, G2/Capterra reviews, Kickstarter, and the Play Store. Posts and reviews are scored using a shared signal engine — pain language, willingness-to-pay evidence, engagement, and negation awareness — then ranked for actionability. Run all sources at once with `gapscout all scan --domain "X"`. No API keys required for most sources.
 
 ## Installation
 
@@ -14,13 +14,13 @@ For sources that require a browser (`browser`, `google`, `ph`, `reviews`, `kicks
 
 ```bash
 # 1. Find relevant subreddits for your domain
-pain-points api discover --domain "project management" --limit 8
+gapscout api discover --domain "project management" --limit 8
 
 # 2. Scan top subreddits for pain posts
-pain-points api scan --subreddits projectmanagement,SaaS --domain "project management" --days 90 --limit 20
+gapscout api scan --subreddits projectmanagement,SaaS --domain "project management" --days 90 --limit 20
 
 # 3. Deep-dive into top posts to measure validation strength
-pain-points api deep-dive --from-scan scan-output.json --top 5
+gapscout api deep-dive --from-scan scan-output.json --top 5
 ```
 
 All commands output JSON to stdout. Logs go to stderr.
@@ -44,10 +44,10 @@ All commands output JSON to stdout. Logs go to stderr.
 Historical Reddit data via the PullPush archive API. Fast, no browser needed. Best for large-scale scans and historical trend analysis.
 
 ```bash
-pain-points api discover --domain "email marketing" --limit 8
-pain-points api scan --subreddits emailmarketing,SaaS --days 90 --limit 20
-pain-points api deep-dive --post 1inyk7o
-pain-points api deep-dive --from-scan scan.json --top 5
+gapscout api discover --domain "email marketing" --limit 8
+gapscout api scan --subreddits emailmarketing,SaaS --days 90 --limit 20
+gapscout api deep-dive --post 1inyk7o
+gapscout api deep-dive --from-scan scan.json --top 5
 ```
 
 | Flag | Default | Description |
@@ -69,8 +69,8 @@ pain-points api deep-dive --from-scan scan.json --top 5
 Real-time Reddit scraping via Puppeteer on old.reddit.com. Use when PullPush is down, rate-limited, or you need current data.
 
 ```bash
-pain-points browser scan --subreddits PokemonTCG --domain "pokemon tcg" --time year
-pain-points browser deep-dive --post https://old.reddit.com/r/PokemonTCG/comments/1k9vcj5/
+gapscout browser scan --subreddits PokemonTCG --domain "pokemon tcg" --time year
+gapscout browser deep-dive --post https://old.reddit.com/r/PokemonTCG/comments/1k9vcj5/
 ```
 
 | Flag | Default | Description |
@@ -92,8 +92,8 @@ pain-points browser deep-dive --post https://old.reddit.com/r/PokemonTCG/comment
 Searches Hacker News via the Algolia API. Good for B2B/developer pain points.
 
 ```bash
-pain-points hn scan --domain "project management" --limit 20
-pain-points hn deep-dive --post 12345678
+gapscout hn scan --domain "project management" --limit 20
+gapscout hn deep-dive --post 12345678
 ```
 
 | Flag | Default | Description |
@@ -110,8 +110,8 @@ pain-points hn deep-dive --post 12345678
 Scrapes Google autocomplete suggestions and "People Also Ask" boxes using pain-revealing query templates. Falls back to the `suggestqueries` HTTP API if a CAPTCHA is detected.
 
 ```bash
-pain-points google scan --domain "notion"
-pain-points google scan --domain "slack" --limit 30
+gapscout google scan --domain "notion"
+gapscout google scan --domain "slack" --limit 30
 ```
 
 | Flag | Default | Description |
@@ -126,8 +126,8 @@ pain-points google scan --domain "slack" --limit 30
 Scrapes Product Hunt product pages and comment threads for pain signals — feature requests, switching mentions, and complaints.
 
 ```bash
-pain-points ph scan --domain "project management"
-pain-points ph scan --domain "email marketing" --limit 10
+gapscout ph scan --domain "project management"
+gapscout ph scan --domain "email marketing" --limit 10
 ```
 
 | Flag | Default | Description |
@@ -143,8 +143,8 @@ pain-points ph scan --domain "email marketing" --limit 10
 Scrapes 1-3 star reviews from G2 and/or Capterra. Low-star reviews are dense with actionable pain language.
 
 ```bash
-pain-points reviews scan --domain "project management"
-pain-points reviews scan --domain "CRM software" --sources g2,capterra --limit 50
+gapscout reviews scan --domain "project management"
+gapscout reviews scan --domain "CRM software" --sources g2,capterra --limit 50
 ```
 
 | Flag | Default | Description |
@@ -161,8 +161,8 @@ pain-points reviews scan --domain "CRM software" --sources g2,capterra --limit 5
 Scrapes Kickstarter project pages and backer comment threads for pain signals. Good for finding unmet needs in physical product and hardware spaces.
 
 ```bash
-pain-points kickstarter scan --domain "smart home"
-pain-points kickstarter scan --domain "productivity app" --limit 10
+gapscout kickstarter scan --domain "smart home"
+gapscout kickstarter scan --domain "productivity app" --limit 10
 ```
 
 | Flag | Default | Description |
@@ -178,8 +178,8 @@ pain-points kickstarter scan --domain "productivity app" --limit 10
 Scrapes 1-2 star reviews from Google Play Store apps related to a domain. Low-star mobile reviews surface pain language and willingness-to-pay signals.
 
 ```bash
-pain-points appstore scan --domain "project management" --limit 20
-pain-points appstore scan --domain "todo list" --maxApps 3
+gapscout appstore scan --domain "project management" --limit 20
+gapscout appstore scan --domain "todo list" --maxApps 3
 ```
 
 | Flag | Default | Description |
@@ -195,9 +195,9 @@ pain-points appstore scan --domain "todo list" --maxApps 3
 Runs all source modules in parallel for a given domain, deduplicates results by title similarity, and returns a single ranked list. The fastest way to get broad coverage in one command.
 
 ```bash
-pain-points all scan --domain "project management"
-pain-points all scan --domain "SaaS billing" --limit 50
-pain-points all scan --domain "pokemon tcg" --sources reddit-api,hackernews
+gapscout all scan --domain "project management"
+gapscout all scan --domain "SaaS billing" --limit 50
+gapscout all scan --domain "pokemon tcg" --sources reddit-api,hackernews
 ```
 
 | Flag | Default | Description |
@@ -212,7 +212,7 @@ pain-points all scan --domain "pokemon tcg" --sources reddit-api,hackernews
 ## Architecture
 
 ```
-pain-points <source> <command> [options]
+gapscout <source> <command> [options]
          │
          ▼
   scripts/cli.mjs              — resolves aliases, loads source module, routes command
@@ -231,7 +231,7 @@ pain-points <source> <command> [options]
          lib/scoring.mjs   — shared scoring engine (all sources use this)
          lib/utils.mjs     — shared helpers (HTTP, args, logging)
 
-pain-points report --files scan1.json,scan2.json
+gapscout report --files scan1.json,scan2.json
          │
          ▼
   scripts/report.mjs       — aggregates multi-source scans → Phase 4-7 Markdown/JSON report
@@ -277,13 +277,13 @@ All sources score posts and reviews through the same pipeline in `scripts/lib/sc
 
 ```bash
 # Markdown report (default)
-pain-points report --files reddit-scan.json,hn-scan.json,reviews-scan.json
+gapscout report --files reddit-scan.json,hn-scan.json,reviews-scan.json
 
 # JSON output for downstream processing
-pain-points report --files scan.json --format json
+gapscout report --files scan.json --format json
 
 # From stdin
-cat scan.json | pain-points report --stdin
+cat scan.json | gapscout report --stdin
 ```
 
 | Flag | Default | Description |

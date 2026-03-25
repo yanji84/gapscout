@@ -1,5 +1,5 @@
 /**
- * hackernews.mjs — Hacker News source for pain-point-finder
+ * hackernews.mjs — Hacker News source for gapscout
  * Uses the Algolia HN Search API (no browser needed)
  */
 
@@ -9,7 +9,9 @@ import {
   computePainScore, analyzeComments, enrichPost,
   getPostPainCategories,
 } from '../lib/scoring.mjs';
-import { httpGet, httpGetWithRetry } from '../lib/http.mjs';
+import { httpGet, httpGetWithRetry, RateLimiter } from '../lib/http.mjs';
+import { getGlobalRateMonitor } from '../lib/rate-monitor.mjs';
+import { Logger } from '../lib/logger.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -17,11 +19,11 @@ const HN_ALGOLIA_HOST = 'hn.algolia.com';
 const SEARCH_PATH = '/api/v1/search';
 const ITEMS_PATH = '/api/v1/items';
 
-const MIN_DELAY_MS = 1200; // Polite delay for Algolia (no official limit, but be courteous)
-
 // Track rate limit warnings across a scan
 let rateLimitWarnings = 0;
-let totalRequests = 0;
+
+// Module-level logger reference so helper functions can emit events
+let _scanLogger = null;
 
 // Date windowing: year ranges from 2019 to 2026
 const DATE_WINDOWS = [
@@ -39,19 +41,21 @@ const DATE_WINDOWS = [
 
 async function fetchWithRetry(hostname, path) {
   try {
-    return await httpGetWithRetry(hostname, path, { maxRetries: 3 });
+    return await httpGetWithRetry(hostname, path, { maxRetries: 3, rateLimiter });
   } catch (err) {
     const code = err.statusCode || 0;
     if (code === 429) {
       rateLimitWarnings++;
-      log(`[hackernews] WARNING: rate limit approaching — received 429 Too Many Requests`);
+      _scanLogger?.warn('rate limit — received 429 Too Many Requests', { statusCode: 429 });
+      getGlobalRateMonitor().reportError('hackernews', 'Algolia HN API 429 — Too Many Requests', { statusCode: 429 });
       // Back off heavily on 429, then return null to allow partial results
       await sleep(10000);
       return null;
     }
     if (code === 403) {
       rateLimitWarnings++;
-      log(`[hackernews] WARNING: received 403 Forbidden — possible rate limit or IP block`);
+      _scanLogger?.warn('received 403 Forbidden — possible rate limit or IP block', { statusCode: 403 });
+      getGlobalRateMonitor().reportBlock('hackernews', 'Algolia HN API 403 — possible rate limit or IP block', { statusCode: 403 });
       return null;
     }
     throw err;
@@ -60,20 +64,7 @@ async function fetchWithRetry(hostname, path) {
 
 // ─── rate limiter ────────────────────────────────────────────────────────────
 
-let lastRequestAt = 0;
-
-async function rateLimit() {
-  const elapsed = Date.now() - lastRequestAt;
-  if (elapsed < MIN_DELAY_MS) {
-    await sleep(MIN_DELAY_MS - elapsed);
-  }
-  lastRequestAt = Date.now();
-  totalRequests++;
-  // Algolia has no published rate limit, but log a warning if we're making a lot of requests
-  if (totalRequests > 0 && totalRequests % 100 === 0) {
-    log(`[hackernews] INFO: ${totalRequests} requests made this session — pacing at ${MIN_DELAY_MS}ms between requests`);
-  }
-}
+const rateLimiter = new RateLimiter({ minDelayMs: 1200, maxPerMin: 45, jitterMs: 200 });
 
 // ─── Algolia HN API helpers ──────────────────────────────────────────────────
 
@@ -81,7 +72,7 @@ async function rateLimit() {
  * Search HN posts (stories/ask_hn) with optional pagination and date windowing.
  */
 async function searchHN(query, tags = 'ask_hn', { page = 0, hitsPerPage = 50, numericFilters } = {}) {
-  await rateLimit();
+  await rateLimiter.wait();
   const params = { query, tags, hitsPerPage: String(hitsPerPage), page: String(page) };
   if (numericFilters) params.numericFilters = numericFilters;
   const qs = new URLSearchParams(params);
@@ -96,7 +87,7 @@ async function searchHN(query, tags = 'ask_hn', { page = 0, hitsPerPage = 50, nu
  * Returns comment hits (each has story_id, objectID, comment_text, etc.)
  */
 async function searchHNComments(query, { page = 0, hitsPerPage = 100, numericFilters } = {}) {
-  await rateLimit();
+  await rateLimiter.wait();
   const params = { query, tags: 'comment', hitsPerPage: String(hitsPerPage), page: String(page) };
   if (numericFilters) params.numericFilters = numericFilters;
   const qs = new URLSearchParams(params);
@@ -107,7 +98,7 @@ async function searchHNComments(query, { page = 0, hitsPerPage = 100, numericFil
 }
 
 async function fetchItem(itemId) {
-  await rateLimit();
+  await rateLimiter.wait();
   const path = `${ITEMS_PATH}/${itemId}`;
   log(`[hn] fetch item: ${itemId}`);
   return fetchWithRetry(HN_ALGOLIA_HOST, path);
@@ -335,6 +326,9 @@ async function paginatedPostSearchWindowed(query, tag, maxPages, postsById) {
 // ─── commands ────────────────────────────────────────────────────────────────
 
 async function cmdScan(args) {
+  const logger = new Logger('hackernews');
+  _scanLogger = logger;
+
   const domain = args.domain;
   if (!domain) fail('--domain is required');
   const limit = args.limit || 30;
@@ -344,7 +338,6 @@ async function cmdScan(args) {
 
   // Reset per-scan counters
   rateLimitWarnings = 0;
-  totalRequests = 0;
 
   log(`[scan] domain="${domain}", limit=${limit}, maxPages=${maxPages}, includeComments=${includeComments}`);
 
@@ -414,8 +407,8 @@ async function cmdScan(args) {
       }
     }
     const rawOutput = { ok: true, data: { source: 'hackernews', posts: allRawPosts, stats: { raw: true, total: allRawPosts.length } } };
-    writeFileSync('/tmp/ppf-hn-raw.json', JSON.stringify(rawOutput));
-    log(`[scan] saved ${allRawPosts.length} raw posts to /tmp/ppf-hn-raw.json`);
+    writeFileSync('/tmp/gapscout-hn-raw.json', JSON.stringify(rawOutput));
+    log(`[scan] saved ${allRawPosts.length} raw posts to /tmp/gapscout-hn-raw.json`);
   } catch (err) {
     log(`[scan] failed to save raw posts: ${err.message}`);
   }
@@ -467,6 +460,13 @@ async function cmdScan(args) {
 
   scored.sort((a, b) => b.painScore - a.painScore);
 
+  if (rateLimitWarnings > 0) {
+    logger.warn(`scan completed with ${rateLimitWarnings} rate limit warning(s)`, { rateLimitWarnings });
+  }
+
+  const _logEvents = logger.export();
+  _scanLogger = null;
+
   ok({
     source: 'hackernews',
     posts: scored.slice(0, limit),
@@ -475,9 +475,11 @@ async function cmdScan(args) {
       raw_posts: postsById.size,
       comment_stories: commentStoriesById.size,
       after_filter: Math.min(scored.length, limit),
-      totalRequests,
+      totalRequests: rateLimiter.count,
       rateLimitWarnings,
+      rateMonitor: getGlobalRateMonitor().getSourceBreakdown().get('hackernews') || { warnings: 0, blocks: 0, errors: 0 },
     },
+    _observability: _logEvents,
   });
 }
 
@@ -733,7 +735,7 @@ async function cmdFrontpage(args) {
   log(`[frontpage] fetching top ${limit} HN stories via Firebase API`);
 
   // 1. Get top story IDs
-  await rateLimit();
+  await rateLimiter.wait();
   let storyIds;
   try {
     storyIds = await firebaseGet('/v0/topstories.json');
@@ -752,7 +754,7 @@ async function cmdFrontpage(args) {
   const stories = [];
   // Batch fetch with rate limiting
   for (const id of storyIds) {
-    await rateLimit();
+    await rateLimiter.wait();
     try {
       const story = await firebaseGet(`/v0/item/${id}.json`);
       if (story && story.type === 'story') {

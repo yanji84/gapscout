@@ -1,5 +1,5 @@
 /**
- * coordinator.mjs — Cross-source orchestration layer for pain-point-finder
+ * coordinator.mjs — Cross-source orchestration layer for gapscout
  *
  * Dynamically discovers all source modules in the sources/ directory,
  * runs their `scan` command in parallel, deduplicates results by title
@@ -366,6 +366,10 @@ async function cmdScan(args) {
       // Per-source limit: fetch more than final limit so dedup has headroom
       const sourceLimit = Math.ceil(limit * 1.5);
       cliArgs.push('--limit', String(sourceLimit));
+
+      // Forward global scan flags so child processes share the same scan context
+      if (args.scanId) cliArgs.push('--scan-id', String(args.scanId));
+      if (args.scanDir) cliArgs.push('--scan-dir', String(args.scanDir));
 
       log(`[coordinator] spawning: node ${cliArgs.slice(1).join(' ')}`);
 

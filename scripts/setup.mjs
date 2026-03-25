@@ -1,5 +1,5 @@
 /**
- * setup.mjs -- Persistent, incremental setup for pain-point-finder
+ * setup.mjs -- Persistent, incremental setup for gapscout
  *
  * Auto-detects available tokens, persists to ~/.pain-pointsrc,
  * and shows instructions for tokens that need manual setup.
@@ -173,7 +173,7 @@ async function runStatus() {
   const rc = loadRc();
   const tokens = getRcTokens(rc);
 
-  line('pain-point-finder setup');
+  line('gapscout setup');
   line('========================');
   line('');
 
@@ -252,7 +252,7 @@ async function runFull() {
   }
 
   // --- Print output ---
-  line('pain-point-finder setup');
+  line('gapscout setup');
   line('========================');
   line('');
 
@@ -304,7 +304,7 @@ async function runFull() {
 export async function runSetup(args, rawArgv) {
   // Help
   if (args && (args.help || args['--help'])) {
-    line('pain-point-finder setup -- Persistent, incremental token configuration');
+    line('gapscout setup -- Persistent, incremental token configuration');
     line('');
     line('Usage:');
     line(`  ${CLI_CMD} setup                  Full setup (auto-detect + status + instructions)`);

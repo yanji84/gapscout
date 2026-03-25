@@ -150,6 +150,85 @@ body {
 .toggle-arrow { transition: transform .2s; display: inline-block; font-size: 10px; }
 .cat-details-body { padding: 16px 20px 20px; }
 
+/* ── Verification summary ── */
+.verification-summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; margin-bottom: 8px;
+  background: #14532d1a; border: 1px solid #4ade8030;
+  border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 500; color: #4ade80;
+}
+.verification-icon { font-size: 15px; font-weight: 700; }
+[data-theme="light"] .verification-summary {
+  background: #dcfce7; border-color: #86efac; color: #166534;
+}
+
+/* ── Evidence drawer (expandable inline citations) ── */
+.evidence-details { border-top: 1px solid var(--border); }
+.evidence-toggle { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.evidence-toggle:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.evidence-drawer { display: flex; flex-direction: column; gap: 0; }
+.evidence-drawer-entries { display: flex; flex-direction: column; gap: 10px; }
+.evidence-entry {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color .15s;
+}
+.evidence-entry:hover { border-color: var(--accent); }
+.evidence-entry-header {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.evidence-entry-quote {
+  font-size: 13px; line-height: 1.65; color: var(--fg2);
+  font-style: italic; margin: 0;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+}
+.evidence-entry-meta {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 12px; color: var(--muted);
+}
+.evidence-entry-meta a {
+  color: var(--accent2); text-decoration: none; font-weight: 600; font-size: 12px;
+}
+.evidence-entry-meta a:hover { text-decoration: underline; }
+.evidence-entry-score { font-weight: 700; color: var(--accent2); }
+.evidence-entry-date { color: var(--muted); }
+.evidence-entry-subreddit { color: var(--fg2); font-weight: 500; }
+
+/* ── Source badge pills (inline in evidence entries) ── */
+.source-badge-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 2px 8px; border-radius: 10px;
+  font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
+  flex-shrink: 0;
+}
+.source-badge-pill[data-source="reddit"]       { background: #ff451522; color: #ff6b3d; border: 1px solid #ff451530; }
+.source-badge-pill[data-source="hackernews"]   { background: #ff660022; color: #ff8533; border: 1px solid #ff660030; }
+.source-badge-pill[data-source="google"]       { background: #4285f422; color: #6fa8f8; border: 1px solid #4285f430; }
+.source-badge-pill[data-source="g2"]           { background: #22c55e22; color: #4ade80; border: 1px solid #22c55e30; }
+.source-badge-pill[data-source="trustpilot"]   { background: #22c55e22; color: #4ade80; border: 1px solid #22c55e30; }
+.source-badge-pill[data-source="appstore"]     { background: #007aff22; color: #4db3ff; border: 1px solid #007aff30; }
+.source-badge-pill[data-source="twitter"]      { background: #1da1f222; color: #5bc1f7; border: 1px solid #1da1f230; }
+.source-badge-pill[data-source="producthunt"]  { background: #da552f22; color: #f07050; border: 1px solid #da552f30; }
+.source-badge-pill[data-source="github-issues"]{ background: #8b5cf622; color: #a78bfa; border: 1px solid #8b5cf630; }
+.source-badge-pill[data-source="websearch"]    { background: #6366f122; color: #818cf8; border: 1px solid #6366f130; }
+.source-badge-pill[data-source="unknown"]      { background: var(--bg2); color: var(--muted); border: 1px solid var(--border); }
+
+/* ── Load more button ── */
+.load-more {
+  display: flex; align-items: center; justify-content: center;
+  padding: 10px 20px; margin-top: 10px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--accent2); font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+  transition: background .15s, border-color .15s;
+}
+.load-more:hover { background: var(--bg3); border-color: var(--accent); }
+
 /* ── Source coverage ── */
 .source-list { display: flex; flex-direction: column; gap: 8px; max-width: 600px; }
 .source-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
@@ -196,7 +275,7 @@ body {
 
 /* ── Print ── */
 @media print {
-  .topnav, .theme-toggle, .filter-btn, .cat-details-toggle { display: none !important; }
+  .topnav, .theme-toggle, .filter-btn, .cat-details-toggle, .load-more { display: none !important; }
   .cat-details[open] .cat-details-body { display: block; }
   body { background: #fff; color: #000; }
   .section { padding: 32px 0; }
@@ -213,6 +292,7 @@ body {
   .section { padding: 40px 0; }
   .section-title { font-size: 20px; }
   .warning-source { flex: 0 0 auto; }
+  .evidence-entry-header { gap: 6px; }
 }
 `;
 }
@@ -263,6 +343,124 @@ document.querySelectorAll('.cat-details').forEach(d => {
   d.addEventListener('toggle', () => {
     const arrow = d.querySelector('.toggle-arrow');
     if (arrow) arrow.style.transform = d.open ? 'rotate(90deg)' : '';
+  });
+});
+
+// ── Evidence drawer: lazy parsing + paginated "Show more" ──
+
+// Lazy-parsed evidence corpus (parsed on first drawer open)
+let _evidenceCorpus = null;
+function getEvidenceCorpus() {
+  if (_evidenceCorpus) return _evidenceCorpus;
+  const el = document.getElementById('evidence-store');
+  if (!el) return {};
+  try {
+    _evidenceCorpus = JSON.parse(el.textContent);
+  } catch (e) {
+    _evidenceCorpus = {};
+  }
+  return _evidenceCorpus;
+}
+
+// Source label abbreviations for pills
+const SOURCE_ABBR = {
+  reddit: 'R', hackernews: 'HN', google: 'G', appstore: 'AS',
+  twitter: 'X', producthunt: 'PH', trustpilot: 'TP', g2: 'G2',
+  'github-issues': 'GH', websearch: 'W', unknown: '?',
+};
+
+function escAttr(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderEvidenceEntry(entry) {
+  const src = entry.source || 'unknown';
+  const abbr = SOURCE_ABBR[src] || src.slice(0, 2).toUpperCase();
+  const quote = (entry.quote || entry.title || '').slice(0, 500);
+  const linkHtml = entry.url
+    ? '<a href="' + escAttr(entry.url) + '" target="_blank" rel="noopener">View original \\u2197</a>'
+    : '';
+  const scoreHtml = entry.score
+    ? '<span class="evidence-entry-score">\\u2191' + entry.score + '</span>'
+    : '';
+  const dateHtml = entry.date
+    ? '<span class="evidence-entry-date">' + escAttr(entry.date) + '</span>'
+    : '';
+  const subHtml = entry.subreddit
+    ? '<span class="evidence-entry-subreddit">r/' + escAttr(entry.subreddit) + '</span>'
+    : '';
+
+  return '<div class="evidence-entry">'
+    + '<div class="evidence-entry-header">'
+    +   '<span class="source-badge-pill" data-source="' + escAttr(src) + '">' + escAttr(abbr) + '</span>'
+    +   (entry.title ? '<span style="font-size:13px;font-weight:600;color:var(--fg)">' + escAttr(entry.title.slice(0, 120)) + '</span>' : '')
+    + '</div>'
+    + (quote ? '<p class="evidence-entry-quote">"' + escAttr(quote) + '"</p>' : '')
+    + '<div class="evidence-entry-meta">'
+    +   scoreHtml + dateHtml + subHtml + linkHtml
+    + '</div>'
+    + '</div>';
+}
+
+// Page size for "Show more"
+const EVIDENCE_PAGE_SIZE = 10;
+
+function populateDrawer(detailsEl) {
+  if (detailsEl.dataset.loaded === 'true') return;
+  detailsEl.dataset.loaded = 'true';
+
+  const corpus = getEvidenceCorpus();
+  let citeKeys;
+  try {
+    citeKeys = JSON.parse(detailsEl.dataset.citeKeys || '[]');
+  } catch (e) {
+    citeKeys = [];
+  }
+
+  // Resolve entries from corpus, filter to those that exist
+  const entries = citeKeys.map(k => corpus[k]).filter(Boolean);
+  if (entries.length === 0) {
+    const container = detailsEl.querySelector('.evidence-drawer-entries');
+    if (container) container.innerHTML = '<p class="muted-text">No evidence posts available.</p>';
+    return;
+  }
+
+  const container = detailsEl.querySelector('.evidence-drawer-entries');
+  if (!container) return;
+
+  // Render first page
+  let shown = 0;
+  const renderPage = () => {
+    const end = Math.min(shown + EVIDENCE_PAGE_SIZE, entries.length);
+    let html = '';
+    for (let i = shown; i < end; i++) {
+      html += renderEvidenceEntry(entries[i]);
+    }
+    // Remove existing "show more" button before appending
+    const existingBtn = container.parentElement.querySelector('.load-more');
+    if (existingBtn) existingBtn.remove();
+
+    container.insertAdjacentHTML('beforeend', html);
+    shown = end;
+
+    // Add "Show more" button if there are remaining entries
+    const remaining = entries.length - shown;
+    if (remaining > 0) {
+      const btn = document.createElement('button');
+      btn.className = 'load-more';
+      btn.textContent = 'Show more (' + remaining + ' remaining)';
+      btn.addEventListener('click', renderPage);
+      container.parentElement.appendChild(btn);
+    }
+  };
+
+  renderPage();
+}
+
+// Listen for evidence drawer opens
+document.querySelectorAll('.evidence-details').forEach(d => {
+  d.addEventListener('toggle', () => {
+    if (d.open) populateDrawer(d);
   });
 });
 `;

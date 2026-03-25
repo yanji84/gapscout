@@ -1,0 +1,41 @@
+{
+  "data": {
+    "source": "hackernews",
+    "posts": [
+      {
+        "id": "hn-001",
+        "title": "So we built a fair-queue ticketing system",
+        "url": "https://news.ycombinator.com/item?id=12345",
+        "selftext_excerpt": "After getting burned by Ticketmaster one too many times, we built something better",
+        "score": 890,
+        "num_comments": 234,
+        "created_utc": 1700050000,
+        "subreddit": "hackernews",
+        "painScore": 11,
+        "intensity": 3,
+        "painCategories": ["desire"],
+        "painSubcategories": ["product-availability"],
+        "painSignals": ["switched from", "alternative to"],
+        "wtpSignals": ["bought", "per year"],
+        "citeKey": "HN-hn001"
+      },
+      {
+        "id": "hn-002",
+        "title": "Dynamic pricing is a scam",
+        "url": "https://news.ycombinator.com/item?id=12346",
+        "selftext_excerpt": "Event tickets with dynamic pricing are just legalized scalping by corporations",
+        "score": 560,
+        "num_comments": 178,
+        "created_utc": 1700150000,
+        "subreddit": "hackernews",
+        "painScore": 9,
+        "intensity": 2,
+        "painCategories": ["frustration"],
+        "painSubcategories": ["pricing"],
+        "painSignals": [],
+        "wtpSignals": ["would pay"],
+        "citeKey": "HN-hn002"
+      }
+    ]
+  }
+}

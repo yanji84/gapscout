@@ -1,5 +1,5 @@
 /**
- * http.mjs — Shared HTTP client and rate limiter for pain-point-finder
+ * http.mjs — Shared HTTP client and rate limiter for gapscout
  *
  * Consolidates HTTP request logic, retry/backoff, and rate limiting
  * from reddit-api.mjs and hackernews.mjs into reusable utilities.
@@ -7,6 +7,7 @@
 
 import https from 'node:https';
 import { sleep, log } from './utils.mjs';
+import { getGlobalRateMonitor } from './rate-monitor.mjs';
 
 // ─── configurable constants ──────────────────────────────────────────────────
 
@@ -20,10 +21,10 @@ export const REQUEST_TIMEOUT_MS = 15000;
  * Reddit-compliant User-Agent string.
  * Reddit requires: <platform>:<app_id>:<version> (by /u/<username>)
  */
-export const REDDIT_USER_AGENT = 'node:pain-point-finder:5.0 (by /u/pain-point-finder-bot)';
+export const REDDIT_USER_AGENT = 'node:gapscout:5.0 (by /u/gapscout-bot)';
 
 /** Generic User-Agent for non-Reddit APIs */
-export const DEFAULT_USER_AGENT = 'pain-point-finder/5.0';
+export const DEFAULT_USER_AGENT = 'gapscout/5.0';
 
 /**
  * Global _rateLimitWarning flag. When set to true, rate limit warnings
@@ -65,6 +66,7 @@ export class RateLimiter {
   async wait() {
     if (this.totalRequests >= this.maxPerRun) {
       emitRateLimitWarning(`max ${this.maxPerRun} requests per run exceeded — stopping`);
+      getGlobalRateMonitor().reportError('http', `Per-run limit exceeded (${this.maxPerRun} requests)`);
       throw new Error(`Rate limit: max ${this.maxPerRun} requests per run exceeded`);
     }
 
@@ -74,6 +76,7 @@ export class RateLimiter {
       const threshold = Math.max(10, Math.floor(this.maxPerRun * 0.1));
       if (remaining === threshold) {
         emitRateLimitWarning(`approaching rate limit: ${remaining} requests remaining out of ${this.maxPerRun}`);
+        getGlobalRateMonitor().reportWarning('http', `Approaching per-run limit: ${remaining}/${this.maxPerRun} requests remaining`);
       }
     }
 
@@ -95,6 +98,7 @@ export class RateLimiter {
       const oldest = this.timestamps[0];
       const waitMs = 60000 - (now - oldest) + 100;
       emitRateLimitWarning(`per-minute cap hit (${this.maxPerMin}/min), sleeping ${waitMs}ms`);
+      getGlobalRateMonitor().reportWarning('http', `Per-minute cap hit (${this.maxPerMin}/min), sleeping ${waitMs}ms`);
       await sleep(waitMs);
     }
     const elapsed = Date.now() - this.lastRequestAt;
@@ -144,6 +148,7 @@ export function httpGet(hostname, path, options = {}) {
           catch { reject(new Error(`Non-JSON response: ${body.slice(0, 200)}`)); }
         } else if (res.statusCode === 429) {
           emitRateLimitWarning(`HTTP 429 Too Many Requests from ${hostname} — being rate limited`);
+          getGlobalRateMonitor().reportError('http', `HTTP 429 from ${hostname}`, { statusCode: 429, hostname, path });
           const err = new Error(`HTTP 429 (rate limited)`);
           err.statusCode = 429;
           // Parse Retry-After header if present
@@ -152,6 +157,7 @@ export function httpGet(hostname, path, options = {}) {
           reject(err);
         } else if (res.statusCode === 403) {
           emitRateLimitWarning(`HTTP 403 Forbidden from ${hostname} — possible IP ban or auth failure`);
+          getGlobalRateMonitor().reportBlock('http', `HTTP 403 from ${hostname} — possible IP ban or auth failure`, { statusCode: 403, hostname, path });
           const err = new Error(`HTTP 403 (forbidden/blocked)`);
           err.statusCode = 403;
           reject(err);
@@ -191,8 +197,10 @@ export async function httpGetWithRetry(hostname, path, options = {}) {
       if (rateLimiter) await rateLimiter.wait();
       if (attempt > 0 && !rateLimiter) {
         const backoff = backoffBaseMs * Math.pow(2, attempt - 1);
-        log(`[http] retry ${attempt} in ${backoff}ms`);
-        await sleep(backoff);
+        const jitter = Math.floor(Math.random() * backoff * 0.5);
+        const delay = backoff + jitter;
+        log(`[http] retry ${attempt} in ${delay}ms`);
+        await sleep(delay);
       }
       return await httpGet(hostname, path, options);
     } catch (err) {
@@ -220,8 +228,10 @@ export async function httpGetWithRetry(hostname, path, options = {}) {
       } else {
         backoff = backoffBaseMs * Math.pow(2, attempt);
       }
-      log(`[http] ${err.message} — retry ${attempt + 1}/${maxForType} in ${backoff}ms`);
-      await sleep(backoff);
+      const jitter = Math.floor(Math.random() * backoff * 0.5);
+      const delay = backoff + jitter;
+      log(`[http] ${err.message} — retry ${attempt + 1}/${maxForType} in ${delay}ms`);
+      await sleep(delay);
     }
   }
   throw lastErr;

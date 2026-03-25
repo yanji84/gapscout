@@ -1,5 +1,5 @@
 /**
- * config.mjs — Configuration system for pain-point-finder
+ * config.mjs — Configuration system for gapscout
  *
  * Loads ~/.pain-pointsrc (JSON format) and provides a merge-precedence
  * configuration: CLI args > domain config > global config > defaults.

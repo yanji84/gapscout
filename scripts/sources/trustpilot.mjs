@@ -1,14 +1,14 @@
 /**
- * trustpilot.mjs — Trustpilot review scraper source for pain-point-finder
+ * trustpilot.mjs — Trustpilot review scraper source for gapscout
  *
- * Primary: HTTP-based scraping (no browser required). Trustpilot pages are
+ * Default: HTTP-only scraping (no browser required). Trustpilot pages are
  * server-side rendered, so we fetch HTML and parse JSON-LD / __NEXT_DATA__.
- * Fallback: Puppeteer browser scraping (legacy behavior).
+ * Optional: Puppeteer browser fallback with --browser flag.
  *
  * Usage:
  *   pain-points trustpilot scan --domain "ticketmaster" --limit 100
  *   pain-points trustpilot scan --companies "ticketmaster.com,stubhub.com" --limit 200
- *   pain-points trustpilot scan --domain "stubhub" --api-only
+ *   pain-points trustpilot scan --domain "stubhub" --browser
  *   pain-points trustpilot scan --domain "stubhub" --browser-only
  */
 
@@ -18,6 +18,8 @@ import { sleep, log, ok, fail } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
 import { RateLimiter } from '../lib/http.mjs';
 import { createBlockTracker } from '../lib/browser.mjs';
+import { getGlobalRateMonitor } from '../lib/rate-monitor.mjs';
+import { Logger } from '../lib/logger.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -366,6 +368,11 @@ async function scrapePageHttp(companySlug, stars, pageNum) {
 
     if (statusCode === 403 || statusCode === 429) {
       log(`[trustpilot]   HTTP ${statusCode} — blocked or rate-limited`);
+      if (statusCode === 429) {
+        getGlobalRateMonitor().reportError('trustpilot', `HTTP 429 — rate limited on ${companySlug}`, { statusCode: 429, companySlug, pageNum });
+      } else {
+        getGlobalRateMonitor().reportBlock('trustpilot', `HTTP 403 — blocked on ${companySlug}`, { statusCode: 403, companySlug, pageNum });
+      }
       return { reviews: [], hasNext: false, blocked: true, httpFailed: true };
     }
 
@@ -381,6 +388,7 @@ async function scrapePageHttp(companySlug, stars, pageNum) {
         body.includes('id="challenge-form"') ||
         body.includes('cf-challenge-running')) {
       log(`[trustpilot]   anti-bot challenge detected in HTTP response`);
+      getGlobalRateMonitor().reportBlock('trustpilot', `Anti-bot challenge detected on ${companySlug} page ${pageNum}`, { companySlug, pageNum });
       return { reviews: [], hasNext: false, blocked: true, httpFailed: true };
     }
 
@@ -442,6 +450,7 @@ async function scrapePageBrowser(page, url, companySlug) {
 
     if (blocked) {
       log(`[trustpilot]   browser: anti-bot protection detected`);
+      getGlobalRateMonitor().reportBlock('trustpilot', `Browser anti-bot protection detected on ${companySlug}`, { companySlug });
       return { reviews: [], blocked: true };
     }
 
@@ -776,6 +785,8 @@ function normalizeReview(review, companyName) {
 // ─── scan command ─────────────────────────────────────────────────────────────
 
 async function cmdScan(args) {
+  const logger = new Logger('trustpilot');
+
   const domain = (args.domain || '').trim();
   const companiesArg = (args.companies || '').trim();
 
@@ -785,11 +796,12 @@ async function cmdScan(args) {
 
   const limit = args.limit ? parseInt(args.limit, 10) : 100;
   const maxPages = args.maxPages ? parseInt(args.maxPages, 10) : MAX_PAGES_PER_COMPANY;
-  const apiOnly = !!args.apiOnly;
   const browserOnly = !!args.browserOnly;
+  const useBrowser = !!args.browser;   // opt-in to browser fallback
+  const apiOnly = !!args.apiOnly || (!browserOnly && !useBrowser);  // HTTP-only is the default
 
-  if (apiOnly && browserOnly) {
-    fail('Cannot use both --api-only and --browser-only');
+  if (useBrowser && browserOnly) {
+    fail('Cannot use both --browser and --browser-only');
   }
 
   // Build list of company slugs to scrape
@@ -800,7 +812,7 @@ async function cmdScan(args) {
     companySlugs = resolveCompanies(domain);
   }
 
-  log(`[trustpilot] domain="${domain}", companies=${companySlugs.join(',')}, limit=${limit}, mode=${browserOnly ? 'browser-only' : apiOnly ? 'api-only' : 'http+fallback'}`);
+  log(`[trustpilot] domain="${domain}", companies=${companySlugs.join(',')}, limit=${limit}, mode=${browserOnly ? 'browser-only' : useBrowser ? 'http+browser-fallback' : 'http-only'}`);
 
   const rawReviews = [];
   const blockTracker = createBlockTracker('trustpilot');
@@ -875,8 +887,8 @@ async function cmdScan(args) {
       return normalizeReview(r, companyName);
     });
     const rawOutput = { ok: true, data: { source: 'trustpilot', posts: allRawPosts, stats: { raw: true, total: allRawPosts.length } } };
-    writeFileSync('/tmp/ppf-trustpilot-raw.json', JSON.stringify(rawOutput));
-    log(`[trustpilot] saved ${allRawPosts.length} raw posts to /tmp/ppf-trustpilot-raw.json`);
+    writeFileSync('/tmp/gapscout-trustpilot-raw.json', JSON.stringify(rawOutput));
+    log(`[trustpilot] saved ${allRawPosts.length} raw posts to /tmp/gapscout-trustpilot-raw.json`);
   } catch (err) {
     log(`[trustpilot] failed to save raw posts: ${err.message}`);
   }
@@ -924,6 +936,15 @@ async function cmdScan(args) {
 
   scored.sort((a, b) => b.painScore - a.painScore);
 
+  if (blockTracker.stats.blocked > 0) {
+    logger.warn(`${blockTracker.stats.blocked} request(s) were blocked`, { blocked: blockTracker.stats.blocked });
+  }
+  if (blockTracker.stats.rateLimitWarnings > 0) {
+    logger.warn(`${blockTracker.stats.rateLimitWarnings} rate limit warning(s)`, { rateLimitWarnings: blockTracker.stats.rateLimitWarnings });
+  }
+
+  const _logEvents = logger.export();
+
   ok({
     mode: 'trustpilot',
     domain: domain || companySlugs.join(','),
@@ -935,7 +956,9 @@ async function cmdScan(args) {
       after_filter: Math.min(scored.length, limit),
       blocked: blockTracker.stats.blocked,
       rateLimitWarnings: blockTracker.stats.rateLimitWarnings,
+      rateMonitor: getGlobalRateMonitor().getSourceBreakdown().get('trustpilot') || { warnings: 0, blocks: 0, errors: 0 },
     },
+    _observability: _logEvents,
   });
 }
 
@@ -943,7 +966,7 @@ async function cmdScan(args) {
 
 export default {
   name: 'trustpilot',
-  description: 'Trustpilot review scraper — HTTP-first with browser fallback for low-star (1-3 star) reviews',
+  description: 'Trustpilot review scraper — HTTP-only by default for low-star (1-3 star) reviews',
   commands: ['scan'],
   async run(command, args) {
     switch (command) {
@@ -954,8 +977,8 @@ export default {
   help: `
 trustpilot source — Trustpilot low-star review scraper
 
-  Primary: HTTP-based scraping (no browser/Chrome required)
-  Fallback: Puppeteer browser scraping if HTTP is blocked
+  Default: HTTP-only scraping (no browser/Chrome required)
+  Optional: Puppeteer browser fallback with --browser flag
 
 Commands:
   scan        Scrape 1-3 star reviews from Trustpilot for a domain
@@ -965,7 +988,8 @@ scan options:
   --companies <list>    Comma-separated Trustpilot company slugs (e.g. "ticketmaster.com,stubhub.com")
   --limit <n>           Max reviews to return (default: 100)
   --maxPages <n>        Max pages to scrape per star tier per company (default: 150)
-  --api-only            Use HTTP scraping only — skip browser fallback entirely
+  --browser             Enable browser fallback when HTTP is blocked (off by default)
+  --api-only            Use HTTP scraping only (same as default, kept for compatibility)
   --browser-only        Use Puppeteer only — legacy behavior, requires Chrome
 
 Built-in domain mappings:
@@ -975,13 +999,13 @@ Built-in domain mappings:
   viagogo → viagogo.com              livenation → livenation.com
   gametime → gametime.co             goldstar → goldstar.com
 
-Connection options (for --browser-only or fallback):
+Connection options (for --browser-only or --browser fallback):
   --ws-url <url>        Chrome WebSocket URL (auto-detected if omitted)
   --port <n>            Chrome debug port (auto-detected if omitted)
 
 Examples:
   pain-points trustpilot scan --domain "ticketmaster" --limit 100
-  pain-points trustpilot scan --domain "stubhub" --limit 500 --api-only
+  pain-points trustpilot scan --domain "stubhub" --limit 500 --browser
   pain-points trustpilot scan --companies "ticketmaster.com,stubhub.com" --limit 200
   pain-points trustpilot scan --domain "ticketmaster" --browser-only
 `,

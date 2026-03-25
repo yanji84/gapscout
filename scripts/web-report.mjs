@@ -22,6 +22,7 @@ import { escHtml } from './lib/web-report/helpers.mjs';
 import {
   buildHero, buildCategoryCards,
   buildSourceCoverage, buildEvidenceWall, buildDataWarnings,
+  buildEvidenceStore, buildVerificationSummary,
 } from './lib/web-report/html-generator.mjs';
 import { buildCss, buildJs } from './lib/web-report/styling.mjs';
 
@@ -56,6 +57,7 @@ function generateHtml(reportData, generatedAt = new Date().toISOString()) {
   <style>${buildCss()}</style>
 </head>
 <body>
+  ${buildEvidenceStore(data)}
   <nav class="topnav">
     <span class="nav-brand">pain-points</span>
     ${navLinks}
@@ -63,7 +65,8 @@ function generateHtml(reportData, generatedAt = new Date().toISOString()) {
   </nav>
   <div class="container">
     ${buildHero(data)}
-    ${buildCategoryCards(groups)}
+    ${buildVerificationSummary(data)}
+    ${buildCategoryCards(groups, data)}
     ${buildSourceCoverage(meta, groups)}
     ${buildEvidenceWall(groups)}
     ${buildDataWarnings(meta)}

@@ -1,0 +1,56 @@
+{
+  "searchResults": {
+    "items": [
+      {
+        "question_id": 77001234,
+        "title": "Kubernetes pod keeps crashing with OOM error",
+        "body": "<p>I'm frustrated with Kubernetes memory management. My pod keeps getting <code>OOMKilled</code> even though I set resource limits. The documentation is terrible and I've spent days trying to fix this.</p><pre><code>kubectl describe pod myapp-xyz</code></pre><p>Shows the pod is constantly restarting. This is broken beyond belief.</p>",
+        "link": "https://stackoverflow.com/questions/77001234/kubernetes-pod-keeps-crashing",
+        "score": 156,
+        "answer_count": 12,
+        "tags": ["kubernetes", "docker", "memory"],
+        "creation_date": 1700000000
+      },
+      {
+        "question_id": 77005678,
+        "title": "Alternative to Kubernetes for small deployments?",
+        "body": "<p>Looking for a simpler alternative to Kubernetes. The complexity is annoying and overpriced for our small team. I'd pay for something that just works.</p>",
+        "link": "https://stackoverflow.com/questions/77005678/alternative-to-kubernetes",
+        "score": 89,
+        "answer_count": 8,
+        "tags": ["kubernetes", "devops", "deployment"],
+        "creation_date": 1700100000
+      }
+    ],
+    "has_more": false,
+    "quota_remaining": 280,
+    "quota_max": 300
+  },
+  "emptyResults": {
+    "items": [],
+    "has_more": false,
+    "quota_remaining": 279,
+    "quota_max": 300
+  },
+  "backoffResponse": {
+    "items": [],
+    "has_more": false,
+    "quota_remaining": 10,
+    "backoff": 30
+  },
+  "errorResponse": {
+    "error_id": 502,
+    "error_message": "too many requests from this IP",
+    "error_name": "throttle_violation"
+  },
+  "malformedItem": {
+    "question_id": null,
+    "title": "",
+    "body": null,
+    "link": "",
+    "score": 0,
+    "answer_count": 0,
+    "tags": [],
+    "creation_date": 0
+  }
+}

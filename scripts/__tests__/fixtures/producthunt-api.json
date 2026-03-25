@@ -1,0 +1,112 @@
+{
+  "topicSearchResponse": {
+    "topics": {
+      "edges": [
+        {
+          "node": {
+            "id": "123",
+            "slug": "project-management",
+            "name": "Project Management"
+          }
+        },
+        {
+          "node": {
+            "id": "456",
+            "slug": "task-management",
+            "name": "Task Management"
+          }
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    }
+  },
+  "postsByTopicResponse": {
+    "posts": {
+      "edges": [
+        {
+          "node": {
+            "id": "789",
+            "slug": "awesome-pm-tool",
+            "name": "Awesome PM Tool",
+            "tagline": "The project management tool you've been waiting for",
+            "description": "A frustrating gap in project management tools inspired us to build this. Most tools are overpriced and terrible at handling dependencies.",
+            "votesCount": 234,
+            "commentsCount": 45,
+            "reviewsCount": 12,
+            "reviewsRating": 3.8,
+            "url": "https://www.producthunt.com/posts/awesome-pm-tool",
+            "website": "https://awesome-pm.example.com",
+            "createdAt": "2024-03-15T10:00:00Z",
+            "topics": {
+              "edges": [
+                { "node": { "slug": "project-management", "name": "Project Management" } }
+              ]
+            }
+          }
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    }
+  },
+  "postCommentsResponse": {
+    "post": {
+      "id": "789",
+      "name": "Awesome PM Tool",
+      "tagline": "The project management tool you've been waiting for",
+      "description": "A frustrating gap in project management tools",
+      "votesCount": 234,
+      "commentsCount": 3,
+      "reviewsCount": 12,
+      "reviewsRating": 3.8,
+      "url": "https://www.producthunt.com/posts/awesome-pm-tool",
+      "createdAt": "2024-03-15T10:00:00Z",
+      "comments": {
+        "edges": [
+          {
+            "node": {
+              "id": "c1",
+              "body": "I wish this had better Gantt chart support. Missing feature for teams.",
+              "votesCount": 12,
+              "createdAt": "2024-03-15T12:00:00Z"
+            }
+          },
+          {
+            "node": {
+              "id": "c2",
+              "body": "Switched from Asana because it was too expensive. This is a great alternative!",
+              "votesCount": 8,
+              "createdAt": "2024-03-15T13:00:00Z"
+            }
+          },
+          {
+            "node": {
+              "id": "c3",
+              "body": "The UI is confusing and hard to navigate. Needs improvement.",
+              "votesCount": 5,
+              "createdAt": "2024-03-15T14:00:00Z"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false,
+          "endCursor": null
+        }
+      }
+    }
+  },
+  "emptyTopics": {
+    "topics": {
+      "edges": [],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    }
+  }
+}

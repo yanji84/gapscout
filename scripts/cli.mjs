@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * cli.mjs — Unified CLI for pain-point-finder
+ * cli.mjs — Unified CLI for gapscout
  *
  * Usage:
  *   pain-points <source> <command> [options]
@@ -22,10 +22,71 @@
 import { normalizeArgs, log } from './lib/utils.mjs';
 import { SOURCE_ALIASES } from './lib/command-registry.mjs';
 import { loadAndExportTokens } from './lib/config.mjs';
+import { ScanContext } from './lib/scan-context.mjs';
+import { outputError } from './lib/output-envelope.mjs';
+import { getGlobalRateMonitor } from './lib/rate-monitor.mjs';
 
 // Load persisted tokens from ~/.pain-pointsrc into process.env
 // before any source module is loaded, so they pick up tokens automatically.
 loadAndExportTokens();
+
+// ─── default timeout ────────────────────────────────────────────────────────
+const DEFAULT_TIMEOUT_MS = 600_000; // 10 minutes
+
+// ─── global flags: --scan-id, --scan-dir, --timeout ─────────────────────────
+// Parse and strip these early so they don't interfere with source/command parsing.
+
+let _scanId = null;
+let _scanDir = null;
+let _timeoutMs = DEFAULT_TIMEOUT_MS;
+
+{
+  const rawArgv = process.argv.slice(2);
+  const cleaned = [];
+  for (let i = 0; i < rawArgv.length; i++) {
+    if (rawArgv[i] === '--scan-id' && i + 1 < rawArgv.length) {
+      _scanId = rawArgv[++i];
+    } else if (rawArgv[i] === '--scan-dir' && i + 1 < rawArgv.length) {
+      _scanDir = rawArgv[++i];
+    } else if (rawArgv[i] === '--timeout' && i + 1 < rawArgv.length) {
+      _timeoutMs = parseInt(rawArgv[++i], 10) || DEFAULT_TIMEOUT_MS;
+    } else {
+      cleaned.push(rawArgv[i]);
+    }
+  }
+  // Replace process.argv so downstream code sees cleaned args
+  process.argv = [process.argv[0], process.argv[1], ...cleaned];
+}
+
+/** Global ScanContext instance (null-safe: defaults when no flags provided). */
+const scanContext = new ScanContext({ scanId: _scanId, scanDir: _scanDir });
+
+// ─── self-timeout mechanism ─────────────────────────────────────────────────
+// Prevents individual source scans from hanging indefinitely.
+
+/**
+ * Start a self-timeout timer. When it fires, emit a CRITICAL error envelope
+ * to stdout and exit with code 124 (standard timeout exit code).
+ *
+ * @param {number} ms - Timeout duration in milliseconds
+ * @returns {NodeJS.Timeout} The timer handle (already unref'd)
+ */
+function startScanTimeout(ms) {
+  const timer = setTimeout(() => {
+    process.stderr.write(`[CRITICAL] Source scan timed out after ${ms}ms\n`);
+    const envelope = outputError(
+      `Source scan timed out after ${ms}ms`,
+      'ERR_TIMEOUT',
+      { timeout_ms: ms },
+      'CRITICAL',
+    );
+    console.log(JSON.stringify(envelope, null, 2));
+    process.exit(124);
+  }, ms);
+  // unref() so the timer doesn't keep the process alive if the scan finishes normally
+  timer.unref();
+  return timer;
+}
 
 // ─── idea sketch markdown helper ─────────────────────────────────────────────
 
@@ -92,6 +153,38 @@ async function loadSource(name) {
 
 // ─── main ────────────────────────────────────────────────────────────────────
 
+/**
+ * Spawn a child process with timeout enforcement.
+ * Forwards the --timeout flag to the child and kills it if it exceeds the limit.
+ *
+ * @param {object} spawnFn - The child_process.spawn function
+ * @param {string} scriptPath - Path to the script to run
+ * @param {string[]} childArgs - Arguments for the child
+ * @param {number} timeoutMs - Timeout in milliseconds
+ */
+function spawnWithTimeout(spawnFn, scriptPath, childArgs, timeoutMs) {
+  const child = spawnFn(process.execPath, [scriptPath, ...childArgs], {
+    stdio: 'inherit',
+    timeout: timeoutMs,
+  });
+  child.on('exit', (code, signal) => {
+    if (signal === 'SIGTERM') {
+      // Child was killed by timeout
+      process.stderr.write(`[CRITICAL] Child process timed out after ${timeoutMs}ms\n`);
+      const envelope = outputError(
+        `Source scan timed out after ${timeoutMs}ms`,
+        'ERR_TIMEOUT',
+        { timeout_ms: timeoutMs },
+        'CRITICAL',
+      );
+      console.log(JSON.stringify(envelope, null, 2));
+      process.exit(124);
+    }
+    process.exit(code ?? 0);
+  });
+  return child;
+}
+
 async function main() {
   const argv = process.argv.slice(2);
 
@@ -102,8 +195,7 @@ async function main() {
     const __dirname2 = dn2(fu2(import.meta.url));
     const { spawn: sp2 } = await import('node:child_process');
     const webReportPath = res2(__dirname2, 'web-report.mjs');
-    const child2 = sp2(process.execPath, [webReportPath, ...argv.slice(1)], { stdio: 'inherit' });
-    child2.on('exit', code => process.exit(code ?? 0));
+    spawnWithTimeout(sp2, webReportPath, ['--timeout', String(_timeoutMs), ...argv.slice(1)], _timeoutMs);
     return;
   }
 
@@ -264,13 +356,20 @@ Options:
     const { fileURLToPath } = await import('node:url');
     const { dirname, resolve } = await import('node:path');
     const __dirname = dirname(fileURLToPath(import.meta.url));
-    // Re-launch report.mjs as a child process so process.argv is set correctly
     const { spawn } = await import('node:child_process');
     const reportPath = resolve(__dirname, 'report.mjs');
-    const child = spawn(process.execPath, [reportPath, ...argv.slice(1)], {
-      stdio: 'inherit',
-    });
-    child.on('exit', code => process.exit(code ?? 0));
+    spawnWithTimeout(spawn, reportPath, ['--timeout', String(_timeoutMs), ...argv.slice(1)], _timeoutMs);
+    return;
+  }
+
+  // Top-level `verify-citations` command — check analyst output for hallucinated citations
+  if (argv[0] === 'verify-citations') {
+    const { fileURLToPath: fuVC } = await import('node:url');
+    const { dirname: dnVC, resolve: resVC } = await import('node:path');
+    const __dirnameVC = dnVC(fuVC(import.meta.url));
+    const { spawn: spVC } = await import('node:child_process');
+    const vcPath = resVC(__dirnameVC, 'verify-citations.mjs');
+    spawnWithTimeout(spVC, vcPath, ['--timeout', String(_timeoutMs), ...argv.slice(1)], _timeoutMs);
     return;
   }
 
@@ -293,11 +392,7 @@ Options:
       const __dirname3 = dirname(fileURLToPath(import.meta.url));
       const { spawn: sp3 } = await import('node:child_process');
       const llmCmdPath = resolve(__dirname3, 'llm-augment.mjs');
-      // Pass the subcommand as first arg, then remaining args
-      const child3 = sp3(process.execPath, [llmCmdPath, subCmd, ...argv.slice(2)], {
-        stdio: 'inherit',
-      });
-      child3.on('exit', code => process.exit(code ?? 0));
+      spawnWithTimeout(sp3, llmCmdPath, ['--timeout', String(_timeoutMs), subCmd, ...argv.slice(2)], _timeoutMs);
       return;
     }
     log(`Unknown llm subcommand: "${subCmd}". Available: prompt, apply, augment`);
@@ -454,6 +549,9 @@ Plan command (scan plan and time estimates):
   pain-points plan --domain "pokemon tcg" --depth regular
   pain-points plan --domain "SaaS billing" --depth deep
 
+Verify citations command (check analyst output for hallucinated citeKeys):
+  pain-points verify-citations --scan-dir /tmp --sections /tmp
+
 Usage command (daily API budget tracking):
   pain-points usage
   pain-points usage --reset
@@ -475,6 +573,11 @@ Examples:
   pain-points browser scan --subreddits PokemonTCG --domain "pokemon tcg" --time year
   pain-points browser deep-dive --post https://old.reddit.com/r/PokemonTCG/comments/1k9vcj5/
   pain-points report --files reddit.json,hn.json,reviews.json
+
+Global options:
+  --timeout <ms>    Self-timeout in milliseconds (default: 600000 = 10 minutes)
+  --scan-id <id>    Scan identifier for observability
+  --scan-dir <dir>  Output directory for scan artifacts
 
 For source-specific help:
   pain-points all --help
@@ -513,7 +616,37 @@ For source-specific help:
   }
 
   const args = normalizeArgs(argv.slice(2));
+
+  // Inject global scan flags so sources (especially coordinator) can access them
+  if (_scanId != null) args.scanId = _scanId;
+  if (_scanDir != null) args.scanDir = _scanDir;
+
+  // Expose scanContext on args so sources can use it for output
+  args._scanContext = scanContext;
+
+  // Start self-timeout for the source scan (--timeout flag or 10min default)
+  const timeoutMs = args.timeout || _timeoutMs;
+  startScanTimeout(timeoutMs);
+
   await source.run(command, args);
+
+  // Print rate limit health report if any issues were recorded
+  const monitor = getGlobalRateMonitor();
+  if (monitor.hasIssues()) {
+    const summary = monitor.getSummary();
+    const breakdown = monitor.getSourceBreakdown();
+    process.stderr.write('\n--- Rate Limit Health Report ---\n');
+    for (const [src, counts] of breakdown) {
+      const parts = [];
+      if (counts.errors > 0) parts.push(`${counts.errors} error(s)`);
+      if (counts.blocks > 0) parts.push(`${counts.blocks} block(s)`);
+      if (counts.warnings > 0) parts.push(`${counts.warnings} warning(s)`);
+      process.stderr.write(`  ${src}: ${parts.join(', ')}\n`);
+    }
+    const total = summary.errors.length + summary.blocks.length + summary.warnings.length;
+    process.stderr.write(`  Total events: ${total}\n`);
+    process.stderr.write('--------------------------------\n');
+  }
 }
 
 main().catch(async err => {

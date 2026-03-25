@@ -1,5 +1,5 @@
 /**
- * reddit-api.mjs — PullPush API source for pain-point-finder
+ * reddit-api.mjs — PullPush API source for gapscout
  *
  * Data sources (tried in order):
  *   1. PullPush API — historical Reddit data archive
@@ -16,6 +16,8 @@ import {
 } from '../lib/scoring.mjs';
 import { RateLimiter, httpGet as httpGetBase, REDDIT_USER_AGENT, _rateLimitWarning } from '../lib/http.mjs';
 import { getUsageTracker } from '../lib/usage-tracker.mjs';
+import { getGlobalRateMonitor } from '../lib/rate-monitor.mjs';
+import { Logger } from '../lib/logger.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -31,6 +33,9 @@ const BACKOFF_BASE_MS = 2000;
 const PAGE_SIZE = 100;
 
 let _redditTipShown = false;
+
+// Module-level logger reference so helper functions (fetchWithRetry, redditOAuthGet) can emit events
+let _scanLogger = null;
 
 // ─── expanded SCAN_QUERIES (30+ terms, domain-specific sets) ─────────────────
 
@@ -129,7 +134,8 @@ async function fetchWithRetry(urlPath, params) {
 
       // 403 = blocked/banned — do not retry, throw so caller can handle gracefully
       if (code === 403) {
-        process.stderr.write(`\n⚠ RATE LIMIT WARNING: 403 Forbidden — possible IP ban or API block. Returning partial results.\n\n`);
+        _scanLogger?.warn('403 Forbidden — possible IP ban or API block. Returning partial results.', { statusCode: 403 });
+        getGlobalRateMonitor().reportBlock('reddit-api', 'PullPush 403 Forbidden — possible IP ban or API block', { statusCode: 403 });
         throw err;
       }
 
@@ -144,12 +150,15 @@ async function fetchWithRetry(urlPath, params) {
       let backoff;
       if (code === 429 && err.retryAfterSec) {
         backoff = err.retryAfterSec * 1000;
-        process.stderr.write(`\n⚠ RATE LIMIT WARNING: 429 Too Many Requests — server says retry after ${err.retryAfterSec}s\n\n`);
+        _scanLogger?.warn(`429 Too Many Requests — retry after ${err.retryAfterSec}s`, { statusCode: 429, retryAfterSec: err.retryAfterSec });
+        getGlobalRateMonitor().reportError('reddit-api', `PullPush 429 — retry after ${err.retryAfterSec}s`, { statusCode: 429, retryAfterSec: err.retryAfterSec });
       } else {
         backoff = BACKOFF_BASE_MS * Math.pow(2, attempt);
       }
-      log(`[http] ${err.message} — retry ${attempt + 1}/${maxForType} in ${backoff}ms`);
-      await sleep(backoff);
+      const jitter = Math.floor(Math.random() * backoff * 0.5);
+      const delay = backoff + jitter;
+      log(`[http] ${err.message} — retry ${attempt + 1}/${maxForType} in ${delay}ms`);
+      await sleep(delay);
     }
   }
   throw lastErr;
@@ -339,7 +348,8 @@ function redditOAuthGet(path, token) {
           if (remaining !== undefined) {
             const rem = parseFloat(remaining);
             if (rem <= 10) {
-              process.stderr.write(`\n⚠ RATE LIMIT WARNING: Reddit API — ${rem} requests remaining (resets in ${resetSec || '?'}s)\n\n`);
+              _scanLogger?.warn(`Reddit API — ${rem} requests remaining`, { remaining: rem, resetSec: resetSec || null });
+              getGlobalRateMonitor().reportWarning('reddit-api', `Reddit OAuth API — only ${rem} requests remaining (resets in ${resetSec || '?'}s)`, { remaining: rem, resetSec });
             } else if (rem <= 30) {
               log(`[reddit-oauth] approaching rate limit: ${rem} requests remaining (used ${used || '?'}, resets in ${resetSec || '?'}s)`);
             }
@@ -348,13 +358,15 @@ function redditOAuthGet(path, token) {
           catch { reject(new Error(`Reddit API: non-JSON response`)); }
         } else if (res.statusCode === 429) {
           const retryAfter = res.headers['retry-after'];
-          process.stderr.write(`\n⚠ RATE LIMIT WARNING: Reddit OAuth API 429 — Too Many Requests (retry-after: ${retryAfter || 'unknown'}s)\n\n`);
+          _scanLogger?.warn(`Reddit OAuth API 429 — Too Many Requests`, { statusCode: 429, retryAfter: retryAfter || 'unknown' });
+          getGlobalRateMonitor().reportError('reddit-api', `Reddit OAuth API 429 — Too Many Requests (retry-after: ${retryAfter || 'unknown'}s)`, { statusCode: 429, retryAfter });
           const err = new Error(`Reddit API: HTTP 429 (rate limited)`);
           err.statusCode = 429;
           if (retryAfter) err.retryAfterSec = parseInt(retryAfter, 10) || 60;
           reject(err);
         } else if (res.statusCode === 403) {
-          process.stderr.write(`\n⚠ RATE LIMIT WARNING: Reddit OAuth API 403 — Forbidden (possible ban or auth failure)\n\n`);
+          _scanLogger?.warn(`Reddit OAuth API 403 — Forbidden (possible ban or auth failure)`, { statusCode: 403 });
+          getGlobalRateMonitor().reportBlock('reddit-api', 'Reddit OAuth API 403 — Forbidden (possible ban or auth failure)', { statusCode: 403 });
           const err = new Error(`Reddit API: HTTP 403 (forbidden)`);
           err.statusCode = 403;
           reject(err);
@@ -602,6 +614,9 @@ async function cmdDiscover(args) {
 }
 
 async function cmdScan(args) {
+  const logger = new Logger('reddit-api');
+  _scanLogger = logger;
+
   const subreddits = args.subreddits;
   const domain = args.domain || '';
 
@@ -614,10 +629,10 @@ async function cmdScan(args) {
   const _usage = getUsageTracker();
   const _remaining = _usage.getRemaining('reddit-api');
   if (_remaining.pct >= 80) {
-    log(`[reddit-api] WARNING: daily budget low — ${_remaining.remaining}/${_remaining.limit} requests remaining today`);
+    logger.warn(`daily budget low — ${_remaining.remaining}/${_remaining.limit} requests remaining today`, { remaining: _remaining.remaining, limit: _remaining.limit });
   }
   if (_remaining.remaining <= 0) {
-    log(`[reddit-api] ERROR: daily budget exhausted. Try again tomorrow.`);
+    logger.error('daily budget exhausted. Try again tomorrow.');
     return ok({ source: 'reddit-api', posts: [], stats: { error: 'daily limit reached' } });
   }
 
@@ -795,7 +810,7 @@ async function cmdScan(args) {
     log(`[scan] Get free credentials at https://www.reddit.com/prefs/apps (script type app).`);
     if (!_redditTipShown) {
       _redditTipShown = true;
-      process.stderr.write('[reddit-api] tip: set REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET as PullPush backup → free at reddit.com/prefs/apps\n');
+      logger.info('tip: set REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET as PullPush backup — free at reddit.com/prefs/apps');
     }
   }
 
@@ -805,8 +820,8 @@ async function cmdScan(args) {
   try {
     const allRawPosts = [...postsById.values()].map(p => normalizePost(p));
     const rawOutput = { ok: true, data: { source: 'reddit-api', posts: allRawPosts, stats: { raw: true, total: allRawPosts.length } } };
-    writeFileSync('/tmp/ppf-reddit-api-raw.json', JSON.stringify(rawOutput));
-    log(`[scan] saved ${allRawPosts.length} raw posts to /tmp/ppf-reddit-api-raw.json`);
+    writeFileSync('/tmp/gapscout-reddit-api-raw.json', JSON.stringify(rawOutput));
+    log(`[scan] saved ${allRawPosts.length} raw posts to /tmp/gapscout-reddit-api-raw.json`);
   } catch (err) {
     log(`[scan] failed to save raw posts: ${err.message}`);
   }
@@ -828,9 +843,12 @@ async function cmdScan(args) {
   if (pullpushFailed) warnings.push('PullPush API returned errors — results may be incomplete');
   if (_rateLimitWarning) warnings.push('Rate limits were hit during this scan — results may be incomplete');
 
-  if (warnings.length > 0) {
-    process.stderr.write(`\n⚠ SCAN COMPLETED WITH WARNINGS:\n${warnings.map(w => `  - ${w}`).join('\n')}\n\n`);
+  for (const w of warnings) {
+    logger.warn(w);
   }
+
+  const _logEvents = logger.export();
+  _scanLogger = null;
 
   ok({
     mode: globalMode ? 'api-global' : 'api',
@@ -844,8 +862,10 @@ async function cmdScan(args) {
       after_filter: Math.min(scored.length, limit),
       include_comments: includeComments,
       data_source: dataSource,
+      rateMonitor: getGlobalRateMonitor().getSourceBreakdown().get('reddit-api') || { warnings: 0, blocks: 0, errors: 0 },
     },
     ...(warnings.length > 0 ? { warnings } : {}),
+    _observability: _logEvents,
   });
 }
 

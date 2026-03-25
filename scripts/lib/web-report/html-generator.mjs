@@ -20,6 +20,42 @@ function getSignalStrength(postCount, crossSources) {
   return { label: 'Weak signal', cls: 'signal-weak' };
 }
 
+// ─── evidence store embed ──────────────────────────────────────────────────
+
+/**
+ * Embed the evidenceCorpus as a JSON script tag for client-side lazy parsing.
+ */
+export function buildEvidenceStore(data) {
+  const corpus = data.evidenceCorpus || {};
+  if (Object.keys(corpus).length === 0) return '';
+  return `<script type="application/json" id="evidence-store">${JSON.stringify(corpus)}</script>`;
+}
+
+// ─── verification summary ──────────────────────────────────────────────────
+
+/**
+ * Build a report-level verification summary line near the top.
+ */
+export function buildVerificationSummary(data) {
+  const corpus = data.evidenceCorpus || {};
+  const groups = data.groups || [];
+  const totalCiteKeys = Object.keys(corpus).length;
+  if (totalCiteKeys === 0) return '';
+
+  // Count how many citeKeys in groups are actually present in the corpus
+  let verified = 0;
+  for (const g of groups) {
+    for (const key of (g.categoryCiteKeys || [])) {
+      if (corpus[key]) verified++;
+    }
+  }
+
+  return `<div class="verification-summary">
+    <span class="verification-icon">\u2713</span>
+    ${totalCiteKeys} citation${totalCiteKeys !== 1 ? 's' : ''}, ${verified} verified against scan data
+  </div>`;
+}
+
 // ─── section builders ───────────────────────────────────────────────────────
 
 export function buildHero(data) {
@@ -58,7 +94,9 @@ export function buildHero(data) {
   </section>`;
 }
 
-export function buildCategoryCards(groups) {
+export function buildCategoryCards(groups, data) {
+  const hasCorpus = data && data.evidenceCorpus && Object.keys(data.evidenceCorpus).length > 0;
+
   const cards = groups.map((g, idx) => {
     const depthMeta = DEPTH_COLOR[g.depth] || DEPTH_COLOR.surface;
     const signal = getSignalStrength(g.postCount, g.crossSources);
@@ -92,7 +130,7 @@ export function buildCategoryCards(groups) {
       ? `<p class="cited-more">\u2026 and ${remainingCount} more cited post${remainingCount !== 1 ? 's' : ''}</p>`
       : '';
 
-    // Expandable section for all supporting citations
+    // Expandable section for all supporting citations (legacy inline list)
     const allCitationsHtml = citedQuotes.length > 0
       ? citedQuotes.map(q => {
           const sourceLabel = q.source ? escHtml(q.source) : 'source';
@@ -103,6 +141,25 @@ export function buildCategoryCards(groups) {
           </a>`;
         }).join('')
       : '<p class="muted-text">No cited sources available for this category.</p>';
+
+    // Evidence drawer: if we have an evidence corpus with categoryCiteKeys, build the drawer
+    const citeKeys = g.categoryCiteKeys || [];
+    const citeKeysJson = escHtml(JSON.stringify(citeKeys));
+    const drawerCount = citeKeys.length;
+    const hasDrawer = hasCorpus && drawerCount > 0;
+
+    const evidenceDrawerHtml = hasDrawer
+      ? `<details class="cat-details evidence-details" data-cite-keys="${citeKeysJson}" data-loaded="false">
+        <summary class="cat-details-toggle evidence-toggle">
+          Expand evidence posts (${drawerCount}) <span class="toggle-arrow">\u25B6</span>
+        </summary>
+        <div class="cat-details-body">
+          <div class="evidence-drawer" data-category="${escHtml(g.category)}">
+            <div class="evidence-drawer-entries"></div>
+          </div>
+        </div>
+      </details>`
+      : '';
 
     return `<div class="cat-card" data-depth="${g.depth}" data-category="${escHtml(g.category)}" style="--depth-color:${depthMeta.css}">
       <div class="cat-card-header">
@@ -135,6 +192,7 @@ export function buildCategoryCards(groups) {
           <div class="citations-list">${allCitationsHtml}</div>
         </div>
       </details>
+      ${evidenceDrawerHtml}
     </div>`;
   }).join('\n');
 

@@ -49,7 +49,7 @@ function synthesize(groups, allPosts) {
     for (const p of posts) {
       if (p._analysis?.topQuotes) {
         for (const q of p._analysis.topQuotes.slice(0, 2)) {
-          topQuotes.push({ ...q, url: q.url || p.url || '' });
+          topQuotes.push({ ...q, url: q.url || p.url || '', citeKey: p._citeKey || '' });
         }
       }
     }
@@ -67,6 +67,9 @@ function synthesize(groups, allPosts) {
     const totalComments = posts.reduce((s, p) => s + (p.num_comments || p._analysis?.totalComments || 0), 0);
     const totalScore = posts.reduce((s, p) => s + (p.score || 0), 0);
 
+    // Collect all citeKeys belonging to this category for evidence drawer
+    const categoryCiteKeys = posts.map(p => p._citeKey).filter(Boolean);
+
     const representativePosts = [...posts]
       .sort((a, b) => (b.painScore || 0) - (a.painScore || 0))
       .slice(0, 3)
@@ -78,6 +81,7 @@ function synthesize(groups, allPosts) {
         source: p._source || p.subreddit || 'unknown',
         llmEnhanced: !!p.llmAugmentation,
         wtpSignals: p.wtpSignals,
+        citeKey: p._citeKey || '',
       }));
 
     const llmAugmentedPosts = posts.filter(p => p.llmAugmentation);
@@ -111,6 +115,7 @@ function synthesize(groups, allPosts) {
       buildScore,
       verdict,
       representativePosts,
+      categoryCiteKeys,
       audience: llmAudience || getAudience(category),
       llmEnhanced: hasLLM,
       llmAugmentedCount: llmAugmentedPosts.length,
@@ -202,7 +207,24 @@ The report follows Phase 4-7 of the SKILL.md workflow:
 
   log(`[report] Total posts: ${allPosts.length} from ${loadedSources.size} source(s)`);
 
+  // Assign citeKeys and category tags to each post for evidence corpus
   const groups = groupBySubcategory(allPosts);
+  for (const [category, posts] of groups.entries()) {
+    for (const p of posts) {
+      if (!p._citeKey) {
+        // Use stable citeKey from enrichPost() if available
+        if (p.citeKey) {
+          p._citeKey = p.citeKey;
+        } else {
+          const src = (p._source || p.subreddit || 'unknown').slice(0, 2).toUpperCase();
+          const hash = Math.random().toString(36).slice(2, 8);
+          p._citeKey = `${src}-${hash}`;
+        }
+      }
+      p._category = category;
+    }
+  }
+
   const synthesized = synthesize(groups, allPosts);
 
   // Extract rate monitor data from scan files (if any sources reported issues)
@@ -216,7 +238,7 @@ The report follows Phase 4-7 of the SKILL.md workflow:
   };
 
   const output = format === 'json'
-    ? renderJson(synthesized, meta)
+    ? renderJson(synthesized, meta, { allPosts })
     : renderMarkdown(synthesized, meta);
 
   process.stdout.write(output + '\n');
