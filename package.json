@@ -1,5 +1,5 @@
 {
-  "name": "clawdbot-skill-pain-point-finder",
+  "name": "clawdbot-skill-gapscout",
   "version": "4.0.0",
   "description": "Modular pain point discovery — Reddit API, browser scraping, and more. Find frustrations, unmet needs, and startup ideas.",
   "type": "module",
@@ -26,7 +26,7 @@
     "node": ">=18.0.0"
   },
   "bin": {
-    "pain-points": "./scripts/cli.mjs"
+    "gapscout": "./scripts/cli.mjs"
   },
   "scripts": {
     "test": "echo \"No tests yet\"",
@@ -37,6 +37,7 @@
     "browser-deep-dive": "node scripts/cli.mjs browser deep-dive"
   },
   "dependencies": {
+    "@the-convocation/twitter-scraper": "^0.22.1",
     "app-store-scraper": "^0.18.0",
     "google-play-scraper": "^10.1.2",
     "puppeteer-core": "^23.11.1"

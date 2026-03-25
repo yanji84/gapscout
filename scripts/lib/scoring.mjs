@@ -1,5 +1,5 @@
 /**
- * scoring.mjs — Shared scoring engine for pain-point-finder
+ * scoring.mjs — Shared scoring engine for gapscout
  *
  * Canonical version with R2/R3 refinements:
  *   - Sentiment-aware signal matching
@@ -11,8 +11,35 @@
  *   - Pain subcategory classification
  */
 
+import { createHash } from 'node:crypto';
 import { excerpt } from './utils.mjs';
 import { blendLLMScores } from './llm.mjs';
+
+// ─── cite-key helpers ────────────────────────────────────────────────────────
+const SOURCE_PREFIX = {
+  reddit: 'R',
+  hackernews: 'HN',
+  g2: 'G2',
+  capterra: 'CA',
+  trustpilot: 'TP',
+  appstore: 'AS',
+  'github-issues': 'GH',
+  stackoverflow: 'SO',
+  twitter: 'TW',
+  producthunt: 'PH',
+  kickstarter: 'KS',
+  websearch: 'WS',
+  'google-autocomplete': 'GA',
+  youtube: 'YT',
+};
+
+function makeCiteKey(post) {
+  const src = post.source || post._source || '';
+  const prefix = SOURCE_PREFIX[src] || 'SRC';
+  const id = post.id
+    || createHash('sha256').update(post.url || post.title || '').digest('hex').slice(0, 12);
+  return `${prefix}-${id}`;
+}
 
 // ─── source quality multipliers ─────────────────────────────────────────────
 // Each source has different signal quality. These multipliers are applied to
@@ -32,6 +59,8 @@ export const SOURCE_QUALITY_MULTIPLIERS = {
   crowdfunding: 0.8,        // Kickstarter/Indiegogo
   websearch: 0.8,           // Blogs, forums, wider web
   'github-issues': 0.9,     // Real issues with reaction validation
+  cfpb: 0.95,                // Official complaints with narratives
+  bluesky: 0.7,              // Short-form social, similar to twitter
 };
 
 /**
@@ -692,6 +721,7 @@ export function enrichPost(post, domain = '', domainKeywords = []) {
     wtpSignals,
     intensity,
     flair: post.flair || null,
+    citeKey: makeCiteKey(post),
   };
 
   // Carry over LLM augmentation if present on the input post, and blend scores

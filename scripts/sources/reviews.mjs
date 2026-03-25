@@ -1,19 +1,38 @@
 /**
- * reviews.mjs — G2/Capterra review scraper source for pain-point-finder
+ * reviews.mjs — G2/Capterra review scraper source for gapscout
  *
  * Scrapes 1-3 star reviews from G2 (and optionally Capterra) via Puppeteer.
  * Connects to an existing Chrome instance using the same connectBrowser
  * pattern as reddit-browser.mjs.
  */
 
+import http from 'node:http';
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
-import { connectBrowser, politeDelay as politeDelayBase, detectBlockInPage, createBlockTracker } from '../lib/browser.mjs';
+import { connectBrowser, politeDelay as politeDelayBase, detectBlockInPage, createBlockTracker, enableResourceBlocking } from '../lib/browser.mjs';
+
+// ─── Chrome availability check ──────────────────────────────────────────────
+
+/**
+ * Quick check whether a Chrome DevTools instance is reachable on the given port.
+ * Resolves to true/false — never throws.
+ */
+function isChromeAvailable(port = 9222, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${port}/json/version`, { timeout: timeoutMs }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => resolve(res.statusCode === 200));
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
-const PAGE_DELAY_MS = 2500;
-const JITTER_MS = 500;
+const PAGE_DELAY_MS = 5000;
+const JITTER_MS = 2000;
 const MAX_PRODUCTS = 5;
 const MAX_REVIEW_PAGES = 3;
 
@@ -405,11 +424,35 @@ async function cmdScan(args) {
   const limit = args.limit || 30;
   const sources = (args.sources || 'g2').split(',').map(s => s.trim().toLowerCase());
   const maxProducts = args.maxProducts ? parseInt(args.maxProducts, 10) : MAX_PRODUCTS;
+  const noBrowser = args['no-browser'] || args.noBrowser || false;
 
   log(`[reviews-scan] domain="${domain}", sources=${sources.join(',')}, limit=${limit}`);
 
+  // ── Check browser availability ──────────────────────────────────────────
+  const chromePort = args.port ? parseInt(args.port, 10) : 9222;
+
+  if (noBrowser) {
+    log('[reviews-scan] --no-browser flag set, skipping browser-based scraping');
+    return ok({
+      source: 'reviews',
+      posts: [],
+      warning: 'Browser not available - G2/Capterra reviews require Chrome. Run with --browser for full review scanning.',
+    });
+  }
+
+  const chromeUp = await isChromeAvailable(chromePort);
+  if (!chromeUp) {
+    log(`[reviews-scan] Chrome not available on port ${chromePort}, degrading gracefully`);
+    return ok({
+      source: 'reviews',
+      posts: [],
+      warning: 'Browser not available - G2/Capterra reviews require Chrome. Run with --browser for full review scanning.',
+    });
+  }
+
   const browser = await connectBrowser(args);
   const page = await browser.newPage();
+  await enableResourceBlocking(page);
 
   // Stealth: realistic user-agent, viewport, and extra headers to reduce bot detection
   await page.setUserAgent(
@@ -559,6 +602,7 @@ scan options:
   --sources <list>      Comma-separated sources: g2,capterra (default: g2)
   --limit <n>           Max reviews to return (default: 30)
   --maxProducts <n>     Max products to scrape per source (default: 5)
+  --no-browser          Skip browser even if Chrome is available
 
 Connection options:
   --ws-url <url>        Chrome WebSocket URL (auto-detected if omitted)

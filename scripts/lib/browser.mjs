@@ -1,5 +1,5 @@
 /**
- * browser.mjs — Shared browser connection utilities for pain-point-finder
+ * browser.mjs — Shared browser connection utilities for gapscout
  *
  * Consolidates duplicated browser connection logic from all Puppeteer-based
  * source modules (reddit-browser, producthunt, reviews, crowdfunding,
@@ -192,6 +192,7 @@ export async function connectBrowser(args, options = {}) {
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
+          '--disable-blink-features=AutomationControlled',
           '--window-size=1280,900',
         ],
       });
@@ -204,6 +205,27 @@ export async function connectBrowser(args, options = {}) {
     throw new Error(errorMsg);
   }
   fail(errorMsg);
+}
+
+// ─── enableResourceBlocking ──────────────────────────────────────────────
+
+/**
+ * Block images, stylesheets, fonts, and media to speed up page loads.
+ * Call after creating a page, before navigating.
+ * @param {import('puppeteer-core').Page} page
+ * @param {object} [options]
+ * @param {string[]} [options.block] - Resource types to block (default: image, stylesheet, font, media)
+ */
+export async function enableResourceBlocking(page, options = {}) {
+  const blockTypes = options.block || ['image', 'stylesheet', 'font', 'media'];
+  await page.setRequestInterception(true);
+  page.on('request', (req) => {
+    if (blockTypes.includes(req.resourceType())) {
+      req.abort();
+    } else {
+      req.continue();
+    }
+  });
 }
 
 // ─── detectBlock ──────────────────────────────────────────────────────────────

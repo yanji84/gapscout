@@ -1,5 +1,5 @@
 /**
- * websearch.mjs — Web search source for pain-point-finder
+ * websearch.mjs — Web search source for gapscout
  *
  * Searches via SearXNG API (primary) or Google SERP scraping via Puppeteer
  * (fallback) to find complaints, frustrations, and pain points across blogs,
@@ -14,7 +14,8 @@
  */
 
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
-import { connectBrowser as connectBrowserBase, politeDelay as politeDelayBase } from '../lib/browser.mjs';
+import { connectBrowser as connectBrowserBase, politeDelay as politeDelayBase, enableResourceBlocking } from '../lib/browser.mjs';
+import { Logger } from '../lib/logger.mjs';
 import http from 'node:http';
 import https from 'node:https';
 
@@ -87,6 +88,9 @@ async function probeSearxngInstance(searchUrl) {
 /**
  * Resolve the SearXNG search endpoint to use.
  * Priority: CLI arg > env var > public fallback list > null
+ *
+ * When SEARXNG_URL env var is set, returns it directly without probing
+ * public instances (self-hosted mode). The caller handles retries.
  */
 async function resolveSearxngUrl(args) {
   // 1. CLI arg --searxng-url
@@ -104,18 +108,12 @@ async function resolveSearxngUrl(args) {
     return null;
   }
 
-  // 2. Env var SEARXNG_URL
+  // 2. Env var SEARXNG_URL — self-hosted mode: use directly, skip public probing
   const envUrl = process.env.SEARXNG_URL;
   if (envUrl) {
     const searchUrl = envUrl.endsWith('/search') ? envUrl : `${envUrl.replace(/\/+$/, '')}/search`;
-    log(`[websearch] probing SearXNG from SEARXNG_URL env: ${searchUrl}`);
-    const result = await probeSearxngInstance(searchUrl);
-    if (result) {
-      log(`[websearch] SearXNG from env is reachable`);
-      return result;
-    }
-    log(`[websearch] SearXNG from env not reachable: ${searchUrl}`);
-    return null;
+    log(`[websearch] Using self-hosted SearXNG at ${envUrl}`);
+    return searchUrl;
   }
 
   // 3. Public fallback list — try each, use first that responds
@@ -375,10 +373,11 @@ async function scanViaBrowser(args, domain, limit) {
   try {
     browser = await connectBrowser(args);
   } catch (err) {
-    fail(`Cannot connect to Chrome: ${err.message}. Launch Chrome with: google-chrome --remote-debugging-port=9222 --no-first-run --no-default-browser-check --user-data-dir=/tmp/ppf-chrome`);
+    fail(`Cannot connect to Chrome: ${err.message}. Launch Chrome with: google-chrome --remote-debugging-port=9222 --no-first-run --no-default-browser-check --user-data-dir=/tmp/gapscout-chrome`);
   }
 
   const page = await browser.newPage();
+  await enableResourceBlocking(page);
 
   // Set a realistic user agent
   await page.setUserAgent(
@@ -463,12 +462,15 @@ async function scanViaBrowser(args, domain, limit) {
 // ─── scan command ────────────────────────────────────────────────────────────
 
 async function cmdScan(args) {
+  const logger = new Logger('websearch');
+
   const domain = args.domain;
   if (!domain) fail('--domain is required');
   const limit = args.limit || 200;
   const apiOnly = !!args.apiOnly;
+  const selfHosted = !!process.env.SEARXNG_URL;
 
-  log(`[websearch] domain="${domain}", limit=${limit}, api-only=${apiOnly}`);
+  log(`[websearch] domain="${domain}", limit=${limit}, api-only=${apiOnly}, self-hosted=${selfHosted}`);
 
   // ── Try SearXNG first ──
   const searxngUrl = await resolveSearxngUrl(args);
@@ -477,14 +479,39 @@ async function cmdScan(args) {
 
   if (searxngUrl) {
     log(`[websearch] using SearXNG API: ${searxngUrl}`);
-    scanResult = await scanViaSearxng(searxngUrl, domain, limit);
+    try {
+      scanResult = await scanViaSearxng(searxngUrl, domain, limit);
+    } catch (err) {
+      if (selfHosted) {
+        // Self-hosted mode: retry with backoff but do NOT fall back to browser
+        log(`[websearch] self-hosted SearXNG failed: ${err.message}, retrying with backoff...`);
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          const backoff = 2000 * Math.pow(2, attempt - 1);
+          const jitter = Math.floor(Math.random() * backoff * 0.5);
+          log(`[websearch] retry ${attempt}/${MAX_RETRIES} in ${backoff + jitter}ms`);
+          await sleep(backoff + jitter);
+          try {
+            scanResult = await scanViaSearxng(searxngUrl, domain, limit);
+            break;
+          } catch (retryErr) {
+            log(`[websearch] retry ${attempt} failed: ${retryErr.message}`);
+            if (attempt === MAX_RETRIES) {
+              fail(`Self-hosted SearXNG at ${process.env.SEARXNG_URL} is unreachable after ${MAX_RETRIES} retries. Check that your instance is running.`);
+            }
+          }
+        }
+      } else {
+        throw err;
+      }
+    }
   } else if (apiOnly) {
     fail('No SearXNG instance available and --api-only was specified. Set SEARXNG_URL or pass --searxng-url.');
   } else {
     // ── Fall back to browser-based Google scraping ──
-    if (!process.env.SEARXNG_URL && !_tipShown) {
+    // (Only reached when SEARXNG_URL is NOT set and no public instance was found)
+    if (!_tipShown) {
       _tipShown = true;
-      process.stderr.write('[websearch] tip: set SEARXNG_URL to skip browser requirement → docker run -p 8888:8080 searxng/searxng\n');
+      logger.info('tip: set SEARXNG_URL to skip browser requirement — docker run -p 8080:8080 searxng/searxng');
     }
     log(`[websearch] no SearXNG available, falling back to browser-based Google scraping`);
     scanResult = await scanViaBrowser(args, domain, limit);
@@ -497,7 +524,7 @@ async function cmdScan(args) {
 
   const finalResults = allResults.slice(0, limit);
 
-  // Also write to /tmp/ppf-websearch.json
+  // Also write to /tmp/gapscout-websearch.json
   const fs = await import('node:fs');
   const output = {
     ok: true,
@@ -510,8 +537,10 @@ async function cmdScan(args) {
       },
     },
   };
-  fs.writeFileSync('/tmp/ppf-websearch.json', JSON.stringify(output, null, 2));
-  log(`[websearch] saved ${finalResults.length} results to /tmp/ppf-websearch.json`);
+  fs.writeFileSync('/tmp/gapscout-websearch.json', JSON.stringify(output, null, 2));
+  log(`[websearch] saved ${finalResults.length} results to /tmp/gapscout-websearch.json`);
+
+  const _logEvents = logger.export();
 
   ok({
     source: 'websearch',
@@ -520,6 +549,7 @@ async function cmdScan(args) {
       ...stats,
       after_dedup: finalResults.length,
     },
+    _observability: _logEvents,
   });
 }
 
@@ -542,9 +572,14 @@ Captures blog posts, forum threads, and other web sources not covered
 by the platform-specific scanners (Reddit, HN, Product Hunt, etc.).
 
 Search backend priority:
-  1. SearXNG instance (via --searxng-url or SEARXNG_URL env var)
-  2. Public SearXNG instances (auto-probed fallback list)
-  3. Puppeteer Google SERP scraping (last resort, requires Chrome)
+  1. SEARXNG_URL env var — self-hosted mode (skips public probing AND browser fallback)
+  2. --searxng-url CLI arg (probes the given instance)
+  3. Public SearXNG instances (auto-probed fallback list)
+  4. Puppeteer Google SERP scraping (last resort, requires Chrome)
+
+For best results, self-host SearXNG:
+  docker run -p 8080:8080 searxng/searxng
+  export SEARXNG_URL=http://localhost:8080
 
 Commands:
   scan       Search for pain-point content related to a domain
@@ -552,20 +587,26 @@ Commands:
 scan options:
   --domain <str>          Domain/niche to search (required)
   --limit <n>             Max results to return (default: 200)
-  --searxng-url <url>     SearXNG instance URL (e.g., http://localhost:8888)
+  --searxng-url <url>     SearXNG instance URL (e.g., http://localhost:8080)
   --api-only              Only use SearXNG API, skip browser fallback entirely
   --port <n>              Chrome debug port (default: 9222, browser fallback only)
   --ws-url <str>          Chrome WebSocket URL (browser fallback only)
 
 Environment variables:
-  SEARXNG_URL             SearXNG instance base URL (e.g., http://localhost:8888)
+  SEARXNG_URL             Self-hosted SearXNG base URL (e.g., http://localhost:8080).
+                          When set, browser fallback is disabled entirely.
+                          Retries with backoff on failure instead of falling back.
 
 Examples:
+  # Self-hosted SearXNG (recommended — no browser needed, no CAPTCHA risk)
+  export SEARXNG_URL=http://localhost:8080
+  node scripts/cli.mjs websearch scan --domain "project management" --limit 200
+
   # Auto-detect SearXNG, fall back to browser
   node scripts/cli.mjs websearch scan --domain "project management" --limit 200
 
-  # Use a specific SearXNG instance
-  node scripts/cli.mjs websearch scan --domain "SaaS billing" --searxng-url http://localhost:8888
+  # Use a specific SearXNG instance (one-off, still probes)
+  node scripts/cli.mjs websearch scan --domain "SaaS billing" --searxng-url http://localhost:8080
 
   # API only (no browser needed)
   node scripts/cli.mjs websearch scan --domain "SaaS billing" --api-only

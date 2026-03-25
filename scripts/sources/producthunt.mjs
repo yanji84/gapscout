@@ -1,5 +1,5 @@
 /**
- * producthunt.mjs — Product Hunt source for pain-point-finder
+ * producthunt.mjs — Product Hunt source for gapscout
  *
  * Primary path: Product Hunt GraphQL API v2 (requires PRODUCTHUNT_TOKEN or --token).
  * Fallback path: Puppeteer-based scraping (when no token is available).
@@ -11,8 +11,9 @@
 import https from 'node:https';
 import { sleep, log, ok, fail, excerpt } from '../lib/utils.mjs';
 import { RateLimiter } from '../lib/http.mjs';
-import { createBlockTracker } from '../lib/browser.mjs';
+import { createBlockTracker, enableResourceBlocking } from '../lib/browser.mjs';
 import { enrichPost } from '../lib/scoring.mjs';
+import { getGlobalRateMonitor } from '../lib/rate-monitor.mjs';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -113,7 +114,7 @@ function graphqlRequest(token, query, variables = {}) {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'User-Agent': 'pain-point-finder/4.0',
+        'User-Agent': 'gapscout/4.0',
         'Content-Length': Buffer.byteLength(body),
       },
       timeout: 20000,
@@ -133,6 +134,7 @@ function graphqlRequest(token, query, variables = {}) {
             reject(new Error(`Non-JSON response: ${data.slice(0, 200)}`));
           }
         } else if (res.statusCode === 429) {
+          getGlobalRateMonitor().reportError('producthunt', 'PH GraphQL API 429 — rate limited', { statusCode: 429 });
           reject(Object.assign(new Error('Rate limited (429)'), { statusCode: 429 }));
         } else {
           reject(Object.assign(
@@ -160,11 +162,16 @@ async function gql(token, query, variables = {}, maxRetries = 3) {
       return await graphqlRequest(token, query, variables);
     } catch (err) {
       lastErr = err;
-      if (err.statusCode === 403 || err.statusCode === 401) throw err;
+      if (err.statusCode === 403 || err.statusCode === 401) {
+        getGlobalRateMonitor().reportBlock('producthunt', `PH API ${err.statusCode} — ${err.statusCode === 401 ? 'unauthorized' : 'forbidden'}`, { statusCode: err.statusCode });
+        throw err;
+      }
       if (attempt < maxRetries) {
         const backoff = 2000 * Math.pow(2, attempt);
-        log(`[ph-api] ${err.message} — retry ${attempt + 1} in ${backoff}ms`);
-        await sleep(backoff);
+        const jitter = Math.floor(Math.random() * backoff * 0.5);
+        const delay = backoff + jitter;
+        log(`[ph-api] ${err.message} — retry ${attempt + 1} in ${delay}ms`);
+        await sleep(delay);
       }
     }
   }
@@ -538,6 +545,7 @@ async function cmdScanApi(args, token) {
       products_scraped: count,
       after_filter: Math.min(scored.length, limit),
       api_requests: apiLimiter.count,
+      rateMonitor: getGlobalRateMonitor().getSourceBreakdown().get('producthunt') || { warnings: 0, blocks: 0, errors: 0 },
     },
   });
 }
@@ -564,6 +572,7 @@ async function connectBrowser(args) {
 
 async function preparePage(browser) {
   const page = await browser.newPage();
+  await enableResourceBlocking(page);
   await page.setViewport({ width: 1280, height: 900 });
   await page.setUserAgent(
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
@@ -593,6 +602,7 @@ async function navigateAndWait(page, url, waitMs = 2500) {
     const blockResult2 = await detectBlockInPage(page);
     if (blockResult2.blocked) {
       log(`[ph-browser] still blocked by ${blockResult2.reason}`);
+      getGlobalRateMonitor().reportBlock('producthunt', `Browser blocked by ${blockResult2.reason}`, { reason: blockResult2.reason });
       return false;
     }
   }
@@ -946,6 +956,7 @@ async function cmdScanBrowser(args) {
         after_filter: Math.min(scored.length, limit),
         blocked: blockTracker.stats.blocked,
         rateLimitWarnings: blockTracker.stats.rateLimitWarnings,
+        rateMonitor: getGlobalRateMonitor().getSourceBreakdown().get('producthunt') || { warnings: 0, blocks: 0, errors: 0 },
       },
     });
   } finally {
