@@ -1,9 +1,10 @@
 /**
- * reddit-api.mjs — PullPush API source for gapscout
+ * reddit-api.mjs — Arctic Shift + PullPush API source for gapscout
  *
  * Data sources (tried in order):
- *   1. PullPush API — historical Reddit data archive
- *   2. Reddit OAuth API — official Reddit API (fallback, requires
+ *   1. Arctic Shift API — high-throughput historical Reddit archive (~2000 req/min)
+ *   2. PullPush API — historical Reddit data archive (fallback)
+ *   3. Reddit OAuth API — official Reddit API (second fallback, requires
  *      REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET env vars)
  */
 
@@ -24,6 +25,10 @@ import { Logger } from '../lib/logger.mjs';
 const PULLPUSH_HOST = 'api.pullpush.io';
 const SUBMISSION_PATH = '/reddit/search/submission/';
 const COMMENT_PATH = '/reddit/search/comment/';
+
+const ARCTIC_SHIFT_HOST = 'arctic-shift.photon-reddit.com';
+const ARCTIC_SHIFT_POSTS_PATH = '/api/posts/search';
+const ARCTIC_SHIFT_COMMENTS_PATH = '/api/comments/search';
 
 const MAX_RETRIES_429 = 5;
 const MAX_RETRIES_5XX = 3;
@@ -76,6 +81,9 @@ const DOMAIN_SCAN_QUERIES = {
   ],
 };
 
+// Categories included by default (domain-specific ones like tickets/sneakers/gpu are opt-in)
+const GENERAL_CATEGORIES = ['frustration', 'desire', 'cost', 'willingness_to_pay', 'general_scalper'];
+
 // ─── recommended subreddits help text ────────────────────────────────────────
 
 const RECOMMENDED_SUBREDDITS = `
@@ -104,11 +112,18 @@ Customer Service / Support:
   legaladvice, smallbusiness, freelance
 `;
 
-// ─── rate limiter ───────────────────────────────────────────────────────────
+// ─── rate limiters ──────────────────────────────────────────────────────────
 
 const rateLimiter = new RateLimiter({ maxPerRun: 1000 });
 
-// ─── HTTP client ────────────────────────────────────────────────────────────
+const arcticShiftRateLimiter = new RateLimiter({
+  maxPerRun: 5000,
+  minDelayMs: 3500,
+  jitterMs: 1000,
+  maxPerMin: 15,
+});
+
+// ─── HTTP client (PullPush) ─────────────────────────────────────────────────
 
 function httpGet(urlPath, params) {
   const qs = new URLSearchParams();
@@ -227,6 +242,109 @@ async function paginateComments(linkId, maxComments = 100) {
   return all.slice(0, maxComments);
 }
 
+// ─── Arctic Shift helpers ────────────────────────────────────────────────────
+
+/**
+ * Convert a unix timestamp to ISO 8601 date string (YYYY-MM-DD).
+ */
+function unixToISODate(ts) {
+  return new Date(ts * 1000).toISOString().split('T')[0];
+}
+
+/**
+ * Low-level GET for Arctic Shift API.
+ */
+function arcticShiftGet(urlPath, params) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
+  }
+  const fullPath = `${urlPath}?${qs.toString()}`;
+  return httpGetBase(ARCTIC_SHIFT_HOST, fullPath, {
+    headers: { 'User-Agent': REDDIT_USER_AGENT },
+  });
+}
+
+/**
+ * Arctic Shift GET with retry logic (mirrors PullPush fetchWithRetry).
+ */
+async function arcticShiftFetchWithRetry(urlPath, params) {
+  let lastErr;
+  for (let attempt = 0; attempt <= MAX_RETRIES_429; attempt++) {
+    try {
+      await arcticShiftRateLimiter.wait();
+      getUsageTracker().increment('reddit-api');
+      const result = await arcticShiftGet(urlPath, params);
+      return result?.data || [];
+    } catch (err) {
+      lastErr = err;
+      const code = err.statusCode || 0;
+
+      if (code === 403) {
+        _scanLogger?.warn('Arctic Shift 403 Forbidden — returning partial results.', { statusCode: 403 });
+        getGlobalRateMonitor().reportBlock('reddit-api', 'Arctic Shift 403 Forbidden', { statusCode: 403 });
+        throw err;
+      }
+
+      let maxForType;
+      if (code === 429) maxForType = MAX_RETRIES_429;
+      else if (code >= 500) maxForType = MAX_RETRIES_5XX;
+      else if (err.message === 'timeout') maxForType = MAX_RETRIES_TIMEOUT;
+      else maxForType = 1;
+      if (attempt >= maxForType) break;
+
+      let backoff;
+      if (code === 429 && err.retryAfterSec) {
+        backoff = err.retryAfterSec * 1000;
+        _scanLogger?.warn(`Arctic Shift 429 — retry after ${err.retryAfterSec}s`, { statusCode: 429, retryAfterSec: err.retryAfterSec });
+        getGlobalRateMonitor().reportError('reddit-api', `Arctic Shift 429 — retry after ${err.retryAfterSec}s`, { statusCode: 429, retryAfterSec: err.retryAfterSec });
+      } else {
+        backoff = BACKOFF_BASE_MS * Math.pow(2, attempt);
+      }
+      const jitter = Math.floor(Math.random() * backoff * 0.5);
+      const delay = backoff + jitter;
+      log(`[arctic-shift] ${err.message} — retry ${attempt + 1}/${maxForType} in ${delay}ms`);
+      await sleep(delay);
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * Search submissions via Arctic Shift API.
+ * Accepts params with unix-timestamp `after`/`before` and converts to ISO dates.
+ */
+async function arcticShiftSearchSubmissions(params) {
+  const asParams = { limit: PAGE_SIZE };
+  if (params.subreddit) asParams.subreddit = params.subreddit;
+  if (params.q || params.query) asParams.query = params.q || params.query;
+  if (params.after) asParams.after = unixToISODate(params.after);
+  if (params.before) asParams.before = unixToISODate(params.before);
+  if (params.limit) asParams.limit = params.limit;
+  return arcticShiftFetchWithRetry(ARCTIC_SHIFT_POSTS_PATH, asParams);
+}
+
+/**
+ * Paginate submissions via Arctic Shift, using `before` set to last result's created_utc.
+ */
+async function arcticShiftPaginateSubmissions(params, maxPages = 20) {
+  const all = [];
+  let currentParams = { ...params };
+  for (let page = 0; page < maxPages; page++) {
+    let posts;
+    try { posts = await arcticShiftSearchSubmissions(currentParams); }
+    catch (err) { log(`[arctic-shift] page ${page + 1} failed: ${err.message}`); break; }
+    if (!posts.length) break;
+    all.push(...posts);
+    const last = posts[posts.length - 1];
+    if (!last.created_utc) break;
+    currentParams = { ...currentParams, before: Math.floor(last.created_utc) };
+  }
+  return all;
+}
+
+// ─── post normalization ─────────────────────────────────────────────────────
+
 function extractPostId(input) {
   const urlMatch = input.match(/\/comments\/([a-z0-9]+)/i);
   if (urlMatch) return urlMatch[1];
@@ -234,7 +352,7 @@ function extractPostId(input) {
   return null;
 }
 
-/** Normalize a PullPush post to common shape */
+/** Normalize a PullPush/Arctic Shift post to common shape */
 function normalizePost(p) {
   return {
     id: p.id,
@@ -559,6 +677,70 @@ async function searchCommentsByQuery({ q, subreddit, after, minScore, maxPages, 
   return results;
 }
 
+// ─── per-subreddit scan helper ───────────────────────────────────────────────
+
+/**
+ * Scan a single subreddit for all queries using a given paginate function.
+ * Writes results into the shared postsById Map.
+ * Returns the number of posts found for this subreddit and whether the source failed.
+ */
+async function scanSubreddit(sub, queries, { postsById, after, minScore, maxPages, includeComments, domain, logger, paginateFn, sourceLabel }) {
+  let count = 0;
+  let sourceFailed = false;
+
+  for (const { q, category } of queries) {
+    log(`[scan/${sourceLabel}] r/${sub} q=${q} (${category})`);
+    let posts;
+    try {
+      posts = await paginateFn({
+        q, subreddit: sub, score: `>${minScore}`,
+        sort: 'desc', sort_type: 'num_comments', after,
+      }, maxPages);
+    } catch (err) {
+      if (err.statusCode === 403) { sourceFailed = true; break; }
+      if (err.statusCode >= 500 || err.message === 'timeout') sourceFailed = true;
+      log(`[scan/${sourceLabel}] failed: ${err.message}`); continue;
+    }
+    for (const p of posts) {
+      if (!postsById.has(p.id)) {
+        postsById.set(p.id, p);
+        count++;
+      }
+    }
+  }
+
+  // Comment search mode: search comments for query terms and surface parent posts
+  // (only supported with PullPush, not Arctic Shift which doesn't support link_id queries)
+  if (includeComments && !sourceFailed && sourceLabel === 'pullpush') {
+    log(`[scan] comment-search mode for r/${sub}`);
+    const commentQueries = domain
+      ? [domain, ...Object.values(DOMAIN_SCAN_QUERIES).flat().slice(0, 10)]
+      : Object.values(DOMAIN_SCAN_QUERIES).flat().slice(0, 15);
+
+    for (const q of commentQueries) {
+      const commentPosts = await searchCommentsByQuery({
+        q, subreddit: sub, after, minScore, maxPages: Math.min(maxPages, 5), domain,
+      });
+      for (const p of commentPosts) {
+        if (!postsById.has(p.id)) {
+          postsById.set(p.id, p);
+          count++;
+        } else {
+          // Merge comment hit data onto existing post
+          const existing = postsById.get(p.id);
+          existing._commentHits = (existing._commentHits || 0) + (p._commentHits || 0);
+        }
+      }
+    }
+  }
+
+  if (sourceFailed) {
+    log(`[scan/${sourceLabel}] r/${sub} completed with errors`);
+  }
+  log(`[scan/${sourceLabel}] r/${sub} found ${count} new posts`);
+  return { count, sourceFailed };
+}
+
 // ─── commands ───────────────────────────────────────────────────────────────
 
 async function cmdDiscover(args) {
@@ -642,26 +824,22 @@ async function cmdScan(args) {
   const limit = args.limit || 30;
   const maxPages = args.maxPages || 20;
   const includeComments = args['include-comments'] || args.includeComments || false;
+  const concurrency = args.concurrency || 3;
 
   // Domain-only mode: no subreddits — search globally using domain-focused queries
   const globalMode = !subreddits || !subreddits.length;
 
-  let effectiveNow;
-  try {
-    const probe = await searchSubmissions({ size: 1, sort: 'desc', sort_type: 'created_utc' });
-    effectiveNow = probe.length > 0 ? Math.floor(probe[0].created_utc) : unixNow();
-  } catch { effectiveNow = unixNow(); }
-  const after = effectiveNow - days * 86400;
+  const after = unixNow() - days * 86400;
 
   if (globalMode) {
     log(`[scan] global domain mode: domain="${domain}", days=${days}, maxPages=${maxPages}`);
   } else {
-    log(`[scan] subreddits=${subreddits.join(',')}, days=${days}, maxPages=${maxPages}`);
+    log(`[scan] subreddits=${subreddits.join(',')}, days=${days}, maxPages=${maxPages}, concurrency=${concurrency}`);
   }
 
   const queries = [];
   if (globalMode) {
-    // In global mode, use quoted-phrase queries so PullPush matches the full domain phrase,
+    // In global mode, use quoted-phrase queries so APIs match the full domain phrase,
     // preventing false positives from individual words like "management" matching unrelated posts.
     const q = `"${domain}"`;
     queries.push({ q: `${q} frustrated`, category: 'domain' });
@@ -671,9 +849,15 @@ async function cmdScan(args) {
     queries.push({ q: `${q} hate`, category: 'domain' });
     queries.push({ q: `${q} overpriced`, category: 'domain' });
   } else {
-    // Use expanded domain-specific query sets
-    for (const cat of Object.keys(DOMAIN_SCAN_QUERIES)) {
-      for (const q of DOMAIN_SCAN_QUERIES[cat]) queries.push({ q, category: cat });
+    // Use expanded domain-specific query sets, filtered by active categories
+    const activeCategories = args.queryCategories
+      ? args.queryCategories.split(',').map(s => s.trim())
+      : GENERAL_CATEGORIES;
+    log(`[scan] active query categories: ${activeCategories.join(', ')}`);
+    for (const cat of activeCategories) {
+      if (DOMAIN_SCAN_QUERIES[cat]) {
+        for (const q of DOMAIN_SCAN_QUERIES[cat]) queries.push({ q, category: cat });
+      }
     }
     // Also include the original SCAN_QUERIES for backwards compatibility
     for (const cat of Object.keys(SCAN_QUERIES)) {
@@ -693,124 +877,159 @@ async function cmdScan(args) {
 
   const postsById = new Map();
   let queriesRun = 0;
+  let arcticShiftFailed = false;
   let pullpushFailed = false;
-  let dataSource = 'pullpush';
+  let dataSource = 'arctic-shift';
 
-  // ── Strategy 1: PullPush API ─────────────────────────────────────────────
+  // ── Strategy 1: Arctic Shift API (primary) ─────────────────────────────────
   try {
     if (globalMode) {
-      // Global search: no subreddit filter
       for (const { q, category } of queries) {
-        log(`[scan] global q=${q} (${category})`);
+        log(`[scan/arctic-shift] global q=${q} (${category})`);
         queriesRun++;
         let posts;
         try {
-          posts = await paginateSubmissions({
-            q, score: `>${minScore}`,
-            sort: 'desc', sort_type: 'num_comments', after,
+          posts = await arcticShiftPaginateSubmissions({
+            q, after,
           }, maxPages);
         } catch (err) {
-          if (err.statusCode === 403) { pullpushFailed = true; break; }
-          if (err.statusCode >= 500 || err.message === 'timeout') pullpushFailed = true;
-          log(`[scan] failed: ${err.message}`); continue;
+          if (err.statusCode === 403) { arcticShiftFailed = true; break; }
+          if (err.statusCode >= 500 || err.message === 'timeout') arcticShiftFailed = true;
+          log(`[scan/arctic-shift] failed: ${err.message}`); continue;
         }
         for (const p of posts) {
           if (!postsById.has(p.id)) postsById.set(p.id, p);
         }
       }
     } else {
-      for (const sub of subreddits) {
-        for (const { q, category } of queries) {
-          log(`[scan] r/${sub} q=${q} (${category})`);
-          queriesRun++;
-          let posts;
-          try {
-            posts = await paginateSubmissions({
-              q, subreddit: sub, score: `>${minScore}`,
-              sort: 'desc', sort_type: 'num_comments', after,
-            }, maxPages);
-          } catch (err) {
-            if (err.statusCode === 403) { pullpushFailed = true; break; }
-            if (err.statusCode >= 500 || err.message === 'timeout') pullpushFailed = true;
-            log(`[scan] failed: ${err.message}`); continue;
-          }
-          for (const p of posts) {
-            if (!postsById.has(p.id)) postsById.set(p.id, p);
-          }
-        }
-
-        // Comment search mode: search comments for query terms and surface parent posts
-        if (includeComments) {
-          log(`[scan] comment-search mode for r/${sub}`);
-          const commentQueries = domain
-            ? [domain, ...Object.values(DOMAIN_SCAN_QUERIES).flat().slice(0, 10)]
-            : Object.values(DOMAIN_SCAN_QUERIES).flat().slice(0, 15);
-
-          for (const q of commentQueries) {
-            queriesRun++;
-            const commentPosts = await searchCommentsByQuery({
-              q, subreddit: sub, after, minScore, maxPages: Math.min(maxPages, 5), domain,
-            });
-            for (const p of commentPosts) {
-              if (!postsById.has(p.id)) postsById.set(p.id, p);
-              else {
-                // Merge comment hit data onto existing post
-                const existing = postsById.get(p.id);
-                existing._commentHits = (existing._commentHits || 0) + (p._commentHits || 0);
-              }
-            }
+      const scanOpts = { postsById, after, minScore, maxPages, includeComments, domain, logger, paginateFn: arcticShiftPaginateSubmissions, sourceLabel: 'arctic-shift' };
+      for (let i = 0; i < subreddits.length; i += concurrency) {
+        const batch = subreddits.slice(i, i + concurrency);
+        log(`[scan/arctic-shift] launching batch ${Math.floor(i / concurrency) + 1}: ${batch.map(s => `r/${s}`).join(', ')}`);
+        const results = await Promise.allSettled(
+          batch.map(sub => scanSubreddit(sub, queries, scanOpts))
+        );
+        for (let j = 0; j < results.length; j++) {
+          const result = results[j];
+          if (result.status === 'rejected') {
+            log(`[scan/arctic-shift] r/${batch[j]} failed: ${result.reason?.message || result.reason}`);
+            arcticShiftFailed = true;
+          } else if (result.value?.sourceFailed) {
+            arcticShiftFailed = true;
           }
         }
       }
     }
   } catch (err) {
-    log(`[scan] PullPush error: ${err.message}`);
-    pullpushFailed = true;
+    log(`[scan] Arctic Shift error: ${err.message}`);
+    arcticShiftFailed = true;
   }
 
-  log(`[scan] PullPush: ${postsById.size} unique posts${pullpushFailed ? ' (PullPush had errors)' : ''}`);
+  log(`[scan] Arctic Shift: ${postsById.size} unique posts${arcticShiftFailed ? ' (Arctic Shift had errors)' : ''}`);
 
-  // ── Strategy 2: Reddit OAuth API fallback ────────────────────────────────
-  // Try Reddit OAuth if PullPush failed or returned no results
-  if ((pullpushFailed || postsById.size === 0) && hasRedditOAuthCredentials()) {
-    log(`[scan] falling back to Reddit OAuth API`);
-    dataSource = postsById.size > 0 ? 'pullpush+reddit-oauth' : 'reddit-oauth';
+  // ── Strategy 2: PullPush API (first fallback) ─────────────────────────────
+  if (arcticShiftFailed || postsById.size === 0) {
+    log(`[scan] falling back to PullPush API`);
+    if (postsById.size > 0) {
+      dataSource = 'arctic-shift+pullpush';
+    } else {
+      dataSource = 'pullpush';
+    }
 
-    const oauthQueries = queries.slice(0, 10); // Limit queries to stay within rate limits
-    for (const { q, category } of oauthQueries) {
-      const subs = globalMode ? [null] : subreddits;
-      for (const sub of subs) {
-        const label = sub ? `r/${sub}` : 'global';
-        log(`[scan/reddit-oauth] ${label} q=${q} (${category})`);
-        queriesRun++;
-        try {
-          const posts = await paginateRedditOAuth(q, {
-            subreddit: sub || undefined,
-            sort: 'relevance',
-            maxPages: Math.min(maxPages, 3), // conservative for OAuth
-            after,
-          });
+    try {
+      if (globalMode) {
+        for (const { q, category } of queries) {
+          log(`[scan/pullpush] global q=${q} (${category})`);
+          queriesRun++;
+          let posts;
+          try {
+            posts = await paginateSubmissions({
+              q, score: `>${minScore}`,
+              sort: 'desc', sort_type: 'num_comments', after,
+            }, maxPages);
+          } catch (err) {
+            if (err.statusCode === 403) { pullpushFailed = true; break; }
+            if (err.statusCode >= 500 || err.message === 'timeout') pullpushFailed = true;
+            log(`[scan/pullpush] failed: ${err.message}`); continue;
+          }
           for (const p of posts) {
             if (!postsById.has(p.id)) postsById.set(p.id, p);
           }
-          log(`[scan/reddit-oauth]   got ${posts.length} posts (${postsById.size} total)`);
-        } catch (err) {
-          log(`[scan/reddit-oauth]   failed: ${err.message}`);
-          if (err.message.includes('HTTP 401') || err.message.includes('HTTP 403')) {
-            log('[scan/reddit-oauth] auth error — check REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET');
-            break;
+        }
+      } else {
+        const scanOpts = { postsById, after, minScore, maxPages, includeComments, domain, logger, paginateFn: paginateSubmissions, sourceLabel: 'pullpush' };
+        for (let i = 0; i < subreddits.length; i += concurrency) {
+          const batch = subreddits.slice(i, i + concurrency);
+          log(`[scan/pullpush] launching batch ${Math.floor(i / concurrency) + 1}: ${batch.map(s => `r/${s}`).join(', ')}`);
+          const results = await Promise.allSettled(
+            batch.map(sub => scanSubreddit(sub, queries, scanOpts))
+          );
+          for (let j = 0; j < results.length; j++) {
+            const result = results[j];
+            if (result.status === 'rejected') {
+              log(`[scan/pullpush] r/${batch[j]} failed: ${result.reason?.message || result.reason}`);
+              pullpushFailed = true;
+            } else if (result.value?.sourceFailed) {
+              pullpushFailed = true;
+            }
           }
         }
       }
+    } catch (err) {
+      log(`[scan] PullPush error: ${err.message}`);
+      pullpushFailed = true;
     }
-    log(`[scan/reddit-oauth] total after OAuth fallback: ${postsById.size} unique posts`);
-  } else if ((pullpushFailed || postsById.size === 0) && !hasRedditOAuthCredentials()) {
-    log(`[scan] PullPush failed and no Reddit OAuth credentials found.`);
-    log(`[scan] Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET env vars to enable Reddit OAuth fallback.`);
-    log(`[scan] Get free credentials at https://www.reddit.com/prefs/apps (script type app).`);
-    if (!_redditTipShown) {
-      _redditTipShown = true;
-      logger.info('tip: set REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET as PullPush backup — free at reddit.com/prefs/apps');
+
+    log(`[scan] PullPush: ${postsById.size} unique posts${pullpushFailed ? ' (PullPush had errors)' : ''}`);
+  }
+
+  // ── Strategy 3: Reddit OAuth API (second fallback) ────────────────────────
+  // Try Reddit OAuth if both Arctic Shift and PullPush failed or returned no results
+  if ((arcticShiftFailed && pullpushFailed) || postsById.size === 0) {
+    if (hasRedditOAuthCredentials()) {
+      log(`[scan] falling back to Reddit OAuth API`);
+      if (postsById.size > 0) {
+        dataSource = dataSource + '+reddit-oauth';
+      } else {
+        dataSource = 'reddit-oauth';
+      }
+
+      const oauthQueries = queries.slice(0, 10); // Limit queries to stay within rate limits
+      for (const { q, category } of oauthQueries) {
+        const subs = globalMode ? [null] : subreddits;
+        for (const sub of subs) {
+          const label = sub ? `r/${sub}` : 'global';
+          log(`[scan/reddit-oauth] ${label} q=${q} (${category})`);
+          queriesRun++;
+          try {
+            const posts = await paginateRedditOAuth(q, {
+              subreddit: sub || undefined,
+              sort: 'relevance',
+              maxPages: Math.min(maxPages, 3), // conservative for OAuth
+              after,
+            });
+            for (const p of posts) {
+              if (!postsById.has(p.id)) postsById.set(p.id, p);
+            }
+            log(`[scan/reddit-oauth]   got ${posts.length} posts (${postsById.size} total)`);
+          } catch (err) {
+            log(`[scan/reddit-oauth]   failed: ${err.message}`);
+            if (err.message.includes('HTTP 401') || err.message.includes('HTTP 403')) {
+              log('[scan/reddit-oauth] auth error — check REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET');
+              break;
+            }
+          }
+        }
+      }
+      log(`[scan/reddit-oauth] total after OAuth fallback: ${postsById.size} unique posts`);
+    } else {
+      log(`[scan] Arctic Shift and PullPush failed, no Reddit OAuth credentials found.`);
+      log(`[scan] Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET env vars to enable Reddit OAuth fallback.`);
+      log(`[scan] Get free credentials at https://www.reddit.com/prefs/apps (script type app).`);
+      if (!_redditTipShown) {
+        _redditTipShown = true;
+        logger.info('tip: set REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET as backup — free at reddit.com/prefs/apps');
+      }
     }
   }
 
@@ -840,6 +1059,7 @@ async function cmdScan(args) {
   scored.sort((a, b) => b.painScore - a.painScore);
 
   const warnings = [];
+  if (arcticShiftFailed) warnings.push('Arctic Shift API returned errors — fell back to PullPush');
   if (pullpushFailed) warnings.push('PullPush API returned errors — results may be incomplete');
   if (_rateLimitWarning) warnings.push('Rate limits were hit during this scan — results may be incomplete');
 
@@ -857,7 +1077,7 @@ async function cmdScan(args) {
       subreddits: globalMode ? 0 : subreddits.length,
       global_mode: globalMode,
       queries_run: queriesRun,
-      api_calls: rateLimiter.count,
+      api_calls: rateLimiter.count + arcticShiftRateLimiter.count,
       raw_posts: postsById.size,
       after_filter: Math.min(scored.length, limit),
       include_comments: includeComments,
@@ -936,7 +1156,7 @@ async function cmdDeepDive(args) {
 
 export default {
   name: 'reddit-api',
-  description: 'PullPush API + Reddit OAuth fallback — historical Reddit data, no browser needed',
+  description: 'Arctic Shift API + PullPush + Reddit OAuth fallback — historical Reddit data, no browser needed',
   commands: ['discover', 'scan', 'deep-dive'],
   async run(command, args) {
     switch (command) {
@@ -947,21 +1167,22 @@ export default {
     }
   },
   help: `
-reddit-api source — PullPush API with Reddit OAuth fallback
+reddit-api source — Arctic Shift API with PullPush + Reddit OAuth fallback
 
 Data sources (tried in order):
-  1. PullPush API — historical Reddit data archive
-  2. Reddit OAuth API — official Reddit API (fallback when PullPush is down)
+  1. Arctic Shift API — high-throughput historical Reddit archive (~2000 req/min)
+  2. PullPush API — historical Reddit data archive (fallback)
+  3. Reddit OAuth API — official Reddit API (second fallback when both above fail)
 
-Reddit OAuth setup (optional, enables fallback):
+Reddit OAuth setup (optional, enables second fallback):
   1. Go to https://www.reddit.com/prefs/apps and create a "script" app
   2. Set environment variables:
        export REDDIT_CLIENT_ID="your_client_id"
        export REDDIT_CLIENT_SECRET="your_client_secret"
   3. Free for non-commercial use (100 requests/min)
 
-Everything works without credentials — PullPush is tried first. Reddit OAuth
-is only used as a fallback when PullPush fails or returns no results.
+Everything works without credentials — Arctic Shift is tried first, then PullPush.
+Reddit OAuth is only used as a last resort when both archive APIs fail.
 
 Commands:
   discover   Find relevant subreddits for a domain
@@ -981,6 +1202,9 @@ scan options:
   --limit <n>           Max posts (default: 30)
   --max-pages <n>       Pages per query (default: 20, was 2)
   --include-comments    Also search comments for matching terms (10-100x more coverage)
+  --query-categories <list>  Comma-separated query categories to include
+                             (default: frustration,desire,cost,willingness_to_pay,general_scalper)
+                             Domain-specific: tickets, sneakers, gpu
 
 deep-dive options:
   --post <id|url>       Single post

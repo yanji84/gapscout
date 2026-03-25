@@ -4,35 +4,78 @@ description: >-
   Discover pain points, frustrations, and unmet needs on Reddit, Hacker News, Product Hunt,
   Google, G2/Capterra, Kickstarter, and the Play Store. No API keys required for most sources.
   Use to find startup ideas backed by real user complaints.
-metadata: {"clawdbot":{"emoji":"🔬","requires":{"bins":["node"]}}
+metadata: {"clawdbot":{"emoji":"🔬","requires":{"bins":["node"]},"entryAgent":".claude/agents/orchestrator.md"}
 }
 ---
 
 # GapScout
 
-Discover validated pain points across multiple platforms. Searches for frustrations, complaints, and unmet needs, then analyzes comment threads for agreement signals, emotional intensity, willingness-to-pay evidence, and failed solutions.
+Discover validated pain points and market gaps across multiple platforms. Searches for frustrations, complaints, and unmet needs, then analyzes comment threads for agreement signals, emotional intensity, willingness-to-pay evidence, and failed solutions.
+
+**Entry point**: Spawn the orchestrator agent at `.claude/agents/orchestrator.md`. The user provides a market name, named competitors, or nothing (HN frontpage mode). The orchestrator handles everything from there — planning, discovery, scanning, synthesis, QA, and report generation.
+
+```
+User says: "Run GapScout on the project management tools market"
+→ Spawn orchestrator agent
+→ Orchestrator takes it from here (~225 agents across 5 stages)
+```
+
+See [README.md](README.md) for full source documentation and flag reference.
+
+## Pipeline Overview
+
+The orchestrator manages a 5-phase pipeline end-to-end. Each phase is described below. All stage transitions, agent spawning, QA gates, and runtime adaptations are owned by the orchestrator — individual agents never auto-proceed on their own.
+
+### Phase 1: Planning (managed by orchestrator)
+
+The orchestrator spawns a **planner** agent that researches the market and produces a `scan-spec.json`. The orchestrator reads the spec and makes runtime decisions about agent counts, source priorities, and rate budgets based on market density and source viability.
+
+### Phase 2: Discovery (managed by orchestrator)
+
+The orchestrator spawns 4 discovery agents in parallel:
+- **market-mapper** — finds competitors and maps the landscape
+- **profile-scraper** — scrapes competitor profiles
+- **subreddit-discoverer** — finds relevant subreddits
+- **query-generator** — builds search queries for scanning
+
+After discovery completes, the orchestrator spawns a **discovery QA** team (judge + documenter). Based on the QA verdict, the orchestrator decides whether to proceed, retry specific agents, or continue with degraded data.
+
+### Phase 3: Scanning (managed by orchestrator)
+
+The orchestrator spawns the scanning team based on its runtime config. This includes Category A coordinators (competitor-specific: reviews, Trustpilot, App Store), Category B scanners (market-wide: Reddit, HN, Google, Product Hunt), and specialist agents (websearch, switching signals). Sources that are degraded or irrelevant to the market type are skipped.
+
+After scanning completes, the orchestrator runs **scanning QA** — the most critical QA gate. Failed sources may be retried, skipped, or noted as degraded for synthesis.
+
+### Phase 4: Synthesis (managed by orchestrator)
+
+The orchestrator spawns a **synthesizer-coordinator** that runs 7 sequential sprints internally (competitive map, competitor pain, unmet needs, switching signals, gap matrix, opportunities, rescue). The orchestrator does not manage individual sprints — the coordinator owns that.
+
+After synthesis, the orchestrator runs **synthesis QA** and owns the iteration loop: if the judge returns MARGINAL or FAIL, the orchestrator re-spawns the synthesizer for failing sprints, then re-runs QA. Max 3 iteration rounds before shipping with a weakness note.
+
+### Phase 5: Report Generation (managed by orchestrator)
+
+The orchestrator spawns 3 report agents in parallel:
+- **report-generator-json** — produces `report.json`
+- **report-generator-html** — produces `report.html`
+- **report-summary-presenter** — produces an executive summary
+
+The orchestrator then presents final results to the user, including top opportunities, stats, QA grades, deliverable paths, and any data quality notes.
+
+## CLI Commands (used by agents internally)
+
+The following CLI commands are used by agents within the pipeline. They are documented here for reference and debugging.
 
 **Entry point**: `gapscout <source> <command> [options]`
 
 Available sources: `api` (Reddit/PullPush), `browser` (Reddit/Puppeteer), `hn` (Hacker News), `google` (Google autocomplete), `ph` (Product Hunt), `reviews` (G2/Capterra), `kickstarter` (Kickstarter), `appstore` (Google Play), `all` (all sources in parallel).
 
-See [README.md](README.md) for full source documentation and flag reference.
-
-## Workflow
-
-Follow these 7 phases in order. Phases 1-3 are script-driven data collection. Phases 4-7 are your analysis of the collected data.
-
-### Phase 1: Discover Subreddits
-
-Find the right subreddits for the user's domain.
+### Discover Subreddits
 
 ```bash
-gapscout api discover --domain "<user's domain>" --limit 8
+gapscout api discover --domain "<domain>" --limit 8
 ```
 
-Take the top 3-5 subreddits from the output for phase 2.
-
-### Phase 2: Scan for Pain Points
+### Scan for Pain Points
 
 **Quick option — run everything at once:**
 ```bash
@@ -68,11 +111,7 @@ gapscout kickstarter scan --domain "<domain>"
 gapscout appstore scan --domain "<domain>"
 ```
 
-Review the scored posts. Posts with high `painScore`, high `num_comments`, `wtpSignals`, and high `intensity` are the best candidates for deep analysis.
-
-### Phase 3: Deep-Dive Analysis
-
-Analyze comment threads of top posts for agreement, money trail, and intensity signals.
+### Deep-Dive Analysis
 
 Single post:
 ```bash
@@ -86,98 +125,24 @@ gapscout api deep-dive --from-scan <scan_output.json> --top 5
 
 For browser-scraped posts use `gapscout browser deep-dive`. For HN posts use `gapscout hn deep-dive`.
 
-Key fields in the output:
-- **validationStrength**: strong / moderate / weak / anecdotal
-- **intensityLevel**: extreme / high / moderate / low
-- **moneyTrailCount**: how many comments show willingness-to-pay signals
-- **moneyTrail**: actual quotes showing spending, hiring, or time investment
-- **solutionAttempts**: what people have tried and why it failed
-- **mentionedTools**: competitive landscape
-
-### Phase 4: Pain Depth Classification
-
-For each pain point from the deep-dive results, classify it into one of three depth levels:
-
-- **Surface frustration**: People mention it but aren't actively seeking a fix. Low agreement, low intensity. They complain but tolerate it.
-- **Active pain**: People are looking for solutions. They post "looking for", "alternative to", "does anyone know" queries. Moderate-to-high agreement, some solution attempts.
-- **Urgent problem**: People are spending money or significant time right now. High `moneyTrailCount`, high intensity, multiple failed solution attempts. They're paying consultants, buying tools, or wasting hours on workarounds.
-
-Present the classification in a table with the pain, its depth level, and the key evidence.
-
-### Phase 5: Frequency vs Intensity Matrix
-
-Map pains on two dimensions using the data already collected:
-
-- **Frequency**: How often it comes up across posts (post count, agreement count, multiple subreddits mentioning it)
-- **Intensity**: How emotionally charged the language is (`intensityLevel`, presence of extreme language in `topQuotes`)
-
-Categorize each pain:
-- **Primary target** (frequent + intense): Build for this — validated demand with emotional urgency
-- **Hidden gem** (infrequent + intense): Niche but desperate users — could be a premium play
-- **Background noise** (frequent + low intensity): Common annoyance, low willingness to pay
-- **Ignore** (infrequent + low intensity): Not worth pursuing
-
-### Phase 6: Willingness-to-Pay & Unspoken Pain Analysis
-
-Two tasks here:
-
-**Money trail analysis**: Using the `moneyTrail` data from deep-dive, identify which pains have visible spending signals — tools bought, consultants hired, hours wasted, subscriptions tried. Rank pains by strength of the money trail. A pain with no money trail is a complaining pain, not a buying pain.
-
-**Unspoken pain extraction**: Read the `topQuotes` and `solutionAttempts` carefully. What are people actually frustrated about underneath the surface complaint? Look for patterns:
-- Complaints about a tool that are really about a broken workflow
-- Cost complaints that are really about feeling locked in
-- Feature requests that reveal a deeper unmet need
-- Frustration with complexity that signals a need for simplification
-
-For each unspoken pain found, state: the surface complaint, the real underlying pain, and why you believe this.
-
-### Phase 7: Verdict & Opportunity Synthesis
-
-For each validated pain point, present a structured proposal:
-
-1. **Problem**: One-sentence description of the pain
-2. **Depth**: Surface / Active / Urgent (from Phase 4)
-3. **Matrix position**: Primary target / Hidden gem / Background noise (from Phase 5)
-4. **Evidence**: Top quotes + agreement count + subreddit
-5. **Who feels this**: Type of person/business affected
-6. **Current solutions & gaps**: What people have tried (from `solutionAttempts`) and why it fails
-7. **Competitive landscape**: Tools mentioned (from `mentionedTools`)
-8. **Money trail**: Evidence of spending or willingness to pay
-9. **Unspoken pain**: The deeper need underneath (from Phase 6)
-10. **Opportunity**: What's missing in current solutions
-11. **Idea sketch**: Brief product/service concept
-
-**Final verdict** for each pain — one of:
-- **Validated**: Urgent depth + primary target or hidden gem + strong money trail. Build this.
-- **Needs more evidence**: Active depth with moderate signals. Worth a deeper scan with different subreddits or timeframes.
-- **Too weak to build on**: Surface frustration, background noise, no money trail. Move on.
-
-End with a ranked list of all pains by build-worthiness.
-
-## Browser Mode (Alternative Reddit Source)
+### Browser Mode (Alternative Reddit Source)
 
 When PullPush is unavailable, rate-limited, or you want real-time data, use the browser source. It scrapes old.reddit.com via Puppeteer, reusing an existing Chrome session (e.g. from puppeteer-mcp-server).
 
 **Prerequisites**: Chrome running with remote debugging (puppeteer-mcp-server does this automatically). Install deps: `npm install` in the skill directory.
 
-### Browser Scan
-
 ```bash
+# Browser scan
 gapscout browser scan \
   --subreddits "<sub1>,<sub2>,<sub3>" \
   --domain "<domain>" \
   --time year \
   --limit 20
-```
 
-### Browser Deep-Dive
-
-```bash
+# Browser deep-dive
 gapscout browser deep-dive --post <url_or_id>
 gapscout browser deep-dive --from-scan <scan_output.json> --top 5
 ```
-
-### When to use browser mode vs API mode
 
 | | API mode (`api`) | Browser mode (`browser`) |
 |---|---|---|
@@ -188,7 +153,7 @@ gapscout browser deep-dive --from-scan <scan_output.json> --top 5
 | **Reliability** | Depends on PullPush uptime | Depends on Chrome + Reddit DOM |
 | **Best for** | Large-scale scans, historical data | Targeted scans, when PullPush is down |
 
-Output format is identical between modes — both produce `{ ok: true, data: { posts: [...] } }` with the same scoring fields, so downstream analysis (Phases 4-7) works with either.
+Output format is identical between modes — both produce `{ ok: true, data: { posts: [...] } }` with the same scoring fields, so downstream analysis works with either.
 
 ## Options Reference
 

@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Pain discovery research report">
+  <title>Pain Discovery Report</title>
+  <style>
+:root {
+  --bg: #0a0a0f;
+  --bg2: #111118;
+  --bg3: #1a1a24;
+  --border: #2a2a3a;
+  --fg: #e8e8f0;
+  --fg2: #a0a0b8;
+  --muted: #606078;
+  --accent: #6366f1;
+  --accent2: #818cf8;
+  --track: #2a2a3a;
+  --color-urgent: #ef4444;
+  --color-active: #f59e0b;
+  --color-surface: #3b82f6;
+  --shadow: 0 1px 3px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
+  --radius: 12px;
+  --radius-sm: 8px;
+  font-size: 15px;
+}
+[data-theme="light"] {
+  --bg: #f8f8fc;
+  --bg2: #ffffff;
+  --bg3: #f0f0f8;
+  --border: #e0e0ec;
+  --fg: #1a1a2e;
+  --fg2: #4a4a6a;
+  --muted: #8888aa;
+  --track: #e0e0ec;
+  --shadow: 0 1px 3px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.06);
+}
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── Nav ── */
+.topnav {
+  position: sticky; top: 0; z-index: 100;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  display: flex; align-items: center; gap: 8px;
+  height: 52px;
+}
+.nav-brand { font-weight: 700; font-size: 14px; color: var(--accent2); margin-right: auto; letter-spacing: -.3px; }
+.nav-link { font-size: 13px; color: var(--fg2); text-decoration: none; padding: 6px 10px; border-radius: 6px; transition: background .15s, color .15s; }
+.nav-link:hover { background: var(--bg3); color: var(--fg); }
+.theme-toggle {
+  background: var(--bg3); border: 1px solid var(--border); color: var(--fg2);
+  padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  transition: all .15s;
+}
+.theme-toggle:hover { color: var(--fg); border-color: var(--accent); }
+
+/* ── Layout ── */
+.container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+.section { padding: 64px 0; }
+.section-title {
+  font-size: 24px; font-weight: 700; letter-spacing: -.5px;
+  margin-bottom: 6px; color: var(--fg);
+}
+.section-sub { color: var(--fg2); font-size: 14px; margin-bottom: 28px; }
+
+/* ── Hero ── */
+.hero { padding: 72px 0 60px; }
+.hero-inner { display: flex; gap: 48px; align-items: flex-start; flex-wrap: wrap; }
+.hero-text { flex: 1 1 360px; }
+.hero-eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent2); margin-bottom: 12px; }
+.hero-title { font-size: clamp(28px, 4vw, 42px); font-weight: 800; line-height: 1.15; letter-spacing: -.8px; margin-bottom: 12px; }
+.hero-date { font-size: 14px; color: var(--muted); }
+.hero-stats { flex: 0 0 auto; }
+.hero-kpis { display: flex; gap: 16px; flex-wrap: wrap; }
+.kpi { display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 18px; }
+.kpi-val { font-size: 26px; font-weight: 800; letter-spacing: -.5px; color: var(--fg); }
+.kpi-label { font-size: 11px; color: var(--muted); font-weight: 500; letter-spacing: .5px; text-transform: uppercase; }
+
+/* ── Badges ── */
+.badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 700; letter-spacing: .8px; padding: 3px 8px; border-radius: 4px; text-transform: uppercase; }
+.depth-badge { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: .5px; }
+.depth-badge[data-depth="urgent"]  { background: #ef444422; color: var(--color-urgent); }
+.depth-badge[data-depth="active"]  { background: #f59e0b22; color: var(--color-active); }
+.depth-badge[data-depth="surface"] { background: #3b82f622; color: var(--color-surface); }
+
+/* ── Signal strength badges ── */
+.signal-badge { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 4px; letter-spacing: .3px; }
+.signal-strong { background: #14532d33; color: #4ade80; border: 1px solid #4ade8040; }
+.signal-moderate { background: #78350f33; color: #fcd34d; border: 1px solid #fcd34d40; }
+.signal-weak { background: #1f2937; color: #9ca3af; border: 1px solid #4b556340; }
+
+/* ── Category cards ── */
+.cat-cards { display: flex; flex-direction: column; gap: 16px; }
+.cat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); border-left: 4px solid var(--depth-color); box-shadow: var(--shadow); overflow: hidden; transition: border-color .2s; }
+.cat-card-header { display: flex; gap: 16px; align-items: flex-start; padding: 20px 20px 0; flex-wrap: wrap; }
+.cat-card-left { display: flex; gap: 16px; align-items: flex-start; flex: 1; }
+.cat-info { flex: 1; }
+.cat-name { font-size: 17px; font-weight: 700; letter-spacing: -.3px; margin-bottom: 4px; text-transform: capitalize; }
+.cat-description { font-size: 13px; color: var(--fg2); margin-bottom: 10px; line-height: 1.5; }
+.cat-meta-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.cat-stats-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.cat-stat { font-size: 13px; color: var(--fg2); }
+.cat-card-right { flex: 0 0 auto; }
+.source-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.source-badge { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; font-size: 11px; font-weight: 700; background: var(--bg3); border: 1px solid var(--border); color: var(--fg2); }
+.source-badge[data-source="reddit"]     { background: #ff451533; color: #ff6b3d; border-color: #ff451540; }
+.source-badge[data-source="hackernews"] { background: #ff660033; color: #ff8533; border-color: #ff660040; }
+.source-badge[data-source="google"]     { background: #4285f433; color: #6fa8f8; border-color: #4285f440; }
+.source-badge[data-source="appstore"]   { background: #007aff33; color: #4db3ff; border-color: #007aff40; }
+.source-badge[data-source="twitter"]    { background: #1da1f233; color: #5bc1f7; border-color: #1da1f240; }
+
+/* ── Cited quotes in category cards ── */
+.cat-quotes { padding: 16px 20px 0; }
+.cited-quote { background: var(--bg3); border-radius: var(--radius-sm); padding: 12px; border: 1px solid var(--border); margin-bottom: 8px; position: relative; }
+.cited-quote-link { text-decoration: none; color: inherit; display: block; }
+.cited-quote-link:hover .cited-quote-text { color: var(--accent); }
+.cited-quote-text { font-size: 13px; color: var(--fg2); line-height: 1.7; font-style: italic; margin-bottom: 4px; }
+.cited-quote-source { font-size: 11px; color: var(--muted); font-weight: 500; }
+.cited-quote-score { position: absolute; top: 10px; right: 10px; font-size: 12px; font-weight: 700; color: var(--accent2); }
+.cited-more { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.detail-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px; }
+.detail-label:first-child { margin-top: 0; }
+
+/* ── Citations list in details ── */
+.citations-list { display: flex; flex-direction: column; gap: 6px; }
+.citation-link { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); text-decoration: none; color: var(--fg2); transition: border-color .15s; }
+.citation-link:hover { border-color: var(--accent); color: var(--fg); }
+.citation-source { font-size: 11px; font-weight: 700; background: var(--bg2); border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; flex-shrink: 0; text-transform: capitalize; }
+.citation-title { flex: 1; font-size: 13px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Details toggle ── */
+.cat-details { border-top: 1px solid var(--border); }
+.cat-details-toggle { display: flex; align-items: center; gap: 8px; padding: 12px 20px; font-size: 13px; font-weight: 600; color: var(--fg2); cursor: pointer; list-style: none; user-select: none; transition: color .15s, background .15s; }
+.cat-details-toggle:hover { color: var(--fg); background: var(--bg3); }
+.cat-details[open] .toggle-arrow { transform: rotate(90deg); }
+.toggle-arrow { transition: transform .2s; display: inline-block; font-size: 10px; }
+.cat-details-body { padding: 16px 20px 20px; }
+
+/* ── Verification summary ── */
+.verification-summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; margin-bottom: 8px;
+  background: #14532d1a; border: 1px solid #4ade8030;
+  border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 500; color: #4ade80;
+}
+.verification-icon { font-size: 15px; font-weight: 700; }
+[data-theme="light"] .verification-summary {
+  background: #dcfce7; border-color: #86efac; color: #166534;
+}
+
+/* ── Evidence drawer (expandable inline citations) ── */
+.evidence-details { border-top: 1px solid var(--border); }
+.evidence-toggle { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.evidence-toggle:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.evidence-drawer { display: flex; flex-direction: column; gap: 0; }
+.evidence-drawer-entries { display: flex; flex-direction: column; gap: 10px; }
+.evidence-entry {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color .15s;
+}
+.evidence-entry:hover { border-color: var(--accent); }
+.evidence-entry-header {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.evidence-entry-quote {
+  font-size: 13px; line-height: 1.65; color: var(--fg2);
+  font-style: italic; margin: 0;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+}
+.evidence-entry-meta {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 12px; color: var(--muted);
+}
+.evidence-entry-meta a {
+  color: var(--accent2); text-decoration: none; font-weight: 600; font-size: 12px;
+}
+.evidence-entry-meta a:hover { text-decoration: underline; }
+.evidence-entry-score { font-weight: 700; color: var(--accent2); }
+.evidence-entry-date { color: var(--muted); }
+.evidence-entry-subreddit { color: var(--fg2); font-weight: 500; }
+
+/* ── Source badge pills (inline in evidence entries) ── */
+.source-badge-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 2px 8px; border-radius: 10px;
+  font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
+  flex-shrink: 0;
+}
+.source-badge-pill[data-source="reddit"]       { background: #ff451522; color: #ff6b3d; border: 1px solid #ff451530; }
+.source-badge-pill[data-source="hackernews"]   { background: #ff660022; color: #ff8533; border: 1px solid #ff660030; }
+.source-badge-pill[data-source="google"]       { background: #4285f422; color: #6fa8f8; border: 1px solid #4285f430; }
+.source-badge-pill[data-source="g2"]           { background: #22c55e22; color: #4ade80; border: 1px solid #22c55e30; }
+.source-badge-pill[data-source="trustpilot"]   { background: #22c55e22; color: #4ade80; border: 1px solid #22c55e30; }
+.source-badge-pill[data-source="appstore"]     { background: #007aff22; color: #4db3ff; border: 1px solid #007aff30; }
+.source-badge-pill[data-source="twitter"]      { background: #1da1f222; color: #5bc1f7; border: 1px solid #1da1f230; }
+.source-badge-pill[data-source="producthunt"]  { background: #da552f22; color: #f07050; border: 1px solid #da552f30; }
+.source-badge-pill[data-source="github-issues"]{ background: #8b5cf622; color: #a78bfa; border: 1px solid #8b5cf630; }
+.source-badge-pill[data-source="websearch"]    { background: #6366f122; color: #818cf8; border: 1px solid #6366f130; }
+.source-badge-pill[data-source="unknown"]      { background: var(--bg2); color: var(--muted); border: 1px solid var(--border); }
+
+/* ── Load more button ── */
+.load-more {
+  display: flex; align-items: center; justify-content: center;
+  padding: 10px 20px; margin-top: 10px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--accent2); font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+  transition: background .15s, border-color .15s;
+}
+.load-more:hover { background: var(--bg3); border-color: var(--accent); }
+
+/* ── Source coverage ── */
+.source-list { display: flex; flex-direction: column; gap: 8px; max-width: 600px; }
+.source-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.source-item-icon { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: var(--bg3); border: 1px solid var(--border); color: var(--fg2); flex-shrink: 0; }
+.source-item-icon[data-source="reddit"]     { background: #ff451522; color: #ff6b3d; border-color: #ff451540; }
+.source-item-icon[data-source="hackernews"] { background: #ff660022; color: #ff8533; border-color: #ff660040; }
+.source-item-icon[data-source="google"]     { background: #4285f422; color: #6fa8f8; border-color: #4285f440; }
+.source-item-icon[data-source="appstore"]   { background: #007aff22; color: #4db3ff; border-color: #007aff40; }
+.source-item-name { flex: 1; font-size: 14px; font-weight: 600; color: var(--fg); text-transform: capitalize; }
+.source-item-count { font-size: 13px; color: var(--muted); }
+.source-status { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px; letter-spacing: .3px; }
+.source-status-ok { background: #14532d33; color: #4ade80; }
+.source-status-empty { background: var(--bg3); color: var(--muted); }
+
+/* ── Evidence wall ── */
+.filter-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+.filter-btn { background: var(--bg3); border: 1px solid var(--border); color: var(--fg2); padding: 6px 14px; border-radius: 20px; cursor: pointer; font-size: 13px; font-family: inherit; transition: all .15s; }
+.filter-btn:hover, .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.evidence-wall { columns: 3 280px; gap: 16px; }
+.evidence-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; break-inside: avoid; margin-bottom: 16px; transition: border-color .2s; }
+.evidence-card:hover { border-color: var(--accent); }
+.evidence-card.hidden { display: none; }
+.evidence-card-text { font-size: 14px; line-height: 1.7; color: var(--fg2); font-style: italic; margin-bottom: 12px; }
+.evidence-card-footer { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cat-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; background: color-mix(in srgb, var(--depth-color) 15%, transparent); color: var(--depth-color); border: 1px solid color-mix(in srgb, var(--depth-color) 30%, transparent); }
+.evidence-upvotes { font-size: 12px; color: var(--accent2); font-weight: 700; }
+.evidence-comments { font-size: 12px; color: var(--muted); }
+.evidence-link { text-decoration: none; color: inherit; }
+.evidence-link:hover .evidence-card-text { color: var(--accent); }
+.link-icon { font-size: 12px; color: var(--accent); margin-left: auto; opacity: 0.6; }
+.evidence-card:hover .link-icon { opacity: 1; }
+.source-badge-sm { font-size: 10px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--bg3); border: 1px solid var(--border); font-weight: 700; }
+.muted-text { font-size: 13px; color: var(--muted); font-style: italic; }
+
+/* ── Data warnings ── */
+.warning-list { display: flex; flex-direction: column; gap: 8px; max-width: 800px; }
+.warning-row { display: flex; gap: 12px; align-items: center; padding: 12px 16px; background: #78350f1a; border: 1px solid #f59e0b30; border-radius: var(--radius-sm); flex-wrap: wrap; }
+.warning-source { font-size: 13px; font-weight: 700; color: var(--fg); flex: 0 0 120px; text-transform: capitalize; }
+.warning-status { font-size: 12px; font-weight: 600; color: #fcd34d; }
+.warning-detail { font-size: 12px; color: var(--fg2); flex: 1; }
+
+/* ── Footer ── */
+.report-footer { text-align: center; padding: 40px 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; margin-top: 40px; }
+
+/* ── Print ── */
+@media print {
+  .topnav, .theme-toggle, .filter-btn, .cat-details-toggle, .load-more { display: none !important; }
+  .cat-details[open] .cat-details-body { display: block; }
+  body { background: #fff; color: #000; }
+  .section { padding: 32px 0; }
+  .cat-card, .evidence-card { break-inside: avoid; }
+}
+
+/* ── Responsive ── */
+@media (max-width: 700px) {
+  .topnav { overflow-x: auto; }
+  .hero-inner { flex-direction: column; }
+  .hero-kpis { flex-direction: column; }
+  .evidence-wall { columns: 1; }
+  .source-list { max-width: 100%; }
+  .section { padding: 40px 0; }
+  .section-title { font-size: 20px; }
+  .warning-source { flex: 0 0 auto; }
+  .evidence-entry-header { gap: 6px; }
+}
+</style>
+</head>
+<body>
+  <script type="application/json" id="evidence-store">{"SRC-1nzpohy":{"title":"DLC BOLOGNA: A REVIEW","url":"https://www.reddit.com/r/Lorcana/comments/1nzpohy/dlc_bologna_a_review/","source":"reddit","score":102,"date":"2025-10-06","quote":"DLC BOLOGNA: A REVIEW","num_comments":22,"subreddit":"Lorcana","category":"product-availability"},"SRC-1q2rvks":{"title":"The broken Risk-Reward system of op13","url":"https://www.reddit.com/r/OnePieceTCG/comments/1q2rvks/the_broken_riskreward_system_of_op13/","source":"reddit","score":36,"date":"2026-01-03","quote":"The broken Risk-Reward system of op13","num_comments":35,"subreddit":"OnePieceTCG","category":"community-toxicity"},"SRC-1qj7ndu":{"title":"One Piece without feeling like I’m getting robbed","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qj7ndu/one_piece_without_feeling_like_im_getting_robbed/","source":"reddit","score":74,"date":"2026-01-21","quote":"One Piece without feeling like I’m getting robbed","num_comments":91,"subreddit":"OnePieceTCG","category":"pricing"},"SRC-1qz3ilv":{"title":"New player, I want my first deck to be slivers!","url":"https://www.reddit.com/r/magicTCG/comments/1qz3ilv/new_player_i_want_my_first_deck_to_be_slivers/","source":"reddit","score":525,"date":"2026-02-08","quote":"New player, I want my first deck to be slivers!","num_comments":281,"subreddit":"magicTCG","category":"community-toxicity"},"SRC-1r9cu8m":{"title":"PSA: Every ardent Magic player sometimes has to interact with certain cards, artwork, mechanics or other elements of the game that they dislike or hate. That's life. This is inevitable considering how dynamic and vast the game and community is.","url":"https://www.reddit.com/r/magicTCG/comments/1r9cu8m/psa_every_ardent_magic_player_sometimes_has_to/","source":"reddit","score":0,"date":"2026-02-19","quote":"PSA: Every ardent Magic player sometimes has to interact with certain cards, artwork, mechanics or other elements of the game that they dislike or hate. That's life. This is inevitable considering how dynamic and vast the game and community is.","num_comments":116,"subreddit":"magicTCG","category":"burnout"},"SRC-1r9cg24":{"title":"The TMNT set overall just makes me think, who would actually want to make commanders out of these cards?","url":"https://www.reddit.com/r/magicTCG/comments/1r9cg24/the_tmnt_set_overall_just_makes_me_think_who/","source":"reddit","score":0,"date":"2026-02-19","quote":"The TMNT set overall just makes me think, who would actually want to make commanders out of these cards?","num_comments":37,"subreddit":"magicTCG","category":"shipping"},"SRC-1pahu7z":{"title":"OP13 it makes me want to stop playing until new set.","url":"https://www.reddit.com/r/OnePieceTCG/comments/1pahu7z/op13_it_makes_me_want_to_stop_playing_until_new/","source":"reddit","score":73,"date":"2025-11-30","quote":"OP13 it makes me want to stop playing until new set.","num_comments":98,"subreddit":"OnePieceTCG","category":"shipping"},"SRC-1raoncl":{"title":"Massive Alleged WPN Fraud in China: Stolen Identities, Teleporting \"Ghosts\", and a 100-Store Promo Cartel","url":"https://www.reddit.com/r/magicTCG/comments/1raoncl/massive_alleged_wpn_fraud_in_china_stolen/","source":"reddit","score":386,"date":"2026-02-21","quote":"Massive Alleged WPN Fraud in China: Stolen Identities, Teleporting \"Ghosts\", and a 100-Store Promo Cartel","num_comments":47,"subreddit":"magicTCG","category":"community-toxicity"},"SRC-1r6ecna":{"title":"Thinking of just quitting before even going to a local event. Can I get some actual help vs just being relegated to the weekly thread? I spend 3 months acquiring cards to buy my first deck, now that deck is so out of meta, and would take me months to build another deck. Is this game even playable?","url":"https://www.reddit.com/r/OnePieceTCG/comments/1r6ecna/thinking_of_just_quitting_before_even_going_to_a/","source":"reddit","score":0,"date":"2026-02-16","quote":"Thinking of just quitting before even going to a local event. Can I get some actual help vs just being relegated to the weekly thread? I spend 3 months acquiring cards to buy my first deck, now that deck is so out of meta, and would take me months to build another deck. Is this game even playable?","num_comments":37,"subreddit":"OnePieceTCG","category":"burnout"},"SRC-1qn0vme":{"title":"When is Bandai gonna support its actual players?","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qn0vme/when_is_bandai_gonna_support_its_actual_players/","source":"reddit","score":0,"date":"2026-01-26","quote":"When is Bandai gonna support its actual players?","num_comments":21,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1qtnrem":{"title":"Logan Paul is honestly one of the worst people on the internet","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qtnrem/logan_paul_is_honestly_one_of_the_worst_people_on/","source":"reddit","score":19,"date":"2026-02-02","quote":"Logan Paul is honestly one of the worst people on the internet","num_comments":6,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1q1mgfu":{"title":"An Outsider's Take on First-time Commander","url":"https://www.reddit.com/r/magicTCG/comments/1q1mgfu/an_outsiders_take_on_firsttime_commander/","source":"reddit","score":7,"date":"2026-01-02","quote":"An Outsider's Take on First-time Commander","num_comments":22,"subreddit":"magicTCG","category":"community-toxicity"},"SRC-1qr0jk8":{"title":"Oh my god! Can people please just GROW UP about blue?","url":"https://www.reddit.com/r/magicTCG/comments/1qr0jk8/oh_my_god_can_people_please_just_grow_up_about/","source":"reddit","score":0,"date":"2026-01-30","quote":"Oh my god! Can people please just GROW UP about blue?","num_comments":32,"subreddit":"magicTCG","category":"community-toxicity"},"SRC-1qwq3jg":{"title":"Thoughts from a new player","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qwq3jg/thoughts_from_a_new_player/","source":"reddit","score":0,"date":"2026-02-05","quote":"Thoughts from a new player","num_comments":14,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1r1h3gu":{"title":"Local group started using Japanese cards because of these prices- Tournament Option?","url":"https://www.reddit.com/r/OnePieceTCG/comments/1r1h3gu/local_group_started_using_japanese_cards_because/","source":"reddit","score":1,"date":"2026-02-10","quote":"Local group started using Japanese cards because of these prices- Tournament Option?","num_comments":6,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1qripkj":{"title":"LGS is becoming awful and I think I'm done supporting them","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qripkj/lgs_is_becoming_awful_and_i_think_im_done/","source":"reddit","score":83,"date":"2026-01-30","quote":"LGS is becoming awful and I think I'm done supporting them","num_comments":81,"subreddit":"OnePieceTCG","category":"shipping"},"SRC-1oxahav":{"title":"[SLD] Secret Lair x Avatar: The Last Airbender Superdrop Financial Breakdown","url":"https://www.reddit.com/r/magicTCG/comments/1oxahav/sld_secret_lair_x_avatar_the_last_airbender/","source":"reddit","score":359,"date":"2025-11-14","quote":"[SLD] Secret Lair x Avatar: The Last Airbender Superdrop Financial Breakdown","num_comments":35,"subreddit":"magicTCG","category":"company-policy"},"SRC-1q52z4e":{"title":"Does anyone else put on one piece while ripping one piece?","url":"https://www.reddit.com/r/OnePieceTCG/comments/1q52z4e/does_anyone_else_put_on_one_piece_while_ripping/","source":"reddit","score":31,"date":"2026-01-06","quote":"Does anyone else put on one piece while ripping one piece?","num_comments":26,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1on1twk":{"title":"Analysis Paralysis when playing with unfamiliar cards - anyone else?","url":"https://www.reddit.com/r/magicTCG/comments/1on1twk/analysis_paralysis_when_playing_with_unfamiliar/","source":"reddit","score":10,"date":"2025-11-03","quote":"Analysis Paralysis when playing with unfamiliar cards - anyone else?","num_comments":29,"subreddit":"magicTCG","category":"shipping"},"SRC-1o50608":{"title":"Why did Nadu get blasted and Vivi remains free?","url":"https://www.reddit.com/r/magicTCG/comments/1o50608/why_did_nadu_get_blasted_and_vivi_remains_free/","source":"reddit","score":0,"date":"2025-10-12","quote":"Why did Nadu get blasted and Vivi remains free?","num_comments":26,"subreddit":"magicTCG","category":"shipping"},"SRC-1qr06tf":{"title":"It's time to accept that the game is dying, and there's no point pretending otherwise","url":"https://www.reddit.com/r/Lorcana/comments/1qr06tf/its_time_to_accept_that_the_game_is_dying_and/","source":"reddit","score":0,"date":"2026-01-30","quote":"It's time to accept that the game is dying, and there's no point pretending otherwise","num_comments":30,"subreddit":"Lorcana","category":"shipping"},"SRC-1oi9kbs":{"title":"Dealing with salty opponents as a new player","url":"https://www.reddit.com/r/magicTCG/comments/1oi9kbs/dealing_with_salty_opponents_as_a_new_player/","source":"reddit","score":22,"date":"2025-10-28","quote":"Dealing with salty opponents as a new player","num_comments":58,"subreddit":"magicTCG","category":"shipping"},"SRC-1o19zo6":{"title":"⚠️ I Trusted Their Grading (BECKETT EUROPE) this is a joke ! ⚠️","url":"https://www.reddit.com/r/OnePieceTCG/comments/1o19zo6/i_trusted_their_grading_beckett_europe_this_is_a/","source":"reddit","score":0,"date":"2025-10-08","quote":"⚠️ I Trusted Their Grading (BECKETT EUROPE) this is a joke ! ⚠️","num_comments":6,"subreddit":"OnePieceTCG","category":"grading"},"SRC-1pb9v5t":{"title":"Hisashiburi dana, Mugiwara...","url":"https://www.reddit.com/r/OnePieceTCG/comments/1pb9v5t/hisashiburi_dana_mugiwara/","source":"reddit","score":70,"date":"2025-12-01","quote":"Hisashiburi dana, Mugiwara...","num_comments":11,"subreddit":"OnePieceTCG","category":"shipping"},"SRC-1r42ntk":{"title":"Someone had to say it","url":"https://www.reddit.com/r/OnePieceTCG/comments/1r42ntk/someone_had_to_say_it/","source":"reddit","score":80,"date":"2026-02-13","quote":"Someone had to say it","num_comments":27,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1ohrazk":{"title":"Tcgplayer is terrible now","url":"https://www.reddit.com/r/magicTCG/comments/1ohrazk/tcgplayer_is_terrible_now/","source":"reddit","score":233,"date":"2025-10-27","quote":"Tcgplayer is terrible now","num_comments":105,"subreddit":"magicTCG","category":"grading"},"SRC-1o5kxm8":{"title":"Best control deck in the PRB2+","url":"https://www.reddit.com/r/OnePieceTCG/comments/1o5kxm8/best_control_deck_in_the_prb2/","source":"reddit","score":5,"date":"2025-10-13","quote":"Best control deck in the PRB2+","num_comments":19,"subreddit":"OnePieceTCG","category":"shipping"},"SRC-1rxqav3":{"title":"Thinking about dropping the game","url":"https://www.reddit.com/r/OnePieceTCG/comments/1rxqav3/thinking_about_dropping_the_game/","source":"reddit","score":0,"date":"2026-03-19","quote":"Thinking about dropping the game","num_comments":20,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1rem1pq":{"title":"My wife and I finished the 32 Deck Challenge. Decklists included!","url":"https://www.reddit.com/r/magicTCG/comments/1rem1pq/my_wife_and_i_finished_the_32_deck_challenge/","source":"reddit","score":53,"date":"2026-02-25","quote":"My wife and I finished the 32 Deck Challenge. Decklists included!","num_comments":35,"subreddit":"magicTCG","category":"community-toxicity"},"SRC-1q2hp8a":{"title":"Jesper Myrfors shares breakdown of how Magic back art and color borders were created","url":"https://www.reddit.com/r/magicTCG/comments/1q2hp8a/jesper_myrfors_shares_breakdown_of_how_magic_back/","source":"reddit","score":44,"date":"2026-01-03","quote":"Jesper Myrfors shares breakdown of how Magic back art and color borders were created","num_comments":6,"subreddit":"magicTCG","category":"shipping"},"SRC-1nr2pce":{"title":"Don’t buy overpriced Learn together decks","url":"https://www.reddit.com/r/OnePieceTCG/comments/1nr2pce/dont_buy_overpriced_learn_together_decks/","source":"reddit","score":277,"date":"2025-09-26","quote":"Don’t buy overpriced Learn together decks","num_comments":69,"subreddit":"OnePieceTCG","category":"company-policy"},"SRC-1pdi46z":{"title":"First Cycle (Year) In Review","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1pdi46z/first_cycle_year_in_review/","source":"reddit","score":18,"date":"2025-12-03","quote":"First Cycle (Year) In Review","num_comments":19,"subreddit":"FleshandBloodTCG","category":"pricing"},"SRC-1r4hj6r":{"title":"The Locust God is Ruining my Life","url":"https://www.reddit.com/r/magicTCG/comments/1r4hj6r/the_locust_god_is_ruining_my_life/","source":"reddit","score":1304,"date":"2026-02-14","quote":"The Locust God is Ruining my Life","num_comments":1157,"subreddit":"magicTCG","category":"shipping"},"SRC-1qr4nct":{"title":"Vol. 2 Tins Price Hike Is Hard to Defend","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qr4nct/vol_2_tins_price_hike_is_hard_to_defend/","source":"reddit","score":18,"date":"2026-01-30","quote":"Vol. 2 Tins Price Hike Is Hard to Defend","num_comments":16,"subreddit":"OnePieceTCG","category":"pricing"},"SRC-1r30ix0":{"title":"Looking for Alpha Testers!","url":"https://www.reddit.com/r/magicTCG/comments/1r30ix0/looking_for_alpha_testers/","source":"reddit","score":0,"date":"2026-02-12","quote":"Looking for Alpha Testers!","num_comments":13,"subreddit":"magicTCG","category":"shipping"},"SRC-1q7rji0":{"title":"[Bracket 4] $100 The Reaper, King No More: Jund Turbo Combo Deck!","url":"https://www.reddit.com/r/magicTCG/comments/1q7rji0/bracket_4_100_the_reaper_king_no_more_jund_turbo/","source":"reddit","score":17,"date":"2026-01-08","quote":"[Bracket 4] $100 The Reaper, King No More: Jund Turbo Combo Deck!","num_comments":5,"subreddit":"magicTCG","category":"community-toxicity"},"SRC-1qr5g35":{"title":"Suggesting a 6-point Commander Bracket System","url":"https://www.reddit.com/r/magicTCG/comments/1qr5g35/suggesting_a_6point_commander_bracket_system/","source":"reddit","score":0,"date":"2026-01-30","quote":"Suggesting a 6-point Commander Bracket System","num_comments":49,"subreddit":"magicTCG","category":"shipping"},"SRC-1pxmxjc":{"title":"I am genuinely new and want to use my money well (Long text)","url":"https://www.reddit.com/r/OnePieceTCG/comments/1pxmxjc/i_am_genuinely_new_and_want_to_use_my_money_well/","source":"reddit","score":0,"date":"2025-12-28","quote":"I am genuinely new and want to use my money well (Long text)","num_comments":27,"subreddit":"OnePieceTCG","category":"pricing"},"SRC-1pte2im":{"title":"I really dont think Availability of Cards is ever getting better","url":"https://www.reddit.com/r/OnePieceTCG/comments/1pte2im/i_really_dont_think_availability_of_cards_is_ever/","source":"reddit","score":0,"date":"2025-12-22","quote":"I really dont think Availability of Cards is ever getting better","num_comments":33,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1rjtpne":{"title":"Why the U/Y Nami Hate?","url":"https://www.reddit.com/r/OnePieceTCG/comments/1rjtpne/why_the_uy_nami_hate/","source":"reddit","score":0,"date":"2026-03-03","quote":"Why the U/Y Nami Hate?","num_comments":58,"subreddit":"OnePieceTCG","category":"shipping"},"SRC-1qz4f2n":{"title":"What keeps you playing this game?","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qz4f2n/what_keeps_you_playing_this_game/","source":"reddit","score":8,"date":"2026-02-08","quote":"What keeps you playing this game?","num_comments":40,"subreddit":"OnePieceTCG","category":"burnout"},"SRC-1qiojnu":{"title":"I have 1 month to learn this game so I can win my first ever live tournament!","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qiojnu/i_have_1_month_to_learn_this_game_so_i_can_win_my/","source":"reddit","score":0,"date":"2026-01-21","quote":"I have 1 month to learn this game so I can win my first ever live tournament!","num_comments":15,"subreddit":"OnePieceTCG","category":"shipping"},"SRC-1pi25fh":{"title":"I was unfortunate enough to get to know a lot of pokemon scalpers/sealed collectors this past year. What to be worried about/watch out for in the next year. What needs to be done by Bandai and LGS to fix this.","url":"https://www.reddit.com/r/OnePieceTCG/comments/1pi25fh/i_was_unfortunate_enough_to_get_to_know_a_lot_of/","source":"reddit","score":38,"date":"2025-12-09","quote":"I was unfortunate enough to get to know a lot of pokemon scalpers/sealed collectors this past year. What to be worried about/watch out for in the next year. What needs to be done by Bandai and LGS to fix this.","num_comments":24,"subreddit":"OnePieceTCG","category":"burnout"},"SRC-1r5wqx1":{"title":"Sideboards- love em or hate em, I’ve got a question about them","url":"https://www.reddit.com/r/Lorcana/comments/1r5wqx1/sideboards_love_em_or_hate_em_ive_got_a_question/","source":"reddit","score":0,"date":"2026-02-16","quote":"Sideboards- love em or hate em, I’ve got a question about them","num_comments":41,"subreddit":"Lorcana","category":"community-toxicity"},"SRC-1r7v0xc":{"title":"Just realized Lorcana sets are a lot like the hated MTG “hat sets”","url":"https://www.reddit.com/r/Lorcana/comments/1r7v0xc/just_realized_lorcana_sets_are_a_lot_like_the/","source":"reddit","score":0,"date":"2026-02-18","quote":"Just realized Lorcana sets are a lot like the hated MTG “hat sets”","num_comments":4,"subreddit":"Lorcana","category":"company-policy"},"SRC-1qvt1h4":{"title":"A summary of the Secret Lair team on WeeklyMTG yesterday - Discussing Print to demand, Scalpers, Monday's Chao Vault, and more","url":"https://www.reddit.com/r/magicTCG/comments/1qvt1h4/a_summary_of_the_secret_lair_team_on_weeklymtg/","source":"reddit","score":1014,"date":"2026-02-04","quote":"A summary of the Secret Lair team on WeeklyMTG yesterday - Discussing Print to demand, Scalpers, Monday's Chao Vault, and more","num_comments":316,"subreddit":"magicTCG","category":"company-policy"},"SRC-1qdtdps":{"title":"One Piece TCG Investing will inevitably fail (One Piece vs Pokemon)","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qdtdps/one_piece_tcg_investing_will_inevitably_fail_one/","source":"reddit","score":196,"date":"2026-01-15","quote":"One Piece TCG Investing will inevitably fail (One Piece vs Pokemon)","num_comments":128,"subreddit":"OnePieceTCG","category":"grading"},"SRC-1rpbzmn":{"title":"Scalpers at bandai stores","url":"https://www.reddit.com/r/OnePieceTCG/comments/1rpbzmn/scalpers_at_bandai_stores/","source":"reddit","score":141,"date":"2026-03-09","quote":"Scalpers at bandai stores","num_comments":80,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1rv5wf7":{"title":"CARD(s) OF THE WEEK #2 - I desperately need a new ranger, LSS PLEASE","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1rv5wf7/cards_of_the_week_2_i_desperately_need_a_new/","source":"reddit","score":20,"date":"2026-03-16","quote":"CARD(s) OF THE WEEK #2 - I desperately need a new ranger, LSS PLEASE","num_comments":15,"subreddit":"FleshandBloodTCG","category":"burnout"},"SRC-1qld1jh":{"title":"[Rant] New Decks Aren't Fun for Anyone","url":"https://www.reddit.com/r/magicTCG/comments/1qld1jh/rant_new_decks_arent_fun_for_anyone/","source":"reddit","score":0,"date":"2026-01-24","quote":"[Rant] New Decks Aren't Fun for Anyone","num_comments":32,"subreddit":"magicTCG","category":"community-toxicity"},"SRC-1ouhyln":{"title":"Magic the Stupidity: Hasbro Hear Me Out!","url":"https://www.reddit.com/r/magicTCG/comments/1ouhyln/magic_the_stupidity_hasbro_hear_me_out/","source":"reddit","score":0,"date":"2025-11-11","quote":"Magic the Stupidity: Hasbro Hear Me Out!","num_comments":17,"subreddit":"magicTCG","category":"company-policy"},"SRC-1r6nesx":{"title":"I love Magic the Gathering and I don't hate Wizards of the Coast. I like Wizards of the Coast. Why do so many enfranchised and ardent Magic players seem to hate WotC so much?","url":"https://www.reddit.com/r/magicTCG/comments/1r6nesx/i_love_magic_the_gathering_and_i_dont_hate/","source":"reddit","score":0,"date":"2026-02-16","quote":"I love Magic the Gathering and I don't hate Wizards of the Coast. I like Wizards of the Coast. Why do so many enfranchised and ardent Magic players seem to hate WotC so much?","num_comments":119,"subreddit":"magicTCG","category":"company-policy"},"SRC-1qr4thq":{"title":"Are scalpers killing the future nostalgia market for One Piece TCG?","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qr4thq/are_scalpers_killing_the_future_nostalgia_market/","source":"reddit","score":13,"date":"2026-01-30","quote":"Are scalpers killing the future nostalgia market for One Piece TCG?","num_comments":34,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1qguvd9":{"title":"ST27 advice","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qguvd9/st27_advice/","source":"reddit","score":6,"date":"2026-01-19","quote":"ST27 advice","num_comments":10,"subreddit":"OnePieceTCG","category":"pricing"},"SRC-1rmllqb":{"title":"Got My Library Card Catalog Setup","url":"https://www.reddit.com/r/magicTCG/comments/1rmllqb/got_my_library_card_catalog_setup/","source":"reddit","score":31,"date":"2026-03-06","quote":"Got My Library Card Catalog Setup","num_comments":5,"subreddit":"magicTCG","category":"pricing"},"SRC-1nxcdlp":{"title":"First Armory & Dorinthea Deck Advice","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1nxcdlp/first_armory_dorinthea_deck_advice/","source":"reddit","score":66,"date":"2025-10-03","quote":"First Armory & Dorinthea Deck Advice","num_comments":15,"subreddit":"FleshandBloodTCG","category":"shipping"},"SRC-1pwdxe3":{"title":"Help Organizing Dad's Old Cards","url":"https://www.reddit.com/r/magicTCG/comments/1pwdxe3/help_organizing_dads_old_cards/","source":"reddit","score":338,"date":"2025-12-26","quote":"Help Organizing Dad's Old Cards","num_comments":50,"subreddit":"magicTCG","category":"grading"},"SRC-1nv85z3":{"title":"As a community, We desperately need to quit discrediting/disparaging players for playing/winning with certain leaders.","url":"https://www.reddit.com/r/OnePieceTCG/comments/1nv85z3/as_a_community_we_desperately_need_to_quit/","source":"reddit","score":113,"date":"2025-10-01","quote":"As a community, We desperately need to quit discrediting/disparaging players for playing/winning with certain leaders.","num_comments":84,"subreddit":"OnePieceTCG","category":"burnout"},"SRC-1o0k7sf":{"title":"Can we start publicly shaming Poke/Crypto bros and investors?","url":"https://www.reddit.com/r/OnePieceTCG/comments/1o0k7sf/can_we_start_publicly_shaming_pokecrypto_bros_and/","source":"reddit","score":384,"date":"2025-10-07","quote":"Can we start publicly shaming Poke/Crypto bros and investors?","num_comments":173,"subreddit":"OnePieceTCG","category":"grading"},"SRC-1r9tg1f":{"title":"Why the hell are warrior staples so expensive ?","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1r9tg1f/why_the_hell_are_warrior_staples_so_expensive/","source":"reddit","score":56,"date":"2026-02-20","quote":"Why the hell are warrior staples so expensive ?","num_comments":50,"subreddit":"FleshandBloodTCG","category":"company-policy"},"SRC-1nzj6y4":{"title":"October Flagship Tashigi","url":"https://www.reddit.com/r/OnePieceTCG/comments/1nzj6y4/october_flagship_tashigi/","source":"reddit","score":37,"date":"2025-10-06","quote":"October Flagship Tashigi","num_comments":6,"subreddit":"OnePieceTCG","category":"shipping"},"SRC-1owjkp7":{"title":"20% price hike","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1owjkp7/20_price_hike/","source":"reddit","score":79,"date":"2025-11-14","quote":"20% price hike","num_comments":34,"subreddit":"FleshandBloodTCG","category":"pricing"},"SRC-1oubei1":{"title":"$100 [Bracket 4] Aang, At the Crossroads: Bant Turbo Combo EDH Deck!","url":"https://www.reddit.com/r/magicTCG/comments/1oubei1/100_bracket_4_aang_at_the_crossroads_bant_turbo/","source":"reddit","score":41,"date":"2025-11-11","quote":"$100 [Bracket 4] Aang, At the Crossroads: Bant Turbo Combo EDH Deck!","num_comments":10,"subreddit":"magicTCG","category":"community-toxicity"},"SRC-1r94u87":{"title":"Maralen, Fae Ascendant","url":"https://www.reddit.com/r/magicTCG/comments/1r94u87/maralen_fae_ascendant/","source":"reddit","score":0,"date":"2026-02-19","quote":"Maralen, Fae Ascendant","num_comments":11,"subreddit":"magicTCG","category":"community-toxicity"},"SRC-1qgtbdf":{"title":"OP community hate","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qgtbdf/op_community_hate/","source":"reddit","score":0,"date":"2026-01-19","quote":"OP community hate","num_comments":27,"subreddit":"OnePieceTCG","category":"community-toxicity"},"SRC-1q0j0qm":{"title":"Not everyone who chases Alts/Higher is a \"Scalper\"","url":"https://www.reddit.com/r/OnePieceTCG/comments/1q0j0qm/not_everyone_who_chases_altshigher_is_a_scalper/","source":"reddit","score":0,"date":"2025-12-31","quote":"Not everyone who chases Alts/Higher is a \"Scalper\"","num_comments":14,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1oux4a0":{"title":"I am going to quit Lorcana soon if Canada doesn't get any support!","url":"https://www.reddit.com/r/Lorcana/comments/1oux4a0/i_am_going_to_quit_lorcana_soon_if_canada_doesnt/","source":"reddit","score":0,"date":"2025-11-12","quote":"I am going to quit Lorcana soon if Canada doesn't get any support!","num_comments":10,"subreddit":"Lorcana","category":"burnout"},"SRC-1ouwhf7":{"title":"The Pastimes response is worse than the issues themselves","url":"https://www.reddit.com/r/Lorcana/comments/1ouwhf7/the_pastimes_response_is_worse_than_the_issues/","source":"reddit","score":17,"date":"2025-11-12","quote":"The Pastimes response is worse than the issues themselves","num_comments":19,"subreddit":"Lorcana","category":"product-availability"},"SRC-1ovbu2k":{"title":"If there was a fair, transparent alternative to eBay for collectibles — would you use it?","url":"https://www.reddit.com/r/OnePieceTCG/comments/1ovbu2k/if_there_was_a_fair_transparent_alternative_to/","source":"reddit","score":0,"date":"2025-11-12","quote":"If there was a fair, transparent alternative to eBay for collectibles — would you use it?","num_comments":4,"subreddit":"OnePieceTCG","category":"fraud"},"SRC-1q7yoto":{"title":"On the scalper situation.","url":"https://www.reddit.com/r/OnePieceTCG/comments/1q7yoto/on_the_scalper_situation/","source":"reddit","score":154,"date":"2026-01-09","quote":"On the scalper situation.","num_comments":79,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1oy323t":{"title":"The current meta requires Sideboards more than ever, or I think a lot of people are going to continue to burn out.","url":"https://www.reddit.com/r/OnePieceTCG/comments/1oy323t/the_current_meta_requires_sideboards_more_than/","source":"reddit","score":78,"date":"2025-11-15","quote":"The current meta requires Sideboards more than ever, or I think a lot of people are going to continue to burn out.","num_comments":71,"subreddit":"OnePieceTCG","category":"shipping"},"SRC-1rbtlud":{"title":"Double Don Event Scalpers","url":"https://www.reddit.com/r/OnePieceTCG/comments/1rbtlud/double_don_event_scalpers/","source":"reddit","score":61,"date":"2026-02-22","quote":"Double Don Event Scalpers","num_comments":9,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1phhp0w":{"title":"My problem with TCGs","url":"https://www.reddit.com/r/OnePieceTCG/comments/1phhp0w/my_problem_with_tcgs/","source":"reddit","score":136,"date":"2025-12-08","quote":"My problem with TCGs","num_comments":62,"subreddit":"OnePieceTCG","category":"product-availability"},"SRC-1ph9qf9":{"title":"Find a new Hero","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1ph9qf9/find_a_new_hero/","source":"reddit","score":19,"date":"2025-12-08","quote":"Find a new Hero","num_comments":32,"subreddit":"FleshandBloodTCG","category":"shipping"},"SRC-1rbgir1":{"title":"Tried out new grading company frustrated with PSA","url":"https://www.reddit.com/r/OnePieceTCG/comments/1rbgir1/tried_out_new_grading_company_frustrated_with_psa/","source":"reddit","score":0,"date":"2026-02-22","quote":"Tried out new grading company frustrated with PSA","num_comments":3,"subreddit":"OnePieceTCG","category":"fraud"},"SRC-1qevsgu":{"title":"Where do you all go for online trading?","url":"https://www.reddit.com/r/OnePieceTCG/comments/1qevsgu/where_do_you_all_go_for_online_trading/","source":"reddit","score":0,"date":"2026-01-16","quote":"Where do you all go for online trading?","num_comments":5,"subreddit":"OnePieceTCG","category":"pricing"},"SRC-1rl10hg":{"title":"TCG Player Pricing","url":"https://www.reddit.com/r/Lorcana/comments/1rl10hg/tcg_player_pricing/","source":"reddit","score":7,"date":"2026-03-04","quote":"TCG Player Pricing","num_comments":12,"subreddit":"Lorcana","category":"fraud"},"SRC-1r90df0":{"title":"DIY printing my own cards since it’s too expensive","url":"https://www.reddit.com/r/OnePieceTCG/comments/1r90df0/diy_printing_my_own_cards_since_its_too_expensive/","source":"reddit","score":0,"date":"2026-02-19","quote":"DIY printing my own cards since it’s too expensive","num_comments":11,"subreddit":"OnePieceTCG","category":"pricing"},"SRC-1rcr78j":{"title":"Pen as a product","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1rcr78j/pen_as_a_product/","source":"reddit","score":82,"date":"2026-02-23","quote":"Pen as a product","num_comments":86,"subreddit":"FleshandBloodTCG","category":"company-policy"},"SRC-1pu45p4":{"title":"Is it worth it to keep playing Pleiades?","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1pu45p4/is_it_worth_it_to_keep_playing_pleiades/","source":"reddit","score":36,"date":"2025-12-23","quote":"Is it worth it to keep playing Pleiades?","num_comments":30,"subreddit":"FleshandBloodTCG","category":"pricing"},"SRC-1o6brrg":{"title":"Ravensburger - Dumbo needs an errata reprint","url":"https://www.reddit.com/r/Lorcana/comments/1o6brrg/ravensburger_dumbo_needs_an_errata_reprint/","source":"reddit","score":27,"date":"2025-10-14","quote":"Ravensburger - Dumbo needs an errata reprint","num_comments":30,"subreddit":"Lorcana","category":"company-policy"},"SRC-1qotrwu":{"title":"Stop crying, start appreciating","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1qotrwu/stop_crying_start_appreciating/","source":"reddit","score":0,"date":"2026-01-27","quote":"Stop crying, start appreciating","num_comments":38,"subreddit":"FleshandBloodTCG","category":"shipping"},"SRC-1ntt7z5":{"title":"How do y'all acquire cards?","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1ntt7z5/how_do_yall_acquire_cards/","source":"reddit","score":22,"date":"2025-09-29","quote":"How do y'all acquire cards?","num_comments":29,"subreddit":"FleshandBloodTCG","category":"pricing"},"SRC-1r784dg":{"title":"FaB reddit seems cursed and toxic. Should i stop engaging in these conversations? Whelp","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1r784dg/fab_reddit_seems_cursed_and_toxic_should_i_stop/","source":"reddit","score":0,"date":"2026-02-17","quote":"FaB reddit seems cursed and toxic. Should i stop engaging in these conversations? Whelp","num_comments":46,"subreddit":"FleshandBloodTCG","category":"community-toxicity"},"SRC-1qgrb6g":{"title":"Ideas for Toy Story cards (w/mockups!)","url":"https://www.reddit.com/r/Lorcana/comments/1qgrb6g/ideas_for_toy_story_cards_wmockups/","source":"reddit","score":9,"date":"2026-01-19","quote":"Ideas for Toy Story cards (w/mockups!)","num_comments":4,"subreddit":"Lorcana","category":"shipping"},"SRC-1oe3pjt":{"title":"Most DLC prizes more expensive in US","url":"https://www.reddit.com/r/Lorcana/comments/1oe3pjt/most_dlc_prizes_more_expensive_in_us/","source":"reddit","score":14,"date":"2025-10-23","quote":"Most DLC prizes more expensive in US","num_comments":12,"subreddit":"Lorcana","category":"product-availability"},"SRC-1rhv3t8":{"title":"Any budget decks (sub $100) you can build?","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1rhv3t8/any_budget_decks_sub_100_you_can_build/","source":"reddit","score":8,"date":"2026-03-01","quote":"Any budget decks (sub $100) you can build?","num_comments":28,"subreddit":"FleshandBloodTCG","category":"pricing"},"SRC-1q54200":{"title":"Where to start","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1q54200/where_to_start/","source":"reddit","score":16,"date":"2026-01-06","quote":"Where to start","num_comments":20,"subreddit":"FleshandBloodTCG","category":"pricing"},"SRC-1q4qw0p":{"title":"New Player - First Deck, looking for advice/feedback","url":"https://www.reddit.com/r/Lorcana/comments/1q4qw0p/new_player_first_deck_looking_for_advicefeedback/","source":"reddit","score":6,"date":"2026-01-05","quote":"New Player - First Deck, looking for advice/feedback","num_comments":3,"subreddit":"Lorcana","category":"community-toxicity"},"SRC-1rdlnxs":{"title":"New to FaB, starting point questions","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1rdlnxs/new_to_fab_starting_point_questions/","source":"reddit","score":23,"date":"2026-02-24","quote":"New to FaB, starting point questions","num_comments":10,"subreddit":"FleshandBloodTCG","category":"burnout"},"SRC-1pf6rjm":{"title":"Fab pricing","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1pf6rjm/fab_pricing/","source":"reddit","score":65,"date":"2025-12-05","quote":"Fab pricing","num_comments":57,"subreddit":"FleshandBloodTCG","category":"company-policy"},"SRC-1rgks5a":{"title":"what are the actual odds of pulls?","url":"https://www.reddit.com/r/Lorcana/comments/1rgks5a/what_are_the_actual_odds_of_pulls/","source":"reddit","score":6,"date":"2026-02-27","quote":"what are the actual odds of pulls?","num_comments":19,"subreddit":"Lorcana","category":"product-availability"},"SRC-1o7wt2d":{"title":"Interesting item, might be a little too expensive","url":"https://www.reddit.com/r/Lorcana/comments/1o7wt2d/interesting_item_might_be_a_little_too_expensive/","source":"reddit","score":25,"date":"2025-10-16","quote":"Interesting item, might be a little too expensive","num_comments":10,"subreddit":"Lorcana","category":"pricing"},"SRC-1raps2q":{"title":"How much did you pay for PEN box or boosters in your area and how is the availability?","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1raps2q/how_much_did_you_pay_for_pen_box_or_boosters_in/","source":"reddit","score":9,"date":"2026-02-21","quote":"How much did you pay for PEN box or boosters in your area and how is the availability?","num_comments":18,"subreddit":"FleshandBloodTCG","category":"pricing"},"SRC-1q1mocv":{"title":"Amber Steel Casino - 1000 games played - Stats Included","url":"https://www.reddit.com/r/Lorcana/comments/1q1mocv/amber_steel_casino_1000_games_played_stats/","source":"reddit","score":30,"date":"2026-01-02","quote":"Amber Steel Casino - 1000 games played - Stats Included","num_comments":13,"subreddit":"Lorcana","category":"shipping"},"SRC-1rrptdm":{"title":"DLC deck recommendation","url":"https://www.reddit.com/r/Lorcana/comments/1rrptdm/dlc_deck_recommendation/","source":"reddit","score":11,"date":"2026-03-12","quote":"DLC deck recommendation","num_comments":17,"subreddit":"Lorcana","category":"pricing"},"SRC-1rjudbx":{"title":"Could someone help me create a good deck using mostly/only winterspell?","url":"https://www.reddit.com/r/Lorcana/comments/1rjudbx/could_someone_help_me_create_a_good_deck_using/","source":"reddit","score":9,"date":"2026-03-03","quote":"Could someone help me create a good deck using mostly/only winterspell?","num_comments":11,"subreddit":"Lorcana","category":"pricing"},"SRC-1nz74ku":{"title":"Wheel Spider Huntsman Deck Tech as of Super Slam","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1nz74ku/wheel_spider_huntsman_deck_tech_as_of_super_slam/","source":"reddit","score":44,"date":"2025-10-06","quote":"Wheel Spider Huntsman Deck Tech as of Super Slam","num_comments":17,"subreddit":"FleshandBloodTCG","category":"shipping"},"SRC-1rai2u8":{"title":"Has anyone tried the new Silverage decks? If so, how are they?","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1rai2u8/has_anyone_tried_the_new_silverage_decks_if_so/","source":"reddit","score":19,"date":"2026-02-21","quote":"Has anyone tried the new Silverage decks? If so, how are they?","num_comments":12,"subreddit":"FleshandBloodTCG","category":"product-availability"},"SRC-1oj5z9j":{"title":"Improving Tournament Pairings in Lorcana","url":"https://www.reddit.com/r/Lorcana/comments/1oj5z9j/improving_tournament_pairings_in_lorcana/","source":"reddit","score":42,"date":"2025-10-29","quote":"Improving Tournament Pairings in Lorcana","num_comments":16,"subreddit":"Lorcana","category":"shipping"},"SRC-1pmi86q":{"title":"What do you wish to find in PEN ?","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1pmi86q/what_do_you_wish_to_find_in_pen/","source":"reddit","score":20,"date":"2025-12-14","quote":"What do you wish to find in PEN ?","num_comments":41,"subreddit":"FleshandBloodTCG","category":"pricing"},"SRC-1oizz80":{"title":"Set 10 Ruby deck ideas","url":"https://www.reddit.com/r/Lorcana/comments/1oizz80/set_10_ruby_deck_ideas/","source":"reddit","score":4,"date":"2025-10-29","quote":"Set 10 Ruby deck ideas","num_comments":16,"subreddit":"Lorcana","category":"pricing"},"SRC-1qg202a":{"title":"How Would You Budget-Optimize This Lorcana Deck?","url":"https://www.reddit.com/r/Lorcana/comments/1qg202a/how_would_you_budgetoptimize_this_lorcana_deck/","source":"reddit","score":7,"date":"2026-01-18","quote":"How Would You Budget-Optimize This Lorcana Deck?","num_comments":7,"subreddit":"Lorcana","category":"pricing"},"SRC-1rl8fpl":{"title":"Help With Blue/Steele deck","url":"https://www.reddit.com/r/Lorcana/comments/1rl8fpl/help_with_bluesteele_deck/","source":"reddit","score":7,"date":"2026-03-05","quote":"Help With Blue/Steele deck","num_comments":16,"subreddit":"Lorcana","category":"pricing"},"SRC-1q73s8o":{"title":"How To Save Your Local Scene","url":"https://www.reddit.com/r/Lorcana/comments/1q73s8o/how_to_save_your_local_scene/","source":"reddit","score":68,"date":"2026-01-08","quote":"How To Save Your Local Scene","num_comments":41,"subreddit":"Lorcana","category":"pricing"},"SRC-1okfedu":{"title":"I have a question but don’t know really how to ask it","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1okfedu/i_have_a_question_but_dont_know_really_how_to_ask/","source":"reddit","score":0,"date":"2025-10-30","quote":"I have a question but don’t know really how to ask it","num_comments":23,"subreddit":"FleshandBloodTCG","category":"community-toxicity"},"SRC-1qv2j49":{"title":"Tuesday Content Creator Roundup | Post Videos, Blog Posts, Resources, & Podcasts Here!","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1qv2j49/tuesday_content_creator_roundup_post_videos_blog/","source":"reddit","score":10,"date":"2026-02-03","quote":"Tuesday Content Creator Roundup | Post Videos, Blog Posts, Resources, & Podcasts Here!","num_comments":4,"subreddit":"FleshandBloodTCG","category":"product-availability"},"SRC-1o4wssp":{"title":"Dash Armory Deck $50 Upgrade Showcase (95% Power)","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1o4wssp/dash_armory_deck_50_upgrade_showcase_95_power/","source":"reddit","score":63,"date":"2025-10-12","quote":"Dash Armory Deck $50 Upgrade Showcase (95% Power)","num_comments":5,"subreddit":"FleshandBloodTCG","category":"pricing"},"SRC-1pu2ic3":{"title":"How to win with Dio against Florian, Huntsman, and Verdance?","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1pu2ic3/how_to_win_with_dio_against_florian_huntsman_and/","source":"reddit","score":12,"date":"2025-12-23","quote":"How to win with Dio against Florian, Huntsman, and Verdance?","num_comments":11,"subreddit":"FleshandBloodTCG","category":"shipping"},"SRC-1pzvj5g":{"title":"New player help sorting","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1pzvj5g/new_player_help_sorting/","source":"reddit","score":19,"date":"2025-12-30","quote":"New player help sorting","num_comments":19,"subreddit":"FleshandBloodTCG","category":"pricing"},"SRC-1qw52oy":{"title":"Do people get mad about using technically retired cards?","url":"https://www.reddit.com/r/Lorcana/comments/1qw52oy/do_people_get_mad_about_using_technically_retired/","source":"reddit","score":16,"date":"2026-02-04","quote":"Do people get mad about using technically retired cards?","num_comments":19,"subreddit":"Lorcana","category":"shipping"},"SRC-1pbwjrs":{"title":"Good budget decks suggestion","url":"https://www.reddit.com/r/Lorcana/comments/1pbwjrs/good_budget_decks_suggestion/","source":"reddit","score":5,"date":"2025-12-02","quote":"Good budget decks suggestion","num_comments":18,"subreddit":"Lorcana","category":"pricing"},"SRC-1ovavg2":{"title":"Good Theme based decks that are of similar levels?","url":"https://www.reddit.com/r/Lorcana/comments/1ovavg2/good_theme_based_decks_that_are_of_similar_levels/","source":"reddit","score":5,"date":"2025-11-12","quote":"Good Theme based decks that are of similar levels?","num_comments":16,"subreddit":"Lorcana","category":"shipping"},"SRC-1py8pjq":{"title":"help on upgrading Judy Hops precon deck","url":"https://www.reddit.com/r/Lorcana/comments/1py8pjq/help_on_upgrading_judy_hops_precon_deck/","source":"reddit","score":4,"date":"2025-12-29","quote":"help on upgrading Judy Hops precon deck","num_comments":11,"subreddit":"Lorcana","category":"pricing"},"SRC-1rsbz9s":{"title":"I feel like I will never be willing to fully buy into this game and SAGE just doesn't have the support locally for me to be a solution","url":"https://www.reddit.com/r/FleshandBloodTCG/comments/1rsbz9s/i_feel_like_i_will_never_be_willing_to_fully_buy/","source":"reddit","score":57,"date":"2026-03-13","quote":"I feel like I will never be willing to fully buy into this game and SAGE just doesn't have the support locally for me to be a solution","num_comments":65,"subreddit":"FleshandBloodTCG","category":"company-policy"},"SRC-69ba91db2bfbf727b289aa05":{"title":"acegrading 1-star: USELESS COMPANY","url":"https://www.trustpilot.com/reviews/69ba91db2bfbf727b289aa05","source":"trustpilot","score":5,"date":"2026-03-18","quote":"acegrading 1-star: USELESS COMPANY","num_comments":0,"subreddit":"trustpilot","category":"grading"},"SRC-696f44f1c1c76b6ff0118626":{"title":"cgccomics 1-star: CGC is the most inconsistent grading…","url":"https://www.trustpilot.com/reviews/696f44f1c1c76b6ff0118626","source":"trustpilot","score":5,"date":"2026-01-20","quote":"cgccomics 1-star: CGC is the most inconsistent grading…","num_comments":0,"subreddit":"trustpilot","category":"grading"},"TR-y5i1jd":{"title":"ebay 1-star: ​Warning: Protected Fraud is Rampant on eBay","url":"https://www.trustpilot.com/reviews/69c01a5d2f6f1ff8e38ff957","source":"trustpilot","score":5,"date":"2026-03-22","quote":"ebay 1-star: ​Warning: Protected Fraud is Rampant on eBay","num_comments":0,"subreddit":"trustpilot","category":"fraud"},"SRC-69c2af7f03321902a3987e29":{"title":"ebay 1-star: Don’t use eBay","url":"https://www.trustpilot.com/reviews/69c2af7f03321902a3987e29","source":"trustpilot","score":5,"date":"2026-03-24","quote":"ebay 1-star: Don’t use eBay","num_comments":0,"subreddit":"trustpilot","category":"shipping"},"SRC-69c2919e859725e185c9a541":{"title":"ebay 1-star: This company is a joke","url":"https://www.trustpilot.com/reviews/69c2919e859725e185c9a541","source":"trustpilot","score":5,"date":"2026-03-24","quote":"ebay 1-star: This company is a joke","num_comments":0,"subreddit":"trustpilot","category":"shipping"},"SRC-69c01f981a41a12bb014b165":{"title":"ebay 1-star: EBay is a rip off I don't see how…","url":"https://www.trustpilot.com/reviews/69c01f981a41a12bb014b165","source":"trustpilot","score":5,"date":"2026-03-22","quote":"ebay 1-star: EBay is a rip off I don't see how…","num_comments":0,"subreddit":"trustpilot","category":"fraud"},"SRC-69c2340fc136ef8e67054cbc":{"title":"ebay 1-star: Not Seller Friendly Platform","url":"https://www.trustpilot.com/reviews/69c2340fc136ef8e67054cbc","source":"trustpilot","score":5,"date":"2026-03-24","quote":"ebay 1-star: Not Seller Friendly Platform","num_comments":0,"subreddit":"trustpilot","category":"fraud"},"SRC-69c33c3771b02f976be56868":{"title":"ebay 1-star: SCAM SCAM SCAM!!!!","url":"https://www.trustpilot.com/reviews/69c33c3771b02f976be56868","source":"trustpilot","score":5,"date":"2026-03-25","quote":"ebay 1-star: SCAM SCAM SCAM!!!!","num_comments":0,"subreddit":"trustpilot","category":"fraud"},"SRC-69b81b1353969b7aab4cae57":{"title":"pokemoncenter 1-star: AWFUL WEBSITE!!!!!!!!","url":"https://www.trustpilot.com/reviews/69b81b1353969b7aab4cae57","source":"trustpilot","score":5,"date":"2026-03-16","quote":"pokemoncenter 1-star: AWFUL WEBSITE!!!!!!!!","num_comments":0,"subreddit":"trustpilot","category":"product-availability"},"SRC-6924d3e81536361243482766":{"title":"pokemoncenter 1-star: Wait time is horrible and you can't…","url":"https://www.trustpilot.com/reviews/6924d3e81536361243482766","source":"trustpilot","score":5,"date":"2025-11-24","quote":"pokemoncenter 1-star: Wait time is horrible and you can't…","num_comments":0,"subreddit":"trustpilot","category":"product-availability"},"SRC-6925fde8aed4a45cdb6ee346":{"title":"pokemoncenter 1-star: Pokemon center.com is the trash of trash.","url":"https://www.trustpilot.com/reviews/6925fde8aed4a45cdb6ee346","source":"trustpilot","score":5,"date":"2025-11-25","quote":"pokemoncenter 1-star: Pokemon center.com is the trash of trash.","num_comments":0,"subreddit":"trustpilot","category":"burnout"},"TR-4z633j":{"title":"pokemoncenter 1-star: If i could give 0 i would","url":"https://www.trustpilot.com/reviews/69b1b9ae670638a913c59379","source":"trustpilot","score":5,"date":"2026-03-11","quote":"pokemoncenter 1-star: If i could give 0 i would","num_comments":0,"subreddit":"trustpilot","category":"product-availability"},"TR-abq5u2":{"title":"pokemoncenter 1-star: Absolutely disgusting","url":"https://www.trustpilot.com/reviews/69af18496a9782541744ed8f","source":"trustpilot","score":5,"date":"2026-03-09","quote":"pokemoncenter 1-star: Absolutely disgusting","num_comments":0,"subreddit":"trustpilot","category":"fraud"},"TR-nlzn0f":{"title":"pokemoncenter 1-star: If they cared","url":"https://www.trustpilot.com/reviews/695ff40c9ae578191bf5453b","source":"trustpilot","score":5,"date":"2026-01-08","quote":"pokemoncenter 1-star: If they cared","num_comments":0,"subreddit":"trustpilot","category":"digital-platform"},"TR-vj84vc":{"title":"pokemoncenter 1-star: Still shockingly bad","url":"https://www.trustpilot.com/reviews/68f7cc587733daf4c3d2663f","source":"trustpilot","score":5,"date":"2025-10-21","quote":"pokemoncenter 1-star: Still shockingly bad","num_comments":0,"subreddit":"trustpilot","category":"digital-platform"},"SRC-698b4d2fa76ab9b1b5029919":{"title":"pokemoncenter 1-star: Impossible to buy from","url":"https://www.trustpilot.com/reviews/698b4d2fa76ab9b1b5029919","source":"trustpilot","score":5,"date":"2026-02-10","quote":"pokemoncenter 1-star: Impossible to buy from","num_comments":0,"subreddit":"trustpilot","category":"product-availability"},"SRC-691b2c111a599c9196273345":{"title":"pokemoncenter 1-star: Incredibly Poor Customer Service","url":"https://www.trustpilot.com/reviews/691b2c111a599c9196273345","source":"trustpilot","score":5,"date":"2025-11-17","quote":"pokemoncenter 1-star: Incredibly Poor Customer Service","num_comments":0,"subreddit":"trustpilot","category":"shipping"},"SRC-6924b59abfdb1da30559ce36":{"title":"pokemoncenter 1-star: Time to move on","url":"https://www.trustpilot.com/reviews/6924b59abfdb1da30559ce36","source":"trustpilot","score":5,"date":"2025-11-24","quote":"pokemoncenter 1-star: Time to move on","num_comments":0,"subreddit":"trustpilot","category":"product-availability"},"SRC-696dd2c347298d5754626ad9":{"title":"pokemoncenter 1-star: They are only bothered with profit and not their customers","url":"https://www.trustpilot.com/reviews/696dd2c347298d5754626ad9","source":"trustpilot","score":5,"date":"2026-01-19","quote":"pokemoncenter 1-star: They are only bothered with profit and not their customers","num_comments":0,"subreddit":"trustpilot","category":"company-policy"},"TR-jjke9f":{"title":"psacard 1-star: Absolute Scam","url":"https://www.trustpilot.com/reviews/69c056a5059a7159701645a4","source":"trustpilot","score":5,"date":"2026-03-22","quote":"psacard 1-star: Absolute Scam","num_comments":0,"subreddit":"trustpilot","category":"fraud"},"TR-rlk0bc":{"title":"psacard 1-star: Scam company","url":"https://www.trustpilot.com/reviews/69ae72be469b5e9d7159eaa6","source":"trustpilot","score":5,"date":"2026-03-09","quote":"psacard 1-star: Scam company","num_comments":0,"subreddit":"trustpilot","category":"fraud"},"SRC-697b8e56d41b14a97af89464":{"title":"psacard 1-star: Never again!","url":"https://www.trustpilot.com/reviews/697b8e56d41b14a97af89464","source":"trustpilot","score":5,"date":"2026-01-29","quote":"psacard 1-star: Never again!","num_comments":0,"subreddit":"trustpilot","category":"grading"},"SRC-69b1a19b590b615deeaab04d":{"title":"psacard 1-star: Absolute JOKE of a company","url":"https://www.trustpilot.com/reviews/69b1a19b590b615deeaab04d","source":"trustpilot","score":5,"date":"2026-03-11","quote":"psacard 1-star: Absolute JOKE of a company","num_comments":0,"subreddit":"trustpilot","category":"grading"},"SRC-69c2f96b1dced01f1f7a3149":{"title":"psacard 1-star: EXTREMELY DISASSTISFIED WITH PSA","url":"https://www.trustpilot.com/reviews/69c2f96b1dced01f1f7a3149","source":"trustpilot","score":5,"date":"2026-03-24","quote":"psacard 1-star: EXTREMELY DISASSTISFIED WITH PSA","num_comments":0,"subreddit":"trustpilot","category":"grading"},"SRC-69035e3b85f4a28434f932a1":{"title":"tcgplayer 1-star: TCG Direct Order Delay and AI Customer Reps","url":"https://www.trustpilot.com/reviews/69035e3b85f4a28434f932a1","source":"trustpilot","score":5,"date":"2025-10-30","quote":"tcgplayer 1-star: TCG Direct Order Delay and AI Customer Reps","num_comments":0,"subreddit":"trustpilot","category":"fraud"},"SRC-69606d39d084118b5dc0985c":{"title":"trollandtoad 1-star: Awful company - Stolen Cards / Money","url":"https://www.trustpilot.com/reviews/69606d39d084118b5dc0985c","source":"trustpilot","score":5,"date":"2026-01-09","quote":"trollandtoad 1-star: Awful company - Stolen Cards / Money","num_comments":0,"subreddit":"trustpilot","category":"fraud"},"SRC-ios_1068378177_r53":{"title":"Too expensive and buggy","url":"https://apps.apple.com/us/app/id1068378177","source":"appstore","score":1,"date":"","quote":"Too expensive and buggy","num_comments":10,"subreddit":"appstore","category":"pricing"},"SRC-ios_1581164444_r51":{"title":"Should be free…now forces AI feature usage","url":"https://apps.apple.com/us/app/id1581164444","source":"appstore","score":1,"date":"","quote":"Should be free…now forces AI feature usage","num_comments":10,"subreddit":"appstore","category":"pricing"},"SRC-ios_6479970832_r43":{"title":"Rigged to lose","url":"https://apps.apple.com/us/app/id6479970832","source":"appstore","score":1,"date":"","quote":"Rigged to lose","num_comments":10,"subreddit":"appstore","category":"community-toxicity"},"SRC-ios_1068378177_r35":{"title":"Worst event","url":"https://apps.apple.com/us/app/id1068378177","source":"appstore","score":1,"date":"","quote":"Worst event","num_comments":10,"subreddit":"appstore","category":"community-toxicity"},"SRC-ios_1581164444_r56":{"title":"Horrible customer Service","url":"https://apps.apple.com/us/app/id1581164444","source":"appstore","score":1,"date":"","quote":"Horrible customer Service","num_comments":10,"subreddit":"appstore","category":"community-toxicity"},"SRC-ios_625257520_r7":{"title":"WASTE OF TIME & MONEY","url":"https://apps.apple.com/us/app/id625257520","source":"appstore","score":1,"date":"","quote":"WASTE OF TIME & MONEY","num_comments":10,"subreddit":"appstore","category":"community-toxicity"},"SRC-ios_625257520_r12":{"title":"Devs need to be honestly offed for the slop this is","url":"https://apps.apple.com/us/app/id625257520","source":"appstore","score":1,"date":"","quote":"Devs need to be honestly offed for the slop this is","num_comments":10,"subreddit":"appstore","category":"fraud"},"SRC-ios_1557962344_r10":{"title":"My review was removed and I’m reposting","url":"https://apps.apple.com/us/app/id1557962344","source":"appstore","score":1,"date":"","quote":"My review was removed and I’m reposting","num_comments":10,"subreddit":"appstore","category":"community-toxicity"},"SRC-ios_1557962344_r24":{"title":"My review was removed and I’m reposting","url":"https://apps.apple.com/us/app/id1557962344","source":"appstore","score":1,"date":"","quote":"My review was removed and I’m reposting","num_comments":10,"subreddit":"appstore","category":"community-toxicity"},"SRC-ios_896112560_r69":{"title":"Hate everything about this","url":"https://apps.apple.com/us/app/id896112560","source":"appstore","score":1,"date":"","quote":"Hate everything about this","num_comments":10,"subreddit":"appstore","category":"shipping"},"SRC-ios_1554247785_r7":{"title":"Trash game","url":"https://apps.apple.com/us/app/id1554247785","source":"appstore","score":1,"date":"","quote":"Trash game","num_comments":10,"subreddit":"appstore","category":"product-availability"},"SRC-ios_1557962344_r13":{"title":"Frustrating","url":"https://apps.apple.com/us/app/id1557962344","source":"appstore","score":1,"date":"","quote":"Frustrating","num_comments":10,"subreddit":"appstore","category":"burnout"},"SRC-ios_1557962344_r27":{"title":"Frustrating","url":"https://apps.apple.com/us/app/id1557962344","source":"appstore","score":1,"date":"","quote":"Frustrating","num_comments":10,"subreddit":"appstore","category":"burnout"},"SRC-ios_1068378177_r30":{"title":"boring all the same","url":"https://apps.apple.com/us/app/id1068378177","source":"appstore","score":1,"date":"","quote":"boring all the same","num_comments":10,"subreddit":"appstore","category":"burnout"},"SRC-ios_6479970832_r30":{"title":"Rigged to lose","url":"https://apps.apple.com/us/app/id6479970832","source":"appstore","score":1,"date":"","quote":"Rigged to lose","num_comments":10,"subreddit":"appstore","category":"community-toxicity"},"SRC-ios_6479970832_r55":{"title":"Rigged to lose","url":"https://apps.apple.com/us/app/id6479970832","source":"appstore","score":1,"date":"","quote":"Rigged to lose","num_comments":10,"subreddit":"appstore","category":"community-toxicity"},"SRC-ios_6479970832_r9":{"title":"Rigged to lose","url":"https://apps.apple.com/us/app/id6479970832","source":"appstore","score":1,"date":"","quote":"Rigged to lose","num_comments":10,"subreddit":"appstore","category":"community-toxicity"},"SRC-ios_1094591345_r44":{"title":"Rip off","url":"https://apps.apple.com/us/app/id1094591345","source":"appstore","score":1,"date":"","quote":"Rip off","num_comments":10,"subreddit":"appstore","category":"pricing"},"SRC-ios_1554247785_r14":{"title":"Unfair","url":"https://apps.apple.com/us/app/id1554247785","source":"appstore","score":1,"date":"","quote":"Unfair","num_comments":10,"subreddit":"appstore","category":"community-toxicity"},"SRC-ios_1554247785_r28":{"title":"Meta this meta that meta please","url":"https://apps.apple.com/us/app/id1554247785","source":"appstore","score":1,"date":"","quote":"Meta this meta that meta please","num_comments":10,"subreddit":"appstore","category":"community-toxicity"},"trustpilot.com":{"title":"TCGplayer Trustpilot Reviews - Page 2","url":"https://www.trustpilot.com/review/tcgcollecting.tcgplayerpro.com?page=2","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"TCGplayer Trustpilot Reviews - Page 2","num_comments":0,"subreddit":"websearch","category":"fraud"},"comicbook.com":{"title":"Pokemon TCG Pocket Fans Say Goodbye to Huge Shinedust Hoards","url":"https://comicbook.com/gaming/news/pokemon-tcg-pocket-shinedust-trade-cost-speculation/","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"Pokemon TCG Pocket Fans Say Goodbye to Huge Shinedust Hoards","num_comments":0,"subreddit":"websearch","category":"product-availability"},"yahoo.com":{"title":"The PSA Grading Scandal: How Fraud Allegations Are Reshaping Trust","url":"https://sports.yahoo.com/articles/psa-grading-scandal-fraud-allegations-181418572.html","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"The PSA Grading Scandal: How Fraud Allegations Are Reshaping Trust","num_comments":0,"subreddit":"websearch","category":"fraud"},"athlonsports.com":{"title":"2025 PSA Chaos: Inside the Grade Swap Scandals Shaking Card Collectors","url":"https://athlonsports.com/collectibles/psa-grading-scandal-2025-grade-swapping","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"2025 PSA Chaos: Inside the Grade Swap Scandals Shaking Card Collectors","num_comments":0,"subreddit":"websearch","category":"burnout"},"sportscollectorsdaily.com":{"title":"PSA Hikes Turnaround Times and Prices as Grading Demand Continues","url":"https://www.sportscollectorsdaily.com/psa-hikes-turnaround-times-and-prices-as-grading-demand-continues/","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"PSA Hikes Turnaround Times and Prices as Grading Demand Continues","num_comments":0,"subreddit":"websearch","category":"product-availability"},"cardchill.com":{"title":"Pokemon TCG Counterfeit Awareness 2025","url":"https://cardchill.com/article/pokemon-tcg-counterfeit-awareness-how-to-spot-and-avoid-fake-cards-in-2025","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"Pokemon TCG Counterfeit Awareness 2025","num_comments":0,"subreddit":"websearch","category":"fraud"},"cardsrealm.com":{"title":"Allocation Woes: How Scalpers are Hurting Local Game Shops","url":"https://cardsrealm.com/en-us/articles/how-scalpers-are-hurting-local-game-shops","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"Allocation Woes: How Scalpers are Hurting Local Game Shops","num_comments":0,"subreddit":"websearch","category":"product-availability"},"sac.media":{"title":"Pokemon Card Scalping Is Ripping Apart The Collecting Community","url":"https://sac.media/2025/03/10/pokemon-card-scalping-is-ripping-apart-the-collecting-community/","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"Pokemon Card Scalping Is Ripping Apart The Collecting Community","num_comments":0,"subreddit":"websearch","category":"product-availability"},"community.pokemon.com":{"title":"Dropping the game, sorry I ever put any faith in it - Pokemon Forums","url":"https://community.pokemon.com/en-us/discussion/14190/dropping-the-game-sorry-i-ever-put-any-ammount-of-faith-in-it-and-sorry-i-ever-bought-packs","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"Dropping the game, sorry I ever put any faith in it - Pokemon Forums","num_comments":0,"subreddit":"websearch","category":"product-availability"},"bulbagarden.net":{"title":"What's happening with Prismatic Evolutions? Shortages, scalpers, and questions about pull rates","url":"https://bulbagarden.net/threads/whats-happening-with-prismatic-evolutions-shortages-scalpers-and-questions-about-pull-rates-plague-newest-pokemon-tcg-expansion.304940/","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"What's happening with Prismatic Evolutions? Shortages, scalpers, and questions about pull rates","num_comments":0,"subreddit":"websearch","category":"product-availability"},"screenrant.com":{"title":"Pokemon TCG's Worst Problem Is Starting All Over Again","url":"https://screenrant.com/pokemon-tcg-prismatic-evolutions-scapling-problem-op-ed/","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"Pokemon TCG's Worst Problem Is Starting All Over Again","num_comments":0,"subreddit":"websearch","category":"product-availability"},"wargamer.com":{"title":"One store won't stock Pokemon's hottest new release due to desperate scalpers","url":"https://www.wargamer.com/pokemon-trading-card-game/prismatic-evolution-store-wont-stock-scalpers","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"One store won't stock Pokemon's hottest new release due to desperate scalpers","num_comments":0,"subreddit":"websearch","category":"product-availability"},"nintendolife.com":{"title":"My Staff Have Had Customers Threatening To Rip Their Heads Off - Nintendo Life","url":"https://www.nintendolife.com/news/2025/12/my-staff-have-had-customers-threatening-to-rip-their-heads-off-retailers-and-collectors-tell-of-pokemon-tcg-woes","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"My Staff Have Had Customers Threatening To Rip Their Heads Off - Nintendo Life","num_comments":0,"subreddit":"websearch","category":"product-availability"},"pokeinsider.com":{"title":"Major Retailers Tighten Purchase Limits on Pokemon TCG Products","url":"https://pokeinsider.com/2025/11/05/major-retailers-tighten-purchase-limits-on-pokemon-tcg-products-to-combat-scalping/","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"Major Retailers Tighten Purchase Limits on Pokemon TCG Products","num_comments":0,"subreddit":"websearch","category":"product-availability"},"gaminghq.eu":{"title":"Pokemon TCG Pocket Revenue and Player Count Drop by 50 Percent","url":"https://gaminghq.eu/2025/10/06/pokemon-tcg-pocket-revenue-and-player-count-drop-by-50-percent/","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"Pokemon TCG Pocket Revenue and Player Count Drop by 50 Percent","num_comments":0,"subreddit":"websearch","category":"product-availability"},"dexerto.com":{"title":"Pokemon TCG Pocket players insist Lapras ex Drop Event pulls are rigged","url":"https://www.dexerto.com/pokemon/pokemon-tcg-pocket-players-insist-lapras-ex-drop-event-pulls-are-rigged-2975203/","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"Pokemon TCG Pocket players insist Lapras ex Drop Event pulls are rigged","num_comments":0,"subreddit":"websearch","category":"product-availability"},"gamerant.com":{"title":"Pokemon TCG Pocket Fans Call for Change to Drop Rates","url":"https://gamerant.com/pokemon-tcg-pocket-drop-rates-fan-change/","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"Pokemon TCG Pocket Fans Call for Change to Drop Rates","num_comments":0,"subreddit":"websearch","category":"product-availability"},"cbr.com":{"title":"Pokemon TCG Pocket's Confession About Wonder Picks Leaves Fans Feeling Deceived","url":"https://www.cbr.com/pokemon-tcg-pocket-wonder-picks-predetermined/","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"Pokemon TCG Pocket's Confession About Wonder Picks Leaves Fans Feeling Deceived","num_comments":0,"subreddit":"websearch","category":"burnout"},"pokemonpricetracker.com":{"title":"PSA vs BGS vs CGC Comparison 2025","url":"https://www.pokemonpricetracker.com/guides/psa-vs-bgs-vs-cgc-comparison","source":"websearch","score":1,"date":"2026-03-24T12:00:00Z","quote":"PSA vs BGS vs CGC Comparison 2025","num_comments":0,"subreddit":"websearch","category":"product-availability"}}</script>
+  <nav class="topnav">
+    <span class="nav-brand">pain-points</span>
+    <a class="nav-link" href="#hero">Summary</a><a class="nav-link" href="#categories">Pain Points</a><a class="nav-link" href="#sources">Sources</a><a class="nav-link" href="#evidence">Evidence</a>
+    <button class="theme-toggle" id="themeToggle">☀ Light</button>
+  </nav>
+  <div class="container">
+    <section class="hero" id="hero">
+    <div class="hero-inner">
+      <div class="hero-text">
+        <p class="hero-eyebrow">Pain Discovery Report</p>
+        <h1 class="hero-title">Pain Point Analysis</h1>
+        <p class="hero-date">March 24, 2026</p>
+      </div>
+      <div class="hero-stats">
+        <div class="hero-kpis">
+          <div class="kpi">
+            <span class="kpi-val">704</span>
+            <span class="kpi-label">Posts Analyzed</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-val">4</span>
+            <span class="kpi-label">Sources</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-val">9</span>
+            <span class="kpi-label">Pain Categories</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+    <div class="verification-summary">
+    <span class="verification-icon">✓</span>
+    180 citations, 220 verified against scan data
+  </div>
+    <section class="section" id="categories">
+    <h2 class="section-title">Pain Categories by Severity</h2>
+    <p class="section-sub">Each pain point grounded in cited evidence. Click to expand all citations.</p>
+    <div class="cat-cards"><div class="cat-card" data-depth="urgent" data-category="product-availability" style="--depth-color:var(--color-urgent)">
+      <div class="cat-card-header">
+        <div class="cat-card-left">
+          <div class="cat-info">
+            <h3 class="cat-name">#1 product availability</h3>
+            <p class="cat-description">Retail customers and collectors unable to access products at fair market prices</p>
+            <div class="cat-meta-row">
+              <span class="depth-badge" data-depth="urgent">Urgent</span>
+              <span class="signal-badge signal-strong">Strong signal</span>
+            </div>
+            <div class="cat-stats-row">
+              <span class="cat-stat"><b>57</b> posts</span>
+              <span class="cat-stat"><b>4</b> sources</span>
+            </div>
+          </div>
+        </div>
+        <div class="cat-card-right">
+          <div class="source-badges"><span class="source-badge" data-source="reddit">R</span><span class="source-badge" data-source="trustpilot">TP</span><span class="source-badge" data-source="appstore">A</span><span class="source-badge" data-source="websearch">W</span></div>
+        </div>
+      </div>
+      <div class="cat-quotes">
+        <p class="detail-label">Top Quotes</p>
+        <div class="cited-quote">
+        <a href="https://www.reddit.com/r/Lorcana/comments/1nzpohy/dlc_bologna_a_review/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"DLC BOLOGNA: A REVIEW"</p>
+          <span class="cited-quote-source">reddit <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑102</span>
+      </div><div class="cited-quote">
+        <a href="https://www.trustpilot.com/reviews/69b81b1353969b7aab4cae57" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"pokemoncenter 1-star: AWFUL WEBSITE!!!!!!!!"</p>
+          <span class="cited-quote-source">trustpilot <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑5</span>
+      </div><div class="cited-quote">
+        <a href="https://www.trustpilot.com/reviews/6924d3e81536361243482766" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"pokemoncenter 1-star: Wait time is horrible and you can&#39;t…"</p>
+          <span class="cited-quote-source">trustpilot <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑5</span>
+      </div>
+        
+      </div>
+      <details class="cat-details">
+        <summary class="cat-details-toggle">All supporting citations (3) <span class="toggle-arrow">▶</span></summary>
+        <div class="cat-details-body">
+          <div class="citations-list"><a class="citation-link" href="https://www.reddit.com/r/Lorcana/comments/1nzpohy/dlc_bologna_a_review/" target="_blank" rel="noopener">
+            <span class="citation-source">reddit</span>
+            <span class="citation-title">DLC BOLOGNA: A REVIEW</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.trustpilot.com/reviews/69b81b1353969b7aab4cae57" target="_blank" rel="noopener">
+            <span class="citation-source">trustpilot</span>
+            <span class="citation-title">pokemoncenter 1-star: AWFUL WEBSITE!!!!!!!!</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.trustpilot.com/reviews/6924d3e81536361243482766" target="_blank" rel="noopener">
+            <span class="citation-source">trustpilot</span>
+            <span class="citation-title">pokemoncenter 1-star: Wait time is horrible and you can&#39;t…</span>
+            <span class="link-icon">↗</span>
+          </a></div>
+        </div>
+      </details>
+      <details class="cat-details evidence-details" data-cite-keys="[&quot;SRC-1nzpohy&quot;,&quot;SRC-1qj7ndu&quot;,&quot;SRC-1raoncl&quot;,&quot;SRC-1r6ecna&quot;,&quot;SRC-1qn0vme&quot;,&quot;SRC-1qtnrem&quot;,&quot;SRC-1qwq3jg&quot;,&quot;SRC-1r1h3gu&quot;,&quot;SRC-1q52z4e&quot;,&quot;SRC-1qr06tf&quot;,&quot;SRC-1r42ntk&quot;,&quot;SRC-1rxqav3&quot;,&quot;SRC-1pte2im&quot;,&quot;SRC-1rjtpne&quot;,&quot;SRC-1pi25fh&quot;,&quot;SRC-1qvt1h4&quot;,&quot;SRC-1rpbzmn&quot;,&quot;SRC-1qr4thq&quot;,&quot;SRC-1q0j0qm&quot;,&quot;SRC-1ouwhf7&quot;,&quot;SRC-1q7yoto&quot;,&quot;SRC-1rbtlud&quot;,&quot;SRC-1phhp0w&quot;,&quot;SRC-1qotrwu&quot;,&quot;SRC-1oe3pjt&quot;,&quot;SRC-1rgks5a&quot;,&quot;SRC-1rai2u8&quot;,&quot;SRC-1qv2j49&quot;,&quot;SRC-69b81b1353969b7aab4cae57&quot;,&quot;SRC-6924d3e81536361243482766&quot;,&quot;SRC-6925fde8aed4a45cdb6ee346&quot;,&quot;TR-4z633j&quot;,&quot;TR-nlzn0f&quot;,&quot;TR-vj84vc&quot;,&quot;SRC-698b4d2fa76ab9b1b5029919&quot;,&quot;SRC-6924b59abfdb1da30559ce36&quot;,&quot;SRC-ios_1554247785_r7&quot;,&quot;comicbook.com&quot;,&quot;sportscollectorsdaily.com&quot;,&quot;cardchill.com&quot;,&quot;cardchill.com&quot;,&quot;cardsrealm.com&quot;,&quot;sac.media&quot;,&quot;community.pokemon.com&quot;,&quot;bulbagarden.net&quot;,&quot;screenrant.com&quot;,&quot;wargamer.com&quot;,&quot;nintendolife.com&quot;,&quot;cardsrealm.com&quot;,&quot;pokeinsider.com&quot;,&quot;gaminghq.eu&quot;,&quot;community.pokemon.com&quot;,&quot;dexerto.com&quot;,&quot;gamerant.com&quot;,&quot;community.pokemon.com&quot;,&quot;community.pokemon.com&quot;,&quot;pokemonpricetracker.com&quot;]" data-loaded="false">
+        <summary class="cat-details-toggle evidence-toggle">
+          Expand evidence posts (57) <span class="toggle-arrow">▶</span>
+        </summary>
+        <div class="cat-details-body">
+          <div class="evidence-drawer" data-category="product-availability">
+            <div class="evidence-drawer-entries"></div>
+          </div>
+        </div>
+      </details>
+    </div>
+<div class="cat-card" data-depth="urgent" data-category="company-policy" style="--depth-color:var(--color-urgent)">
+      <div class="cat-card-header">
+        <div class="cat-card-left">
+          <div class="cat-info">
+            <h3 class="cat-name">#2 company policy</h3>
+            <p class="cat-description">Loyal customers frustrated by corporate decisions affecting the product</p>
+            <div class="cat-meta-row">
+              <span class="depth-badge" data-depth="urgent">Urgent</span>
+              <span class="signal-badge signal-moderate">Moderate signal</span>
+            </div>
+            <div class="cat-stats-row">
+              <span class="cat-stat"><b>13</b> posts</span>
+              <span class="cat-stat"><b>2</b> sources</span>
+            </div>
+          </div>
+        </div>
+        <div class="cat-card-right">
+          <div class="source-badges"><span class="source-badge" data-source="reddit">R</span><span class="source-badge" data-source="trustpilot">TP</span></div>
+        </div>
+      </div>
+      <div class="cat-quotes">
+        <p class="detail-label">Top Quotes</p>
+        <div class="cited-quote">
+        <a href="https://www.reddit.com/r/magicTCG/comments/1oxahav/sld_secret_lair_x_avatar_the_last_airbender/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"[SLD] Secret Lair x Avatar: The Last Airbender Superdrop Financial Breakdown"</p>
+          <span class="cited-quote-source">reddit <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑359</span>
+      </div><div class="cited-quote">
+        <a href="https://www.reddit.com/r/OnePieceTCG/comments/1nr2pce/dont_buy_overpriced_learn_together_decks/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"Don’t buy overpriced Learn together decks"</p>
+          <span class="cited-quote-source">reddit <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑277</span>
+      </div><div class="cited-quote">
+        <a href="https://www.reddit.com/r/Lorcana/comments/1r7v0xc/just_realized_lorcana_sets_are_a_lot_like_the/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"Just realized Lorcana sets are a lot like the hated MTG “hat sets”"</p>
+          <span class="cited-quote-source">reddit <span class="link-icon">↗</span></span>
+        </a>
+        
+      </div>
+        
+      </div>
+      <details class="cat-details">
+        <summary class="cat-details-toggle">All supporting citations (3) <span class="toggle-arrow">▶</span></summary>
+        <div class="cat-details-body">
+          <div class="citations-list"><a class="citation-link" href="https://www.reddit.com/r/magicTCG/comments/1oxahav/sld_secret_lair_x_avatar_the_last_airbender/" target="_blank" rel="noopener">
+            <span class="citation-source">reddit</span>
+            <span class="citation-title">[SLD] Secret Lair x Avatar: The Last Airbender Superdrop Financial Breakdown</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.reddit.com/r/OnePieceTCG/comments/1nr2pce/dont_buy_overpriced_learn_together_decks/" target="_blank" rel="noopener">
+            <span class="citation-source">reddit</span>
+            <span class="citation-title">Don’t buy overpriced Learn together decks</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.reddit.com/r/Lorcana/comments/1r7v0xc/just_realized_lorcana_sets_are_a_lot_like_the/" target="_blank" rel="noopener">
+            <span class="citation-source">reddit</span>
+            <span class="citation-title">Just realized Lorcana sets are a lot like the hated MTG “hat sets”</span>
+            <span class="link-icon">↗</span>
+          </a></div>
+        </div>
+      </details>
+      <details class="cat-details evidence-details" data-cite-keys="[&quot;SRC-1oxahav&quot;,&quot;SRC-1nr2pce&quot;,&quot;SRC-1r7v0xc&quot;,&quot;SRC-1qvt1h4&quot;,&quot;SRC-1qdtdps&quot;,&quot;SRC-1ouhyln&quot;,&quot;SRC-1r6nesx&quot;,&quot;SRC-1r9tg1f&quot;,&quot;SRC-1rcr78j&quot;,&quot;SRC-1o6brrg&quot;,&quot;SRC-1pf6rjm&quot;,&quot;SRC-1rsbz9s&quot;,&quot;SRC-696dd2c347298d5754626ad9&quot;]" data-loaded="false">
+        <summary class="cat-details-toggle evidence-toggle">
+          Expand evidence posts (13) <span class="toggle-arrow">▶</span>
+        </summary>
+        <div class="cat-details-body">
+          <div class="evidence-drawer" data-category="company-policy">
+            <div class="evidence-drawer-entries"></div>
+          </div>
+        </div>
+      </details>
+    </div>
+<div class="cat-card" data-depth="urgent" data-category="shipping" style="--depth-color:var(--color-urgent)">
+      <div class="cat-card-header">
+        <div class="cat-card-left">
+          <div class="cat-info">
+            <h3 class="cat-name">#3 shipping</h3>
+            <p class="cat-description">Online shoppers who have experienced lost, damaged, or delayed orders</p>
+            <div class="cat-meta-row">
+              <span class="depth-badge" data-depth="urgent">Urgent</span>
+              <span class="signal-badge signal-strong">Strong signal</span>
+            </div>
+            <div class="cat-stats-row">
+              <span class="cat-stat"><b>33</b> posts</span>
+              <span class="cat-stat"><b>3</b> sources</span>
+            </div>
+          </div>
+        </div>
+        <div class="cat-card-right">
+          <div class="source-badges"><span class="source-badge" data-source="reddit">R</span><span class="source-badge" data-source="trustpilot">TP</span><span class="source-badge" data-source="appstore">A</span></div>
+        </div>
+      </div>
+      <div class="cat-quotes">
+        <p class="detail-label">Top Quotes</p>
+        <div class="cited-quote">
+        <a href="https://www.reddit.com/r/magicTCG/comments/1r9cg24/the_tmnt_set_overall_just_makes_me_think_who/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"The TMNT set overall just makes me think, who would actually want to make commanders out of these cards?"</p>
+          <span class="cited-quote-source">reddit <span class="link-icon">↗</span></span>
+        </a>
+        
+      </div><div class="cited-quote">
+        <a href="https://www.reddit.com/r/OnePieceTCG/comments/1pahu7z/op13_it_makes_me_want_to_stop_playing_until_new/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"OP13 it makes me want to stop playing until new set."</p>
+          <span class="cited-quote-source">reddit <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑73</span>
+      </div><div class="cited-quote">
+        <a href="https://www.reddit.com/r/OnePieceTCG/comments/1qripkj/lgs_is_becoming_awful_and_i_think_im_done/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"LGS is becoming awful and I think I&#39;m done supporting them"</p>
+          <span class="cited-quote-source">reddit <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑83</span>
+      </div>
+        
+      </div>
+      <details class="cat-details">
+        <summary class="cat-details-toggle">All supporting citations (3) <span class="toggle-arrow">▶</span></summary>
+        <div class="cat-details-body">
+          <div class="citations-list"><a class="citation-link" href="https://www.reddit.com/r/magicTCG/comments/1r9cg24/the_tmnt_set_overall_just_makes_me_think_who/" target="_blank" rel="noopener">
+            <span class="citation-source">reddit</span>
+            <span class="citation-title">The TMNT set overall just makes me think, who would actually want to make commanders out of these…</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.reddit.com/r/OnePieceTCG/comments/1pahu7z/op13_it_makes_me_want_to_stop_playing_until_new/" target="_blank" rel="noopener">
+            <span class="citation-source">reddit</span>
+            <span class="citation-title">OP13 it makes me want to stop playing until new set.</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.reddit.com/r/OnePieceTCG/comments/1qripkj/lgs_is_becoming_awful_and_i_think_im_done/" target="_blank" rel="noopener">
+            <span class="citation-source">reddit</span>
+            <span class="citation-title">LGS is becoming awful and I think I&#39;m done supporting them</span>
+            <span class="link-icon">↗</span>
+          </a></div>
+        </div>
+      </details>
+      <details class="cat-details evidence-details" data-cite-keys="[&quot;SRC-1r9cg24&quot;,&quot;SRC-1pahu7z&quot;,&quot;SRC-1qripkj&quot;,&quot;SRC-1on1twk&quot;,&quot;SRC-1o50608&quot;,&quot;SRC-1qr06tf&quot;,&quot;SRC-1oi9kbs&quot;,&quot;SRC-1pb9v5t&quot;,&quot;SRC-1o5kxm8&quot;,&quot;SRC-1q2hp8a&quot;,&quot;SRC-1r4hj6r&quot;,&quot;SRC-1r30ix0&quot;,&quot;SRC-1qr5g35&quot;,&quot;SRC-1rjtpne&quot;,&quot;SRC-1qiojnu&quot;,&quot;SRC-1nxcdlp&quot;,&quot;SRC-1nzj6y4&quot;,&quot;SRC-1oy323t&quot;,&quot;SRC-1ph9qf9&quot;,&quot;SRC-1rbgir1&quot;,&quot;SRC-1rcr78j&quot;,&quot;SRC-1qotrwu&quot;,&quot;SRC-1qgrb6g&quot;,&quot;SRC-1q1mocv&quot;,&quot;SRC-1nz74ku&quot;,&quot;SRC-1oj5z9j&quot;,&quot;SRC-1pu2ic3&quot;,&quot;SRC-1qw52oy&quot;,&quot;SRC-1ovavg2&quot;,&quot;SRC-69c2af7f03321902a3987e29&quot;,&quot;SRC-69c2919e859725e185c9a541&quot;,&quot;SRC-691b2c111a599c9196273345&quot;,&quot;SRC-ios_896112560_r69&quot;]" data-loaded="false">
+        <summary class="cat-details-toggle evidence-toggle">
+          Expand evidence posts (33) <span class="toggle-arrow">▶</span>
+        </summary>
+        <div class="cat-details-body">
+          <div class="evidence-drawer" data-category="shipping">
+            <div class="evidence-drawer-entries"></div>
+          </div>
+        </div>
+      </details>
+    </div>
+<div class="cat-card" data-depth="urgent" data-category="community-toxicity" style="--depth-color:var(--color-urgent)">
+      <div class="cat-card-header">
+        <div class="cat-card-left">
+          <div class="cat-info">
+            <h3 class="cat-name">#4 community toxicity</h3>
+            <p class="cat-description">Community members seeking safe and respectful spaces</p>
+            <div class="cat-meta-row">
+              <span class="depth-badge" data-depth="urgent">Urgent</span>
+              <span class="signal-badge signal-moderate">Moderate signal</span>
+            </div>
+            <div class="cat-stats-row">
+              <span class="cat-stat"><b>30</b> posts</span>
+              <span class="cat-stat"><b>2</b> sources</span>
+            </div>
+          </div>
+        </div>
+        <div class="cat-card-right">
+          <div class="source-badges"><span class="source-badge" data-source="reddit">R</span><span class="source-badge" data-source="appstore">A</span></div>
+        </div>
+      </div>
+      <div class="cat-quotes">
+        <p class="detail-label">Top Quotes</p>
+        <div class="cited-quote">
+        <a href="https://www.reddit.com/r/OnePieceTCG/comments/1q2rvks/the_broken_riskreward_system_of_op13/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"The broken Risk-Reward system of op13"</p>
+          <span class="cited-quote-source">reddit <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑36</span>
+      </div><div class="cited-quote">
+        <a href="https://www.reddit.com/r/magicTCG/comments/1qz3ilv/new_player_i_want_my_first_deck_to_be_slivers/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"New player, I want my first deck to be slivers!"</p>
+          <span class="cited-quote-source">reddit <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑525</span>
+      </div><div class="cited-quote">
+        <a href="https://www.reddit.com/r/magicTCG/comments/1raoncl/massive_alleged_wpn_fraud_in_china_stolen/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"Massive Alleged WPN Fraud in China: Stolen Identities, Teleporting &quot;Ghosts&quot;, and a 100-Store Promo Cartel"</p>
+          <span class="cited-quote-source">reddit <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑386</span>
+      </div>
+        
+      </div>
+      <details class="cat-details">
+        <summary class="cat-details-toggle">All supporting citations (3) <span class="toggle-arrow">▶</span></summary>
+        <div class="cat-details-body">
+          <div class="citations-list"><a class="citation-link" href="https://www.reddit.com/r/OnePieceTCG/comments/1q2rvks/the_broken_riskreward_system_of_op13/" target="_blank" rel="noopener">
+            <span class="citation-source">reddit</span>
+            <span class="citation-title">The broken Risk-Reward system of op13</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.reddit.com/r/magicTCG/comments/1qz3ilv/new_player_i_want_my_first_deck_to_be_slivers/" target="_blank" rel="noopener">
+            <span class="citation-source">reddit</span>
+            <span class="citation-title">New player, I want my first deck to be slivers!</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.reddit.com/r/magicTCG/comments/1raoncl/massive_alleged_wpn_fraud_in_china_stolen/" target="_blank" rel="noopener">
+            <span class="citation-source">reddit</span>
+            <span class="citation-title">Massive Alleged WPN Fraud in China: Stolen Identities, Teleporting &quot;Ghosts&quot;, and a 100-Store Promo…</span>
+            <span class="link-icon">↗</span>
+          </a></div>
+        </div>
+      </details>
+      <details class="cat-details evidence-details" data-cite-keys="[&quot;SRC-1q2rvks&quot;,&quot;SRC-1qz3ilv&quot;,&quot;SRC-1raoncl&quot;,&quot;SRC-1q1mgfu&quot;,&quot;SRC-1qr0jk8&quot;,&quot;SRC-1qr06tf&quot;,&quot;SRC-1rem1pq&quot;,&quot;SRC-1q7rji0&quot;,&quot;SRC-1r5wqx1&quot;,&quot;SRC-1qld1jh&quot;,&quot;SRC-1oubei1&quot;,&quot;SRC-1r94u87&quot;,&quot;SRC-1qgtbdf&quot;,&quot;SRC-1o6brrg&quot;,&quot;SRC-1r784dg&quot;,&quot;SRC-1q4qw0p&quot;,&quot;SRC-1nz74ku&quot;,&quot;SRC-1q73s8o&quot;,&quot;SRC-1okfedu&quot;,&quot;SRC-ios_6479970832_r43&quot;,&quot;SRC-ios_1068378177_r35&quot;,&quot;SRC-ios_1581164444_r56&quot;,&quot;SRC-ios_625257520_r7&quot;,&quot;SRC-ios_1557962344_r10&quot;,&quot;SRC-ios_1557962344_r24&quot;,&quot;SRC-ios_6479970832_r30&quot;,&quot;SRC-ios_6479970832_r55&quot;,&quot;SRC-ios_6479970832_r9&quot;,&quot;SRC-ios_1554247785_r14&quot;,&quot;SRC-ios_1554247785_r28&quot;]" data-loaded="false">
+        <summary class="cat-details-toggle evidence-toggle">
+          Expand evidence posts (30) <span class="toggle-arrow">▶</span>
+        </summary>
+        <div class="cat-details-body">
+          <div class="evidence-drawer" data-category="community-toxicity">
+            <div class="evidence-drawer-entries"></div>
+          </div>
+        </div>
+      </details>
+    </div>
+<div class="cat-card" data-depth="urgent" data-category="pricing" style="--depth-color:var(--color-urgent)">
+      <div class="cat-card-header">
+        <div class="cat-card-left">
+          <div class="cat-info">
+            <h3 class="cat-name">#5 pricing</h3>
+            <p class="cat-description">Budget-conscious consumers and small businesses sensitive to price increases</p>
+            <div class="cat-meta-row">
+              <span class="depth-badge" data-depth="urgent">Urgent</span>
+              <span class="signal-badge signal-strong">Strong signal</span>
+            </div>
+            <div class="cat-stats-row">
+              <span class="cat-stat"><b>39</b> posts</span>
+              <span class="cat-stat"><b>4</b> sources</span>
+            </div>
+          </div>
+        </div>
+        <div class="cat-card-right">
+          <div class="source-badges"><span class="source-badge" data-source="reddit">R</span><span class="source-badge" data-source="trustpilot">TP</span><span class="source-badge" data-source="appstore">A</span><span class="source-badge" data-source="websearch">W</span></div>
+        </div>
+      </div>
+      <div class="cat-quotes">
+        <p class="detail-label">Top Quotes</p>
+        <div class="cited-quote">
+        <a href="https://apps.apple.com/us/app/id1068378177" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"Too expensive and buggy"</p>
+          <span class="cited-quote-source">appstore <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑1</span>
+      </div><div class="cited-quote">
+        <a href="https://athlonsports.com/collectibles/psa-grading-scandal-2025-grade-swapping" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"2025 PSA Chaos: Inside the Grade Swap Scandals Shaking Card Collectors"</p>
+          <span class="cited-quote-source">websearch <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑1</span>
+      </div><div class="cited-quote">
+        <a href="https://www.reddit.com/r/OnePieceTCG/comments/1qj7ndu/one_piece_without_feeling_like_im_getting_robbed/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"One Piece without feeling like I’m getting robbed"</p>
+          <span class="cited-quote-source">reddit <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑74</span>
+      </div>
+        
+      </div>
+      <details class="cat-details">
+        <summary class="cat-details-toggle">All supporting citations (3) <span class="toggle-arrow">▶</span></summary>
+        <div class="cat-details-body">
+          <div class="citations-list"><a class="citation-link" href="https://apps.apple.com/us/app/id1068378177" target="_blank" rel="noopener">
+            <span class="citation-source">appstore</span>
+            <span class="citation-title">Too expensive and buggy</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://athlonsports.com/collectibles/psa-grading-scandal-2025-grade-swapping" target="_blank" rel="noopener">
+            <span class="citation-source">websearch</span>
+            <span class="citation-title">2025 PSA Chaos: Inside the Grade Swap Scandals Shaking Card Collectors</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.reddit.com/r/OnePieceTCG/comments/1qj7ndu/one_piece_without_feeling_like_im_getting_robbed/" target="_blank" rel="noopener">
+            <span class="citation-source">reddit</span>
+            <span class="citation-title">One Piece without feeling like I’m getting robbed</span>
+            <span class="link-icon">↗</span>
+          </a></div>
+        </div>
+      </details>
+      <details class="cat-details evidence-details" data-cite-keys="[&quot;SRC-1qj7ndu&quot;,&quot;SRC-1nr2pce&quot;,&quot;SRC-1pdi46z&quot;,&quot;SRC-1qr4nct&quot;,&quot;SRC-1pxmxjc&quot;,&quot;SRC-1qguvd9&quot;,&quot;SRC-1rmllqb&quot;,&quot;SRC-1o0k7sf&quot;,&quot;SRC-1r9tg1f&quot;,&quot;SRC-1owjkp7&quot;,&quot;SRC-1qevsgu&quot;,&quot;SRC-1r90df0&quot;,&quot;SRC-1pu45p4&quot;,&quot;SRC-1ntt7z5&quot;,&quot;SRC-1rhv3t8&quot;,&quot;SRC-1q54200&quot;,&quot;SRC-1pf6rjm&quot;,&quot;SRC-1o7wt2d&quot;,&quot;SRC-1raps2q&quot;,&quot;SRC-1rrptdm&quot;,&quot;SRC-1rjudbx&quot;,&quot;SRC-1pmi86q&quot;,&quot;SRC-1oizz80&quot;,&quot;SRC-1qg202a&quot;,&quot;SRC-1rl8fpl&quot;,&quot;SRC-1q73s8o&quot;,&quot;SRC-1o4wssp&quot;,&quot;SRC-1pzvj5g&quot;,&quot;SRC-1qw52oy&quot;,&quot;SRC-1pbwjrs&quot;,&quot;SRC-1ovavg2&quot;,&quot;SRC-1py8pjq&quot;,&quot;SRC-69c01f981a41a12bb014b165&quot;,&quot;SRC-69c33c3771b02f976be56868&quot;,&quot;SRC-691b2c111a599c9196273345&quot;,&quot;SRC-ios_1068378177_r53&quot;,&quot;SRC-ios_1581164444_r51&quot;,&quot;SRC-ios_1094591345_r44&quot;,&quot;athlonsports.com&quot;]" data-loaded="false">
+        <summary class="cat-details-toggle evidence-toggle">
+          Expand evidence posts (39) <span class="toggle-arrow">▶</span>
+        </summary>
+        <div class="cat-details-body">
+          <div class="evidence-drawer" data-category="pricing">
+            <div class="evidence-drawer-entries"></div>
+          </div>
+        </div>
+      </details>
+    </div>
+<div class="cat-card" data-depth="active" data-category="grading" style="--depth-color:var(--color-active)">
+      <div class="cat-card-header">
+        <div class="cat-card-left">
+          <div class="cat-info">
+            <h3 class="cat-name">#6 grading</h3>
+            <p class="cat-description">Collectors and investors seeking professional card authentication and valuation</p>
+            <div class="cat-meta-row">
+              <span class="depth-badge" data-depth="active">Active</span>
+              <span class="signal-badge signal-moderate">Moderate signal</span>
+            </div>
+            <div class="cat-stats-row">
+              <span class="cat-stat"><b>11</b> posts</span>
+              <span class="cat-stat"><b>2</b> sources</span>
+            </div>
+          </div>
+        </div>
+        <div class="cat-card-right">
+          <div class="source-badges"><span class="source-badge" data-source="reddit">R</span><span class="source-badge" data-source="trustpilot">TP</span></div>
+        </div>
+      </div>
+      <div class="cat-quotes">
+        <p class="detail-label">Top Quotes</p>
+        <div class="cited-quote">
+        <a href="https://www.trustpilot.com/reviews/697b8e56d41b14a97af89464" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"psacard 1-star: Never again!"</p>
+          <span class="cited-quote-source">trustpilot <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑5</span>
+      </div><div class="cited-quote">
+        <a href="https://www.trustpilot.com/reviews/69ba91db2bfbf727b289aa05" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"acegrading 1-star: USELESS COMPANY"</p>
+          <span class="cited-quote-source">trustpilot <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑5</span>
+      </div><div class="cited-quote">
+        <a href="https://www.trustpilot.com/reviews/69b1a19b590b615deeaab04d" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"psacard 1-star: Absolute JOKE of a company"</p>
+          <span class="cited-quote-source">trustpilot <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑5</span>
+      </div>
+        
+      </div>
+      <details class="cat-details">
+        <summary class="cat-details-toggle">All supporting citations (3) <span class="toggle-arrow">▶</span></summary>
+        <div class="cat-details-body">
+          <div class="citations-list"><a class="citation-link" href="https://www.trustpilot.com/reviews/697b8e56d41b14a97af89464" target="_blank" rel="noopener">
+            <span class="citation-source">trustpilot</span>
+            <span class="citation-title">psacard 1-star: Never again!</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.trustpilot.com/reviews/69ba91db2bfbf727b289aa05" target="_blank" rel="noopener">
+            <span class="citation-source">trustpilot</span>
+            <span class="citation-title">acegrading 1-star: USELESS COMPANY</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.trustpilot.com/reviews/69b1a19b590b615deeaab04d" target="_blank" rel="noopener">
+            <span class="citation-source">trustpilot</span>
+            <span class="citation-title">psacard 1-star: Absolute JOKE of a company</span>
+            <span class="link-icon">↗</span>
+          </a></div>
+        </div>
+      </details>
+      <details class="cat-details evidence-details" data-cite-keys="[&quot;SRC-1o19zo6&quot;,&quot;SRC-1ohrazk&quot;,&quot;SRC-1qdtdps&quot;,&quot;SRC-1pwdxe3&quot;,&quot;SRC-1o0k7sf&quot;,&quot;SRC-1rbgir1&quot;,&quot;SRC-69ba91db2bfbf727b289aa05&quot;,&quot;SRC-696f44f1c1c76b6ff0118626&quot;,&quot;SRC-697b8e56d41b14a97af89464&quot;,&quot;SRC-69b1a19b590b615deeaab04d&quot;,&quot;SRC-69c2f96b1dced01f1f7a3149&quot;]" data-loaded="false">
+        <summary class="cat-details-toggle evidence-toggle">
+          Expand evidence posts (11) <span class="toggle-arrow">▶</span>
+        </summary>
+        <div class="cat-details-body">
+          <div class="evidence-drawer" data-category="grading">
+            <div class="evidence-drawer-entries"></div>
+          </div>
+        </div>
+      </details>
+    </div>
+<div class="cat-card" data-depth="active" data-category="burnout" style="--depth-color:var(--color-active)">
+      <div class="cat-card-header">
+        <div class="cat-card-left">
+          <div class="cat-info">
+            <h3 class="cat-name">#7 burnout</h3>
+            <p class="cat-description">General users experiencing the documented pain points</p>
+            <div class="cat-meta-row">
+              <span class="depth-badge" data-depth="active">Active</span>
+              <span class="signal-badge signal-moderate">Moderate signal</span>
+            </div>
+            <div class="cat-stats-row">
+              <span class="cat-stat"><b>17</b> posts</span>
+              <span class="cat-stat"><b>4</b> sources</span>
+            </div>
+          </div>
+        </div>
+        <div class="cat-card-right">
+          <div class="source-badges"><span class="source-badge" data-source="reddit">R</span><span class="source-badge" data-source="trustpilot">TP</span><span class="source-badge" data-source="appstore">A</span><span class="source-badge" data-source="websearch">W</span></div>
+        </div>
+      </div>
+      <div class="cat-quotes">
+        <p class="detail-label">Top Quotes</p>
+        <div class="cited-quote">
+        <a href="https://comicbook.com/gaming/news/pokemon-tcg-pocket-trading-hated/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"Pokemon TCG Pocket Trading Is So Hated That Fans Are Quitting the Game"</p>
+          <span class="cited-quote-source">websearch <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑1</span>
+      </div><div class="cited-quote">
+        <a href="https://athlonsports.com/collectibles/psa-grading-scandal-2025-grade-swapping" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"2025 PSA Chaos: Inside the Grade Swap Scandals Shaking Card Collectors"</p>
+          <span class="cited-quote-source">websearch <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑1</span>
+      </div><div class="cited-quote">
+        <a href="https://www.cbr.com/pokemon-tcg-pocket-wonder-picks-predetermined/" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"Pokemon TCG Pocket&#39;s Confession About Wonder Picks Leaves Fans Feeling Deceived"</p>
+          <span class="cited-quote-source">websearch <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑1</span>
+      </div>
+        
+      </div>
+      <details class="cat-details">
+        <summary class="cat-details-toggle">All supporting citations (3) <span class="toggle-arrow">▶</span></summary>
+        <div class="cat-details-body">
+          <div class="citations-list"><a class="citation-link" href="https://comicbook.com/gaming/news/pokemon-tcg-pocket-trading-hated/" target="_blank" rel="noopener">
+            <span class="citation-source">websearch</span>
+            <span class="citation-title">Pokemon TCG Pocket Trading Is So Hated That Fans Are Quitting the Game</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://athlonsports.com/collectibles/psa-grading-scandal-2025-grade-swapping" target="_blank" rel="noopener">
+            <span class="citation-source">websearch</span>
+            <span class="citation-title">2025 PSA Chaos: Inside the Grade Swap Scandals Shaking Card Collectors</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.cbr.com/pokemon-tcg-pocket-wonder-picks-predetermined/" target="_blank" rel="noopener">
+            <span class="citation-source">websearch</span>
+            <span class="citation-title">Pokemon TCG Pocket&#39;s Confession About Wonder Picks Leaves Fans Feeling Deceived</span>
+            <span class="link-icon">↗</span>
+          </a></div>
+        </div>
+      </details>
+      <details class="cat-details evidence-details" data-cite-keys="[&quot;SRC-1r9cu8m&quot;,&quot;SRC-1r6ecna&quot;,&quot;SRC-1qz4f2n&quot;,&quot;SRC-1pi25fh&quot;,&quot;SRC-1rv5wf7&quot;,&quot;SRC-1nv85z3&quot;,&quot;SRC-1oux4a0&quot;,&quot;SRC-1oy323t&quot;,&quot;SRC-1rdlnxs&quot;,&quot;SRC-6925fde8aed4a45cdb6ee346&quot;,&quot;SRC-ios_1557962344_r13&quot;,&quot;SRC-ios_1557962344_r27&quot;,&quot;SRC-ios_1068378177_r30&quot;,&quot;comicbook.com&quot;,&quot;athlonsports.com&quot;,&quot;cbr.com&quot;,&quot;community.pokemon.com&quot;]" data-loaded="false">
+        <summary class="cat-details-toggle evidence-toggle">
+          Expand evidence posts (17) <span class="toggle-arrow">▶</span>
+        </summary>
+        <div class="cat-details-body">
+          <div class="evidence-drawer" data-category="burnout">
+            <div class="evidence-drawer-entries"></div>
+          </div>
+        </div>
+      </details>
+    </div>
+<div class="cat-card" data-depth="active" data-category="fraud" style="--depth-color:var(--color-active)">
+      <div class="cat-card-header">
+        <div class="cat-card-left">
+          <div class="cat-info">
+            <h3 class="cat-name">#8 fraud</h3>
+            <p class="cat-description">Buyers and sellers requiring product authentication and trust</p>
+            <div class="cat-meta-row">
+              <span class="depth-badge" data-depth="active">Active</span>
+              <span class="signal-badge signal-moderate">Moderate signal</span>
+            </div>
+            <div class="cat-stats-row">
+              <span class="cat-stat"><b>17</b> posts</span>
+              <span class="cat-stat"><b>4</b> sources</span>
+            </div>
+          </div>
+        </div>
+        <div class="cat-card-right">
+          <div class="source-badges"><span class="source-badge" data-source="reddit">R</span><span class="source-badge" data-source="trustpilot">TP</span><span class="source-badge" data-source="appstore">A</span><span class="source-badge" data-source="websearch">W</span></div>
+        </div>
+      </div>
+      <div class="cat-quotes">
+        <p class="detail-label">Top Quotes</p>
+        <div class="cited-quote">
+        <a href="https://www.trustpilot.com/review/tcgcollecting.tcgplayerpro.com?page=2" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"TCGplayer Trustpilot Reviews - Page 2"</p>
+          <span class="cited-quote-source">websearch <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑1</span>
+      </div><div class="cited-quote">
+        <a href="https://sports.yahoo.com/articles/psa-grading-scandal-fraud-allegations-181418572.html" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"The PSA Grading Scandal: How Fraud Allegations Are Reshaping Trust"</p>
+          <span class="cited-quote-source">websearch <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑1</span>
+      </div><div class="cited-quote">
+        <a href="https://cardchill.com/article/pokemon-cards-counterfeit-detection-advanced-verification-techniques-for-2026-collectors" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"Pokemon Cards Counterfeit Detection: Advanced Verification 2026"</p>
+          <span class="cited-quote-source">websearch <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑1</span>
+      </div>
+        
+      </div>
+      <details class="cat-details">
+        <summary class="cat-details-toggle">All supporting citations (3) <span class="toggle-arrow">▶</span></summary>
+        <div class="cat-details-body">
+          <div class="citations-list"><a class="citation-link" href="https://www.trustpilot.com/review/tcgcollecting.tcgplayerpro.com?page=2" target="_blank" rel="noopener">
+            <span class="citation-source">websearch</span>
+            <span class="citation-title">TCGplayer Trustpilot Reviews - Page 2</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://sports.yahoo.com/articles/psa-grading-scandal-fraud-allegations-181418572.html" target="_blank" rel="noopener">
+            <span class="citation-source">websearch</span>
+            <span class="citation-title">The PSA Grading Scandal: How Fraud Allegations Are Reshaping Trust</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://cardchill.com/article/pokemon-cards-counterfeit-detection-advanced-verification-techniques-for-2026-collectors" target="_blank" rel="noopener">
+            <span class="citation-source">websearch</span>
+            <span class="citation-title">Pokemon Cards Counterfeit Detection: Advanced Verification 2026</span>
+            <span class="link-icon">↗</span>
+          </a></div>
+        </div>
+      </details>
+      <details class="cat-details evidence-details" data-cite-keys="[&quot;SRC-1ovbu2k&quot;,&quot;SRC-1rbgir1&quot;,&quot;SRC-1rl10hg&quot;,&quot;TR-y5i1jd&quot;,&quot;SRC-69c01f981a41a12bb014b165&quot;,&quot;SRC-69c2340fc136ef8e67054cbc&quot;,&quot;SRC-69c33c3771b02f976be56868&quot;,&quot;TR-abq5u2&quot;,&quot;TR-jjke9f&quot;,&quot;TR-rlk0bc&quot;,&quot;SRC-69035e3b85f4a28434f932a1&quot;,&quot;SRC-69606d39d084118b5dc0985c&quot;,&quot;SRC-ios_625257520_r12&quot;,&quot;trustpilot.com&quot;,&quot;yahoo.com&quot;,&quot;cardchill.com&quot;,&quot;cardchill.com&quot;]" data-loaded="false">
+        <summary class="cat-details-toggle evidence-toggle">
+          Expand evidence posts (17) <span class="toggle-arrow">▶</span>
+        </summary>
+        <div class="cat-details-body">
+          <div class="evidence-drawer" data-category="fraud">
+            <div class="evidence-drawer-entries"></div>
+          </div>
+        </div>
+      </details>
+    </div>
+<div class="cat-card" data-depth="surface" data-category="digital-platform" style="--depth-color:var(--color-surface)">
+      <div class="cat-card-header">
+        <div class="cat-card-left">
+          <div class="cat-info">
+            <h3 class="cat-name">#9 digital platform</h3>
+            <p class="cat-description">Digital product users frustrated by app/platform quality or stability</p>
+            <div class="cat-meta-row">
+              <span class="depth-badge" data-depth="surface">Surface</span>
+              <span class="signal-badge signal-weak">Weak signal</span>
+            </div>
+            <div class="cat-stats-row">
+              <span class="cat-stat"><b>3</b> posts</span>
+              <span class="cat-stat"><b>2</b> sources</span>
+            </div>
+          </div>
+        </div>
+        <div class="cat-card-right">
+          <div class="source-badges"><span class="source-badge" data-source="trustpilot">TP</span><span class="source-badge" data-source="websearch">W</span></div>
+        </div>
+      </div>
+      <div class="cat-quotes">
+        <p class="detail-label">Top Quotes</p>
+        <div class="cited-quote">
+        <a href="https://community.pokemon.com/en-us/discussion/11714/frequent-disconnection-and-app-crashing" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"Frequent disconnection and app crashing - Pokemon Forums"</p>
+          <span class="cited-quote-source">websearch <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑1</span>
+      </div><div class="cited-quote">
+        <a href="https://www.trustpilot.com/reviews/695ff40c9ae578191bf5453b" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"pokemoncenter 1-star: If they cared"</p>
+          <span class="cited-quote-source">trustpilot <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑5</span>
+      </div><div class="cited-quote">
+        <a href="https://www.trustpilot.com/reviews/68f7cc587733daf4c3d2663f" target="_blank" rel="noopener" class="cited-quote-link">
+          <p class="cited-quote-text">"pokemoncenter 1-star: Still shockingly bad"</p>
+          <span class="cited-quote-source">trustpilot <span class="link-icon">↗</span></span>
+        </a>
+        <span class="cited-quote-score">↑5</span>
+      </div>
+        
+      </div>
+      <details class="cat-details">
+        <summary class="cat-details-toggle">All supporting citations (3) <span class="toggle-arrow">▶</span></summary>
+        <div class="cat-details-body">
+          <div class="citations-list"><a class="citation-link" href="https://community.pokemon.com/en-us/discussion/11714/frequent-disconnection-and-app-crashing" target="_blank" rel="noopener">
+            <span class="citation-source">websearch</span>
+            <span class="citation-title">Frequent disconnection and app crashing - Pokemon Forums</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.trustpilot.com/reviews/695ff40c9ae578191bf5453b" target="_blank" rel="noopener">
+            <span class="citation-source">trustpilot</span>
+            <span class="citation-title">pokemoncenter 1-star: If they cared</span>
+            <span class="link-icon">↗</span>
+          </a><a class="citation-link" href="https://www.trustpilot.com/reviews/68f7cc587733daf4c3d2663f" target="_blank" rel="noopener">
+            <span class="citation-source">trustpilot</span>
+            <span class="citation-title">pokemoncenter 1-star: Still shockingly bad</span>
+            <span class="link-icon">↗</span>
+          </a></div>
+        </div>
+      </details>
+      <details class="cat-details evidence-details" data-cite-keys="[&quot;TR-nlzn0f&quot;,&quot;TR-vj84vc&quot;,&quot;community.pokemon.com&quot;]" data-loaded="false">
+        <summary class="cat-details-toggle evidence-toggle">
+          Expand evidence posts (3) <span class="toggle-arrow">▶</span>
+        </summary>
+        <div class="cat-details-body">
+          <div class="evidence-drawer" data-category="digital-platform">
+            <div class="evidence-drawer-entries"></div>
+          </div>
+        </div>
+      </details>
+    </div></div>
+  </section>
+    <section class="section" id="sources">
+    <h2 class="section-title">Source Coverage</h2>
+    <p class="section-sub">Which data sources contributed to this analysis.</p>
+    <div class="source-list"><div class="source-item">
+      <span class="source-item-icon" data-source="reddit">R</span>
+      <span class="source-item-name">reddit</span>
+      <span class="source-item-count">217 posts</span>
+      <span class="source-status source-status-ok">contributed</span>
+    </div><div class="source-item">
+      <span class="source-item-icon" data-source="trustpilot">TP</span>
+      <span class="source-item-name">trustpilot</span>
+      <span class="source-item-count">190 posts</span>
+      <span class="source-status source-status-ok">contributed</span>
+    </div><div class="source-item">
+      <span class="source-item-icon" data-source="appstore">A</span>
+      <span class="source-item-name">appstore</span>
+      <span class="source-item-count">193 posts</span>
+      <span class="source-status source-status-ok">contributed</span>
+    </div><div class="source-item">
+      <span class="source-item-icon" data-source="websearch">W</span>
+      <span class="source-item-name">websearch</span>
+      <span class="source-item-count">133 posts</span>
+      <span class="source-status source-status-ok">contributed</span>
+    </div></div>
+  </section>
+    <section class="section" id="evidence">
+    <h2 class="section-title">Evidence Wall</h2>
+    <p class="section-sub">All cited quotes with links to original posts. Filter by category.</p>
+    <div class="filter-row"><button class="filter-btn active" data-filter="all">All</button><button class="filter-btn" data-filter="product-availability">product availability</button><button class="filter-btn" data-filter="company-policy">company policy</button><button class="filter-btn" data-filter="shipping">shipping</button><button class="filter-btn" data-filter="community-toxicity">community toxicity</button><button class="filter-btn" data-filter="pricing">pricing</button><button class="filter-btn" data-filter="grading">grading</button><button class="filter-btn" data-filter="burnout">burnout</button><button class="filter-btn" data-filter="fraud">fraud</button><button class="filter-btn" data-filter="digital-platform">digital platform</button></div>
+    <div class="evidence-wall" id="evidenceWall"><div class="evidence-card" data-category="community-toxicity">
+      <a href="https://www.reddit.com/r/magicTCG/comments/1qz3ilv/new_player_i_want_my_first_deck_to_be_slivers/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"New player, I want my first deck to be slivers!"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">community toxicity</span>
+        <span class="source-badge source-badge-sm" data-source="reddit">R</span>
+        <span class="evidence-upvotes">↑525</span>
+        <span class="evidence-comments">💬281</span>
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="community-toxicity">
+      <a href="https://www.reddit.com/r/magicTCG/comments/1raoncl/massive_alleged_wpn_fraud_in_china_stolen/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"Massive Alleged WPN Fraud in China: Stolen Identities, Teleporting &quot;Ghosts&quot;, and a 100-Store Promo Cartel"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">community toxicity</span>
+        <span class="source-badge source-badge-sm" data-source="reddit">R</span>
+        <span class="evidence-upvotes">↑386</span>
+        <span class="evidence-comments">💬47</span>
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="company-policy">
+      <a href="https://www.reddit.com/r/magicTCG/comments/1oxahav/sld_secret_lair_x_avatar_the_last_airbender/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"[SLD] Secret Lair x Avatar: The Last Airbender Superdrop Financial Breakdown"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">company policy</span>
+        <span class="source-badge source-badge-sm" data-source="reddit">R</span>
+        <span class="evidence-upvotes">↑359</span>
+        <span class="evidence-comments">💬35</span>
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="company-policy">
+      <a href="https://www.reddit.com/r/OnePieceTCG/comments/1nr2pce/dont_buy_overpriced_learn_together_decks/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"Don’t buy overpriced Learn together decks"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">company policy</span>
+        <span class="source-badge source-badge-sm" data-source="reddit">R</span>
+        <span class="evidence-upvotes">↑277</span>
+        <span class="evidence-comments">💬69</span>
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="product-availability">
+      <a href="https://www.reddit.com/r/Lorcana/comments/1nzpohy/dlc_bologna_a_review/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"DLC BOLOGNA: A REVIEW"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">product availability</span>
+        <span class="source-badge source-badge-sm" data-source="reddit">R</span>
+        <span class="evidence-upvotes">↑102</span>
+        <span class="evidence-comments">💬22</span>
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="shipping">
+      <a href="https://www.reddit.com/r/OnePieceTCG/comments/1qripkj/lgs_is_becoming_awful_and_i_think_im_done/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"LGS is becoming awful and I think I&#39;m done supporting them"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">shipping</span>
+        <span class="source-badge source-badge-sm" data-source="reddit">R</span>
+        <span class="evidence-upvotes">↑83</span>
+        <span class="evidence-comments">💬81</span>
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="pricing">
+      <a href="https://www.reddit.com/r/OnePieceTCG/comments/1qj7ndu/one_piece_without_feeling_like_im_getting_robbed/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"One Piece without feeling like I’m getting robbed"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">pricing</span>
+        <span class="source-badge source-badge-sm" data-source="reddit">R</span>
+        <span class="evidence-upvotes">↑74</span>
+        <span class="evidence-comments">💬91</span>
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="shipping">
+      <a href="https://www.reddit.com/r/OnePieceTCG/comments/1pahu7z/op13_it_makes_me_want_to_stop_playing_until_new/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"OP13 it makes me want to stop playing until new set."</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">shipping</span>
+        <span class="source-badge source-badge-sm" data-source="reddit">R</span>
+        <span class="evidence-upvotes">↑73</span>
+        <span class="evidence-comments">💬98</span>
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="community-toxicity">
+      <a href="https://www.reddit.com/r/OnePieceTCG/comments/1q2rvks/the_broken_riskreward_system_of_op13/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"The broken Risk-Reward system of op13"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">community toxicity</span>
+        <span class="source-badge source-badge-sm" data-source="reddit">R</span>
+        <span class="evidence-upvotes">↑36</span>
+        <span class="evidence-comments">💬35</span>
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="product-availability">
+      <a href="https://www.trustpilot.com/reviews/69b81b1353969b7aab4cae57" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"pokemoncenter 1-star: AWFUL WEBSITE!!!!!!!!"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">product availability</span>
+        <span class="source-badge source-badge-sm" data-source="trustpilot">TP</span>
+        <span class="evidence-upvotes">↑5</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="product-availability">
+      <a href="https://www.trustpilot.com/reviews/6924d3e81536361243482766" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"pokemoncenter 1-star: Wait time is horrible and you can&#39;t…"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">product availability</span>
+        <span class="source-badge source-badge-sm" data-source="trustpilot">TP</span>
+        <span class="evidence-upvotes">↑5</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="grading">
+      <a href="https://www.trustpilot.com/reviews/697b8e56d41b14a97af89464" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"psacard 1-star: Never again!"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-active)">grading</span>
+        <span class="source-badge source-badge-sm" data-source="trustpilot">TP</span>
+        <span class="evidence-upvotes">↑5</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="grading">
+      <a href="https://www.trustpilot.com/reviews/69ba91db2bfbf727b289aa05" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"acegrading 1-star: USELESS COMPANY"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-active)">grading</span>
+        <span class="source-badge source-badge-sm" data-source="trustpilot">TP</span>
+        <span class="evidence-upvotes">↑5</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="grading">
+      <a href="https://www.trustpilot.com/reviews/69b1a19b590b615deeaab04d" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"psacard 1-star: Absolute JOKE of a company"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-active)">grading</span>
+        <span class="source-badge source-badge-sm" data-source="trustpilot">TP</span>
+        <span class="evidence-upvotes">↑5</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="digital-platform">
+      <a href="https://www.trustpilot.com/reviews/695ff40c9ae578191bf5453b" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"pokemoncenter 1-star: If they cared"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-surface)">digital platform</span>
+        <span class="source-badge source-badge-sm" data-source="trustpilot">TP</span>
+        <span class="evidence-upvotes">↑5</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="digital-platform">
+      <a href="https://www.trustpilot.com/reviews/68f7cc587733daf4c3d2663f" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"pokemoncenter 1-star: Still shockingly bad"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-surface)">digital platform</span>
+        <span class="source-badge source-badge-sm" data-source="trustpilot">TP</span>
+        <span class="evidence-upvotes">↑5</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="pricing">
+      <a href="https://apps.apple.com/us/app/id1068378177" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"Too expensive and buggy"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">pricing</span>
+        <span class="source-badge source-badge-sm" data-source="appstore">A</span>
+        <span class="evidence-upvotes">↑1</span>
+        <span class="evidence-comments">💬10</span>
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="pricing">
+      <a href="https://athlonsports.com/collectibles/psa-grading-scandal-2025-grade-swapping" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"2025 PSA Chaos: Inside the Grade Swap Scandals Shaking Card Collectors"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">pricing</span>
+        <span class="source-badge source-badge-sm" data-source="websearch">W</span>
+        <span class="evidence-upvotes">↑1</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="burnout">
+      <a href="https://comicbook.com/gaming/news/pokemon-tcg-pocket-trading-hated/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"Pokemon TCG Pocket Trading Is So Hated That Fans Are Quitting the Game"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-active)">burnout</span>
+        <span class="source-badge source-badge-sm" data-source="websearch">W</span>
+        <span class="evidence-upvotes">↑1</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="burnout">
+      <a href="https://athlonsports.com/collectibles/psa-grading-scandal-2025-grade-swapping" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"2025 PSA Chaos: Inside the Grade Swap Scandals Shaking Card Collectors"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-active)">burnout</span>
+        <span class="source-badge source-badge-sm" data-source="websearch">W</span>
+        <span class="evidence-upvotes">↑1</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="burnout">
+      <a href="https://www.cbr.com/pokemon-tcg-pocket-wonder-picks-predetermined/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"Pokemon TCG Pocket&#39;s Confession About Wonder Picks Leaves Fans Feeling Deceived"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-active)">burnout</span>
+        <span class="source-badge source-badge-sm" data-source="websearch">W</span>
+        <span class="evidence-upvotes">↑1</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="fraud">
+      <a href="https://www.trustpilot.com/review/tcgcollecting.tcgplayerpro.com?page=2" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"TCGplayer Trustpilot Reviews - Page 2"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-active)">fraud</span>
+        <span class="source-badge source-badge-sm" data-source="websearch">W</span>
+        <span class="evidence-upvotes">↑1</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="fraud">
+      <a href="https://sports.yahoo.com/articles/psa-grading-scandal-fraud-allegations-181418572.html" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"The PSA Grading Scandal: How Fraud Allegations Are Reshaping Trust"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-active)">fraud</span>
+        <span class="source-badge source-badge-sm" data-source="websearch">W</span>
+        <span class="evidence-upvotes">↑1</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="fraud">
+      <a href="https://cardchill.com/article/pokemon-cards-counterfeit-detection-advanced-verification-techniques-for-2026-collectors" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"Pokemon Cards Counterfeit Detection: Advanced Verification 2026"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-active)">fraud</span>
+        <span class="source-badge source-badge-sm" data-source="websearch">W</span>
+        <span class="evidence-upvotes">↑1</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="digital-platform">
+      <a href="https://community.pokemon.com/en-us/discussion/11714/frequent-disconnection-and-app-crashing" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"Frequent disconnection and app crashing - Pokemon Forums"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-surface)">digital platform</span>
+        <span class="source-badge source-badge-sm" data-source="websearch">W</span>
+        <span class="evidence-upvotes">↑1</span>
+        
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="company-policy">
+      <a href="https://www.reddit.com/r/Lorcana/comments/1r7v0xc/just_realized_lorcana_sets_are_a_lot_like_the/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"Just realized Lorcana sets are a lot like the hated MTG “hat sets”"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">company policy</span>
+        <span class="source-badge source-badge-sm" data-source="reddit">R</span>
+        
+        <span class="evidence-comments">💬4</span>
+        <span class="link-icon">↗</span>
+      </div>
+    </div><div class="evidence-card" data-category="shipping">
+      <a href="https://www.reddit.com/r/magicTCG/comments/1r9cg24/the_tmnt_set_overall_just_makes_me_think_who/" target="_blank" rel="noopener" class="evidence-link">
+        <p class="evidence-card-text">"The TMNT set overall just makes me think, who would actually want to make commanders out of these cards?"</p>
+      </a>
+      <div class="evidence-card-footer">
+        <span class="cat-pill" style="--depth-color:var(--color-urgent)">shipping</span>
+        <span class="source-badge source-badge-sm" data-source="reddit">R</span>
+        
+        <span class="evidence-comments">💬37</span>
+        <span class="link-icon">↗</span>
+      </div>
+    </div></div>
+  </section>
+    
+    <footer class="report-footer">
+      Generated 3/24/2026, 10:33:19 PM &nbsp;&middot;&nbsp;
+      704 posts &nbsp;&middot;&nbsp;
+      reddit, trustpilot, appstore, websearch
+    </footer>
+  </div>
+  <script>
+// Theme toggle
+const toggle = document.getElementById('themeToggle');
+const root = document.documentElement;
+const saved = localStorage.getItem('pp-theme');
+if (saved) root.setAttribute('data-theme', saved);
+toggle.addEventListener('click', () => {
+  const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  root.setAttribute('data-theme', next === 'dark' ? '' : next);
+  localStorage.setItem('pp-theme', next);
+  toggle.textContent = next === 'light' ? '\u263E Dark' : '\u2600 Light';
+});
+
+// Evidence wall filter
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const filter = btn.dataset.filter;
+    document.querySelectorAll('.evidence-card').forEach(card => {
+      if (filter === 'all' || card.dataset.category === filter) {
+        card.classList.remove('hidden');
+      } else {
+        card.classList.add('hidden');
+      }
+    });
+  });
+});
+
+// Smooth scroll for nav links
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    const target = document.querySelector(a.getAttribute('href'));
+    if (target) {
+      e.preventDefault();
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+});
+
+// details toggle arrow
+document.querySelectorAll('.cat-details').forEach(d => {
+  d.addEventListener('toggle', () => {
+    const arrow = d.querySelector('.toggle-arrow');
+    if (arrow) arrow.style.transform = d.open ? 'rotate(90deg)' : '';
+  });
+});
+
+// ── Evidence drawer: lazy parsing + paginated "Show more" ──
+
+// Lazy-parsed evidence corpus (parsed on first drawer open)
+let _evidenceCorpus = null;
+function getEvidenceCorpus() {
+  if (_evidenceCorpus) return _evidenceCorpus;
+  const el = document.getElementById('evidence-store');
+  if (!el) return {};
+  try {
+    _evidenceCorpus = JSON.parse(el.textContent);
+  } catch (e) {
+    _evidenceCorpus = {};
+  }
+  return _evidenceCorpus;
+}
+
+// Source label abbreviations for pills
+const SOURCE_ABBR = {
+  reddit: 'R', hackernews: 'HN', google: 'G', appstore: 'AS',
+  twitter: 'X', producthunt: 'PH', trustpilot: 'TP', g2: 'G2',
+  'github-issues': 'GH', websearch: 'W', unknown: '?',
+};
+
+function escAttr(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderEvidenceEntry(entry) {
+  const src = entry.source || 'unknown';
+  const abbr = SOURCE_ABBR[src] || src.slice(0, 2).toUpperCase();
+  const quote = (entry.quote || entry.title || '').slice(0, 500);
+  const linkHtml = entry.url
+    ? '<a href="' + escAttr(entry.url) + '" target="_blank" rel="noopener">View original \u2197</a>'
+    : '';
+  const scoreHtml = entry.score
+    ? '<span class="evidence-entry-score">\u2191' + entry.score + '</span>'
+    : '';
+  const dateHtml = entry.date
+    ? '<span class="evidence-entry-date">' + escAttr(entry.date) + '</span>'
+    : '';
+  const subHtml = entry.subreddit
+    ? '<span class="evidence-entry-subreddit">r/' + escAttr(entry.subreddit) + '</span>'
+    : '';
+
+  return '<div class="evidence-entry">'
+    + '<div class="evidence-entry-header">'
+    +   '<span class="source-badge-pill" data-source="' + escAttr(src) + '">' + escAttr(abbr) + '</span>'
+    +   (entry.title ? '<span style="font-size:13px;font-weight:600;color:var(--fg)">' + escAttr(entry.title.slice(0, 120)) + '</span>' : '')
+    + '</div>'
+    + (quote ? '<p class="evidence-entry-quote">"' + escAttr(quote) + '"</p>' : '')
+    + '<div class="evidence-entry-meta">'
+    +   scoreHtml + dateHtml + subHtml + linkHtml
+    + '</div>'
+    + '</div>';
+}
+
+// Page size for "Show more"
+const EVIDENCE_PAGE_SIZE = 10;
+
+function populateDrawer(detailsEl) {
+  if (detailsEl.dataset.loaded === 'true') return;
+  detailsEl.dataset.loaded = 'true';
+
+  const corpus = getEvidenceCorpus();
+  let citeKeys;
+  try {
+    citeKeys = JSON.parse(detailsEl.dataset.citeKeys || '[]');
+  } catch (e) {
+    citeKeys = [];
+  }
+
+  // Resolve entries from corpus, filter to those that exist
+  const entries = citeKeys.map(k => corpus[k]).filter(Boolean);
+  if (entries.length === 0) {
+    const container = detailsEl.querySelector('.evidence-drawer-entries');
+    if (container) container.innerHTML = '<p class="muted-text">No evidence posts available.</p>';
+    return;
+  }
+
+  const container = detailsEl.querySelector('.evidence-drawer-entries');
+  if (!container) return;
+
+  // Render first page
+  let shown = 0;
+  const renderPage = () => {
+    const end = Math.min(shown + EVIDENCE_PAGE_SIZE, entries.length);
+    let html = '';
+    for (let i = shown; i < end; i++) {
+      html += renderEvidenceEntry(entries[i]);
+    }
+    // Remove existing "show more" button before appending
+    const existingBtn = container.parentElement.querySelector('.load-more');
+    if (existingBtn) existingBtn.remove();
+
+    container.insertAdjacentHTML('beforeend', html);
+    shown = end;
+
+    // Add "Show more" button if there are remaining entries
+    const remaining = entries.length - shown;
+    if (remaining > 0) {
+      const btn = document.createElement('button');
+      btn.className = 'load-more';
+      btn.textContent = 'Show more (' + remaining + ' remaining)';
+      btn.addEventListener('click', renderPage);
+      container.parentElement.appendChild(btn);
+    }
+  };
+
+  renderPage();
+}
+
+// Listen for evidence drawer opens
+document.querySelectorAll('.evidence-details').forEach(d => {
+  d.addEventListener('toggle', () => {
+    if (d.open) populateDrawer(d);
+  });
+});
+</script>
+</body>
+</html>

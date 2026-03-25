@@ -2,6 +2,8 @@
 
 > **One-line summary:** Same scanning infrastructure, different lens: from "what hurts?" to "where's the gap nobody's filling?"
 >
+> **Entry point: `.claude/agents/orchestrator.md`** — The orchestrator is the single agent that coordinates the entire pipeline. All other agents report completion via files; the orchestrator owns all stage transitions.
+>
 > **GapScout** is a market gap intelligence engine that maps competitors, mines their weaknesses across 11+ sources, identifies whitespace nobody serves, and scores opportunities by composite cross-platform evidence.
 >
 > **Core principle: leverage teams of agents at every stage.** No single agent works alone when work can be parallelized. New competitors discovered at any stage trigger automatic follow-up research.
@@ -12,13 +14,13 @@
 
 ## Entry Point
 
-The user provides one of three inputs:
+The **orchestrator agent** (`.claude/agents/orchestrator.md`) is the single entry point for all GapScout scans. The user provides one of three inputs:
 
 - **Mode A — Market/category:** `"project management tools"` → full market scan
 - **Mode B — Named competitors:** `"Jira, Asana, Linear, Monday"` → competitor weakness scan
 - **Mode C — No input:** scan HN frontpage → suggest trending markets → user picks one
 
-If no input is provided, run **Step 0.5** to suggest markets before asking the user to pick one.
+The orchestrator receives the user's input (market name, named competitors, or nothing), then spawns and coordinates all downstream agents through the entire pipeline. If no input is provided, the orchestrator runs **Step 0.5** to suggest markets before proceeding.
 
 All script commands use: `node /home/jayknightcoolie/claude-business/gapscout/scripts/cli.mjs`
 
@@ -101,11 +103,12 @@ Scan ID: <scan-id>
 
 ## Step 0.75: Scan Planning (Planner Agent)
 
-Before any work begins, spawn a **planner agent** that produces a bounded specification.
+The **orchestrator** spawns the planner agent as its first action. After the planner writes `scan-spec.json`, the orchestrator reads its output and makes agent configuration decisions (team sizes, source selection, depth settings) before spawning the discovery stage.
 
 ```
 Agent: "planner"
 See .claude/agents/planner.md for full instructions.
+Spawned by: orchestrator (.claude/agents/orchestrator.md)
 
 Input: "<market>" (from user) + depth preference (regular/deep)
 Output: /tmp/gapscout-<scan-id>/scan-spec.json
@@ -121,7 +124,7 @@ The planner:
 ALL downstream agents MUST read and respect scan-spec.json.
 ```
 
-Present the plan summary to the user. If they approve, proceed.
+The orchestrator presents the plan summary to the user. If they approve, the orchestrator proceeds to spawn discovery.
 
 ---
 
@@ -1103,7 +1106,8 @@ Then send shutdown messages to all teammates.
 ## Appendix A: Agent Hierarchy Overview
 
 ```
-Team Lead (you)
+Orchestrator (.claude/agents/orchestrator.md) — single entry point
+│   Owns all stage transitions; reads completion files; spawns every stage
 │
 ├── Step 0.75: Planner Agent
 │   └── planner (produces scan-spec.json with bounds, budgets, contracts)

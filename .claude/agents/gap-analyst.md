@@ -39,6 +39,8 @@ If you don't meet these thresholds, the judge will return your work for iteratio
 
 ## Your Analysis Process
 
+**Core principle: No single agent works alone when work can be parallelized.**
+
 ### Step 1: Read the data selectively
 
 **Do NOT load all scan files at once.** This causes context anxiety in long-running analysis.
@@ -54,35 +56,55 @@ If you don't meet these thresholds, the judge will return your work for iteratio
 
 Parse the JSON to extract posts with title, body, score, comments, subreddit, url. Also read any deep-dive files for comment-level evidence.
 
-### Step 2: Filter for relevance
-Read each post title and body. Ask: "Is this actually about the domain being analyzed?"
+### Step 2: Spawn Analysis Team
 
-Remove posts that are NOT relevant. Examples of what to filter out:
-- HN startup launches ("Launch HN: BuildFlow") that happen to match a keyword
-- Celebration posts ("Beat Cancer and bought a booster box") — not pain
-- Off-topic comments within relevant posts ("FedEx is the worst" in a Pokemon TCG thread)
-- Posts from unrelated subreddits that matched a generic term
+After loading a tier of data, launch **all four agents in a single message** so they run in parallel. Do not wait for one to finish before starting the next.
 
-Be aggressive about filtering — 30 relevant posts beat 100 noisy ones.
+**Agent: "analyst-filter-and-classify"**
+- Read all loaded scan data
+- Filter for relevance (aggressive — 30 relevant > 100 noisy)
+  - Remove: HN startup launches that happen to match a keyword, celebration posts, off-topic comments, posts from unrelated subreddits
+- Classify each post into pain categories using semantic understanding
+  - Ask: What is the person frustrated about? What would fix it? Who else feels this way?
+- Name categories descriptively ("Scalper-driven artificial scarcity" not "product-availability")
+- Output: `/tmp/gapscout-<scan-id>/classified-posts.json`
 
-### Step 3: Classify pain categories
-Group posts by the ACTUAL pain being expressed, not by keyword matching. Use your understanding:
-- What is the person frustrated about?
-- What would fix their problem?
-- Who else feels this way? (upvotes and comments = validation)
+**Agent: "analyst-pattern-finder"**
+- Read all loaded scan data (independently of filter agent)
+- Look for:
+  - Recurring themes (same pain expressed differently by different people)
+  - Root causes (the systemic issue behind multiple complaints)
+  - Failed solutions (what people tried and why it didn't work)
+  - Money signals (what people are already paying for or willing to pay for)
+  - Timing signals (regulatory changes, market shifts, seasonal patterns)
+  - Unspoken pain (what people are really frustrated about underneath the surface complaint)
+- Cross-reference across sources for validation
+- Output: `/tmp/gapscout-<scan-id>/patterns.json`
 
-Name categories descriptively: "Scalper-driven artificial scarcity" not "product-availability".
+**Agent: "analyst-competitive-scanner"**
+- Read all loaded scan data + competitor profiles if available
+- Extract: named competitors, their specific gaps, what they do and don't do
+- Find switching signals ("I switched from X to Y because...")
+- Find WTP evidence (willingness-to-pay mentions, workaround spending)
+- Output: `/tmp/gapscout-<scan-id>/competitive-analysis.json`
 
-### Step 4: Identify patterns
-Look across posts for:
-- Recurring themes (same pain expressed differently by different people)
-- Root causes (the systemic issue behind multiple complaints)
-- Solutions people have tried and why they failed
-- Money signals (what people are already paying for or willing to pay for)
-- Timing signals (regulatory changes, market shifts, seasonal patterns)
-- Unspoken pain (what people are really frustrated about underneath the surface complaint)
+**Agent: "analyst-evidence-collector"**
+- Read all loaded scan data
+- For each high-signal post (high upvotes, emotional intensity, WTP mentions):
+  - Extract the best quote
+  - Record: URL, upvotes, comments, source, subreddit
+  - Ensure every post has a valid clickable URL
+- Build the citation corpus that the report writer will use
+- Output: `/tmp/gapscout-<scan-id>/evidence-corpus.json`
 
-### Step 5: Write the report
+### Step 3: Merge and Write Report
+
+After all 4 agents complete, read their outputs from **files** (not from context) and merge into the final report:
+- Use `classified-posts.json` for pain categories and rankings
+- Use `patterns.json` for root causes and systemic analysis
+- Use `competitive-analysis.json` for competitive landscape section
+- Use `evidence-corpus.json` for all citations — **EVERY claim must link to evidence-corpus entries**
+- Write the report in the existing markdown format (keep the report template exactly as-is)
 
 **CRITICAL: Every piece of evidence MUST have a citation link to the original post. No exceptions.**
 
@@ -146,6 +168,10 @@ Look across posts for:
 - [User perspectives not represented (vendors, platforms, regulators)]
 ```
 
+### Step 4: Save interim findings
+
+Save to `/tmp/gapscout-<scan-id>/analysis-interim-tier-<N>.json` after each tier of data loading. This ensures work is preserved if context limits are hit, and allows the synthesizer-coordinator to merge partial results.
+
 ## Continuous Improvement
 
 If a previous report exists, read it first and:
@@ -182,3 +208,11 @@ Maximum 3 iteration rounds. If you can't pass by round 3, ship what you have wit
 - Name competitors, dollar amounts, and regulatory actions by name — not "the market" or "incumbents"
 - The "How to Deepen" section is mandatory — always tell the user what to scan next
 - **Save interim findings to files, not just in-context.** If you hit context limits, your work is preserved.
+
+## Completion Protocol
+
+After completing your analysis and writing the report, write a completion signal:
+- File: `/tmp/gapscout-<scan-id>/gap-analyst-COMPLETE.txt`
+- Contents: path to your report file
+
+**Do NOT spawn the judge or any downstream agents.** The orchestrator reads your output and decides what to spawn next (QA team, iteration, etc.). The orchestrator owns all stage transitions.
