@@ -8,6 +8,14 @@ model: opus
 
 You orchestrate the synthesis stage as a **sequential pipeline of analyst sprints**, not parallel agents. Each analyst runs in isolation with a fresh context, reads previous outputs from files, and writes its own output to a file. This prevents context anxiety and guarantees completeness.
 
+## Progress Tracking
+
+Create a task for each sprint as it begins, and update it to completed when that sprint's READY file is written. This gives the user real-time visibility into which synthesis sprint is currently running.
+
+- When starting a sprint: `TaskCreate({ description: "Synthesis Sprint N/7: <name>", status: "in_progress" })`
+- When the sprint's READY file is confirmed: `TaskUpdate({ id: <task-id>, status: "completed" })`
+- In iteration mode: create a single task describing which sprints are being re-run
+
 ## Why Sequential, Not Parallel
 
 The article finding: "Models tend to lose coherence on lengthy tasks as the context window fills." When 7 analysts run in parallel and a coordinator merges their outputs in-context, the coordinator's context fills with 100KB+ of analyst outputs. By running analysts sequentially with file-based handoffs, each analyst gets a clean context window.
@@ -27,6 +35,11 @@ Before spawning any analyst:
 3. Read `/tmp/gapscout-judge-scanning.json` — check scanning QA verdict
 4. If scanning verdict is FAIL, **stop** and report to team lead. Do not synthesize bad data.
 5. List all `/tmp/gapscout-<scan-id>/*.json` scan output files — this is the data corpus
+
+After verifying readiness, create the first sprint task:
+```
+TaskCreate({ description: "Synthesis Sprint 1/7: Competitive Map Assembly", status: "in_progress" })
+```
 
 ### Sprint 1: Competitive Map Assembly
 
@@ -59,6 +72,12 @@ Spawn **3 sub-agents in parallel** (in a single message):
    ```
 
 **Contract**: Done when all competitors (original + broadened) are classified with ≥80% having pricing data.
+
+After synthesis-1-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint1-task>, status: "completed" })
+TaskCreate({ description: "Synthesis Sprint 2/7: Competitor Pain Analysis", status: "in_progress" })
+```
 
 ### Sprint 2: Competitor Pain Analysis
 
@@ -100,6 +119,12 @@ Signal completion: write synthesis-2-READY.txt
 ```
 
 **Contract**: Done when each competitor with ≥10 data points has ≥1 classified pain theme. Every quote has a URL.
+
+After synthesis-2-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint2-task>, status: "completed" })
+TaskCreate({ description: "Synthesis Sprint 3/7: Unmet Needs Discovery", status: "in_progress" })
+```
 
 ### Sprint 3: Unmet Needs Discovery
 
@@ -146,6 +171,12 @@ Signal completion: write synthesis-3-READY.txt
 
 **Contract**: Done when unmet needs are validated against competitor feature lists. Each need has ≥2 source citations.
 
+After synthesis-3-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint3-task>, status: "completed" })
+TaskCreate({ description: "Synthesis Sprint 4/7: Switching Signal Analysis", status: "in_progress" })
+```
+
 ### Sprint 4: Switching Signal Analysis
 
 Spawn agent: `analyst-sprint-4-switching` (after Sprint 3 READY)
@@ -160,6 +191,12 @@ Signal completion: write synthesis-4-READY.txt
 ```
 
 **Contract**: Done when switching signals are mapped to specific competitor pairs with directional evidence.
+
+After synthesis-4-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint4-task>, status: "completed" })
+TaskCreate({ description: "Synthesis Sprint 5/7: Gap Matrix Construction", status: "in_progress" })
+```
 
 ### Sprint 5: Gap Matrix Construction
 
@@ -196,6 +233,12 @@ Signal completion: write synthesis-5-READY.txt
 
 **Contract**: Done when each gap cell is traceable to scan data. No gap marked "YES" without ≥2 source evidence.
 
+After synthesis-5-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint5-task>, status: "completed" })
+TaskCreate({ description: "Synthesis Sprint 6/7: Opportunity Scoring", status: "in_progress" })
+```
+
 ### Sprint 6: Opportunity Scoring + Idea Sketches
 
 After Sprint 5 READY. Spawn **2 sub-agents in parallel** (in a single message):
@@ -230,6 +273,12 @@ Signal completion: write synthesis-6-READY.txt
 
 **Contract**: Done when scores follow the formula from scan-spec.json. Each VALIDATED opportunity has a concrete idea sketch.
 
+After synthesis-6-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint6-task>, status: "completed" })
+TaskCreate({ description: "Synthesis Sprint 7/7: False-Negative Rescue", status: "in_progress" })
+```
+
 ### Sprint 7: False-Negative Rescue
 
 After Sprint 6 READY. Spawn **one sub-agent per raw data source in parallel** (in a single message):
@@ -254,6 +303,11 @@ Signal completion: write synthesis-7-READY.txt
 ```
 
 **Contract**: Done when raw data has been sampled and false-negative check is complete.
+
+After synthesis-7-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint7-task>, status: "completed" })
+```
 
 ### Post-Synthesis: Report Generation
 
@@ -291,6 +345,12 @@ If judge verdict is MARGINAL or FAIL:
 3. Re-run ONLY the failing sprints (not the whole pipeline)
 4. Each re-run sprint reads the judge's feedback file + its previous output
 5. Maximum 3 iteration rounds total (from scan-spec.json)
+
+When entering iteration mode, create a tracking task:
+```
+TaskCreate({ description: "Synthesis Iteration Round N: Re-running sprints X, Y", status: "in_progress" })
+```
+Update this task to completed when all re-run sprints finish and updated synthesis files are written.
 
 Example:
 ```

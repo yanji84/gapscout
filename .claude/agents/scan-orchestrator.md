@@ -16,6 +16,13 @@ Read these files from the scan directory:
 - `/tmp/gapscout-<scan-id>/competitor-profiles.json` — existing competitor profiles
 - All `scan-*.json` files as they appear in `/tmp/gapscout-<scan-id>/`
 
+## Progress Tracking
+
+Use TaskCreate/TaskUpdate to surface broadening progress to the user:
+- Create one task when monitoring begins
+- Update its description as each broadening round starts
+- Mark completed when broadening finishes (or when no new competitors found)
+
 ## Process
 
 1. Read orchestration-config to get:
@@ -28,6 +35,11 @@ Read these files from the scan directory:
    - Extract any newly mentioned competitor names, tools, or platforms that are NOT in the existing competitor-map
    - Track which scan source surfaced each new competitor
 
+   ```
+   TaskCreate({ description: "Scan broadening: Monitoring for new competitors", status: "in_progress" })
+   // Save returned task ID for later updates
+   ```
+
 3. After all primary scan agents have written their output files, evaluate broadening:
 
    ```
@@ -35,9 +47,14 @@ Read these files from the scan directory:
      - Proceed to broadening
    ELSE:
      - Write completion signal and stop
+     - TaskUpdate({ id: <broadening-task>, description: "Scan broadening: No new competitors found", status: "completed" })
    ```
 
 4. For each broadening round:
+
+   ```
+   TaskUpdate({ id: <broadening-task>, description: "Scan broadening: Round N - profiling X new competitors", status: "in_progress" })
+   ```
 
    a. **Profile new competitors**: Spawn adhoc profiler sub-agents (one per batch of 3-4 new competitors):
       - Each profiler uses WebSearch to gather basic profile info
@@ -53,6 +70,10 @@ Read these files from the scan directory:
       - Merge new competitors into `/tmp/gapscout-<scan-id>/competitor-map-broadened.json`
 
 5. After all broadening rounds complete (or budget exhausted), write completion data.
+
+   ```
+   TaskUpdate({ id: <broadening-task>, status: "completed" })
+   ```
 
 ## Output
 
