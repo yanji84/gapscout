@@ -33,6 +33,10 @@ Generate a self-contained HTML report from report.json:
    - **Gap Matrix**: Feature x Competitor table with color-coded cells (YES=red, PARTIAL=yellow, NO=green)
    - **Ranked Opportunities**: Cards with score breakdowns, idea sketches, WTP evidence
    - **Switching Flow**: Migration pairs as a list with directional indicators
+   - **Signal Strength**: Evidence confidence tiers — GOLD/SILVER/BRONZE badges per pain theme and opportunity. Show top evidence items per GOLD claim.
+   - **Counter-Positioning**: Per-opportunity moat assessment cards with STRONG(green)/MEDIUM(yellow)/WEAK(red) badges, structural barriers list, red-team rebuttals in collapsible sections
+   - **Market Consolidation**: M&A probability table (competitor × acquirer/target %), segment convergence arrows, failure risk badges, 2028 market shape summary
+   - **Founder Profiles**: Leadership cards per competitor showing founder photo placeholder, background, funding, headcount trend arrow (↑↓→), health signal badges
    - **Data Quality**: QA scores table
    - **Raw Citations**: Expandable citation list with clickable URLs
 3. **Styling:**

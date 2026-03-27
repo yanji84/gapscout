@@ -22,7 +22,7 @@ Instruct every sprint sub-agent with this rule. A synthesis with 5 real citation
 
 Create a task for each sprint as it begins, and update it to completed when that sprint's READY file is written. This gives the user real-time visibility into which synthesis sprint is currently running.
 
-- When starting a sprint: `TaskCreate({ description: "Synthesis Sprint N/7: <name>", status: "in_progress" })`
+- When starting a sprint: `TaskCreate({ description: "Synthesis Sprint N/11: <name>", status: "in_progress" })`
 - When the sprint's READY file is confirmed: `TaskUpdate({ id: <task-id>, status: "completed" })`
 - In iteration mode: create a single task describing which sprints are being re-run
 
@@ -48,7 +48,7 @@ Before spawning any analyst:
 
 After verifying readiness, create the first sprint task:
 ```
-TaskCreate({ description: "Synthesis Sprint 1/7: Competitive Map Assembly", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 1/11: Competitive Map Assembly", status: "in_progress" })
 ```
 
 ### Sprint 1: Competitive Map Assembly
@@ -86,7 +86,7 @@ Spawn **3 sub-agents in parallel** (in a single message):
 After synthesis-1-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint1-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 2/7: Competitor Pain Analysis", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 2/11: Competitor Pain Analysis", status: "in_progress" })
 ```
 
 ### Sprint 2: Competitor Pain Analysis
@@ -133,7 +133,7 @@ Signal completion: write synthesis-2-READY.txt
 After synthesis-2-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint2-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 3/7: Unmet Needs Discovery", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 3/11: Unmet Needs Discovery", status: "in_progress" })
 ```
 
 ### Sprint 3: Unmet Needs Discovery
@@ -184,7 +184,7 @@ Signal completion: write synthesis-3-READY.txt
 After synthesis-3-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint3-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 4/7: Switching Signal Analysis", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 4/11: Switching Signal Analysis", status: "in_progress" })
 ```
 
 ### Sprint 4: Switching Signal Analysis
@@ -205,7 +205,7 @@ Signal completion: write synthesis-4-READY.txt
 After synthesis-4-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint4-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 5/7: Gap Matrix Construction", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 5/11: Gap Matrix Construction", status: "in_progress" })
 ```
 
 ### Sprint 5: Gap Matrix Construction
@@ -246,7 +246,7 @@ Signal completion: write synthesis-5-READY.txt
 After synthesis-5-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint5-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 6/7: Opportunity Scoring", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 6/11: Opportunity Scoring", status: "in_progress" })
 ```
 
 ### Sprint 6: Opportunity Scoring + Idea Sketches
@@ -286,7 +286,7 @@ Signal completion: write synthesis-6-READY.txt
 After synthesis-6-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint6-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 7/7: False-Negative Rescue", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 7/11: False-Negative Rescue", status: "in_progress" })
 ```
 
 ### Sprint 7: False-Negative Rescue
@@ -317,11 +317,92 @@ Signal completion: write synthesis-7-READY.txt
 After synthesis-7-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint7-task>, status: "completed" })
+TaskCreate({ description: "Synthesis Sprint 8/11: Signal Strength Scoring", status: "in_progress" })
+```
+
+### Sprint 8: Signal Strength Scoring
+
+After Sprint 7 READY. Spawn **1 sub-agent**:
+
+Agent `signal-strength` (subagent_type: synthesis-signal-strength):
+Read: ALL scan-*.json files, synthesis-1 through synthesis-7
+Produce: /tmp/gapscout-<scan-id>/synthesis-8-signal-strength.json
+  - Score every evidence item 0-100 using 6-dimension rubric
+  - Assign GOLD/SILVER/BRONZE/UNVERIFIED tiers to pain themes
+  - Re-rank opportunities by signal-strength-weighted evidence
+  - Flag claims below SILVER tier
+Signal completion: write synthesis-8-READY.txt
+
+**Contract**: Done when every pain theme has a confidence tier and every opportunity has been re-scored.
+
+After synthesis-8-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint8-task>, status: "completed" })
+TaskCreate({ description: "Synthesis Sprint 9/11: Counter-Positioning Analysis", status: "in_progress" })
+```
+
+### Sprint 9: Counter-Positioning Analysis
+
+After Sprint 8 READY. Spawn **1 sub-agent**:
+
+Agent `counter-positioning` (subagent_type: synthesis-counter-positioning):
+Read: synthesis-6-opportunities.json, synthesis-5-gap-matrix.json, synthesis-2-competitor-pain.json, competitor-profiles.json
+Produce: /tmp/gapscout-<scan-id>/synthesis-9-counter-positioning.json
+  - For each top 5 opportunity: incumbent response prediction, structural barriers, moat assessment (STRONG/MEDIUM/WEAK), red-team rebuttal
+Signal completion: write synthesis-9-READY.txt
+
+**Contract**: Done when each top opportunity has moat assessment and at least 2 structural barriers identified.
+
+After synthesis-9-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint9-task>, status: "completed" })
+TaskCreate({ description: "Synthesis Sprint 10/11: Market Consolidation Forecast", status: "in_progress" })
+```
+
+### Sprint 10: Market Consolidation Forecast
+
+After Sprint 9 READY. Spawn **1 sub-agent**:
+
+Agent `consolidation-forecast` (subagent_type: synthesis-consolidation-forecast):
+Read: competitor-profiles.json, competitor-map.json, synthesis-1-competitive-map.json, synthesis-4-switching.json
+Produce: /tmp/gapscout-<scan-id>/synthesis-10-consolidation-forecast.json
+  - M&A probability matrix per major competitor
+  - Segment convergence map
+  - Failure risk assessment
+  - 2028 market shape prediction
+  - New entrant implications
+Signal completion: write synthesis-10-READY.txt
+
+**Contract**: Done when all major competitors have M&A probability scores and at least 3 segment convergence predictions.
+
+After synthesis-10-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint10-task>, status: "completed" })
+TaskCreate({ description: "Synthesis Sprint 11/11: Founder & Leadership Profiles", status: "in_progress" })
+```
+
+### Sprint 11: Founder & Leadership Profiles
+
+After Sprint 10 READY. Spawn **1 sub-agent**:
+
+Agent `founder-profiles` (subagent_type: synthesis-founder-profiles):
+Read: competitor-profiles.json, competitor-map.json
+Produce: /tmp/gapscout-<scan-id>/synthesis-11-founder-profiles.json
+  - Founder/CEO profiles for top 15-20 competitors via WebSearch
+  - Founding story, funding, headcount, culture DNA
+  - Pattern analysis: founder-led advantage, distress signals, strongest newcomers
+Signal completion: write synthesis-11-READY.txt
+
+**Contract**: Done when >=15 competitors have founder/CEO profiles with verified data.
+
+After synthesis-11-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint11-task>, status: "completed" })
 ```
 
 ### Post-Synthesis: Report Generation
 
-After Sprint 7 READY:
+After Sprint 11 READY:
 
 1. Generate JSON report:
    ```bash
@@ -338,7 +419,7 @@ After Sprint 7 READY:
    /tmp/gapscout-<scan-id>/stage-complete-synthesis.json
    {
      "stage": "synthesis",
-     "sprints": 7,
+     "sprints": 11,
      "completedAt": "<ISO>",
      "reportPath": "/tmp/gapscout-<scan-id>/report.json",
      "htmlReportPath": "/tmp/gapscout-<scan-id>/report.html"
@@ -364,7 +445,7 @@ Update this task to completed when all re-run sprints finish and updated synthes
 
 Example:
 ```
-Round 1: Sprints 1-7 → Judge: MARGINAL (citation grounding 5/10 in Sprint 2)
+Round 1: Sprints 1-11 → Judge: MARGINAL (citation grounding 5/10 in Sprint 2)
 Round 2: Re-run Sprint 2 only → Sprint 2 reads judge feedback + improves citations
          Re-run Sprints 5-6 (depend on Sprint 2) → recalculate with new data
 Round 3: Judge: PASS

@@ -26,7 +26,7 @@ orchestrator (single brain, owns all stage transitions)
   ├── scanner team (17 coordinators + broadening loop)
   ├── citation-watchdog (background — validates data as it appears)
   ├── judge + documenter (QA checkpoint)
-  ├── synthesizer (7 sequential sprints with sub-teams)
+  ├── synthesizer (11 sequential sprints with sub-teams)
   ├── judge + documenter (QA checkpoint + iteration loop)
   └── report generators (JSON + HTML + summary)
 ```
@@ -42,7 +42,11 @@ orchestrator (single brain, owns all stage transitions)
 | gap-analyst | `.claude/agents/gap-analyst.md` | Pain point analysis |
 | judge | `.claude/agents/judge.md` | Quality evaluation with rubrics |
 | documenter | `.claude/agents/documenter.md` | Issue documentation |
-| synthesizer-coordinator | `.claude/agents/synthesizer-coordinator.md` | 7-sprint synthesis |
+| synthesizer-coordinator | `.claude/agents/synthesizer-coordinator.md` | 11-sprint synthesis |
+| synthesis-signal-strength | `.claude/agents/synthesis-signal-strength.md` | Evidence credibility scoring |
+| synthesis-counter-positioning | `.claude/agents/synthesis-counter-positioning.md` | Incumbent moat analysis |
+| synthesis-consolidation-forecast | `.claude/agents/synthesis-consolidation-forecast.md` | M&A and market forecast |
+| synthesis-founder-profiles | `.claude/agents/synthesis-founder-profiles.md` | Leadership research |
 | citation-watchdog | `.claude/agents/citation-watchdog.md` | Real-time fabrication detection |
 
 See `AGENT-RELATIONSHIPS.md` for full topology, data flows, and agent counts.

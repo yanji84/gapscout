@@ -98,7 +98,7 @@ You (orchestrator)
 │   └── documenter-scanning (4 observer sub-agents)
 │   Output: judge verdict, issues log
 │
-├── Phase 4: SYNTHESIS (7 sequential sprints)
+├── Phase 4: SYNTHESIS (11 sequential sprints)
 │   └── synthesizer-coordinator
 │       ├── Sprint 1: 3 sub-agents (competitive map)
 │       ├── Sprint 2: 3 sub-agents (competitor pain)
@@ -106,8 +106,12 @@ You (orchestrator)
 │       ├── Sprint 4: 1 agent (switching)
 │       ├── Sprint 5: 3 sub-agents (gap matrix)
 │       ├── Sprint 6: 1 agent (opportunities)
-│       └── Sprint 7: 1 agent (rescue)
-│   Output: 7 synthesis files + report
+│       ├── Sprint 7: 1 agent (rescue)
+│       ├── Sprint 8: 1 agent (signal strength scoring)
+│       ├── Sprint 9: 1 agent (counter-positioning)
+│       ├── Sprint 10: 1 agent (consolidation forecast)
+│       └── Sprint 11: 1 agent (founder profiles)
+│   Output: 11 synthesis files + report
 │
 ├── Phase 4-QA: SYNTHESIS QA (with iteration loop)
 │   ├── judge-synthesis (9 eval sub-agents)
@@ -402,7 +406,7 @@ TaskUpdate({ id: scanning_qa_task_id, description: "Phase 3-QA: Re-scanning fail
 After scanning QA verdict is resolved, mark complete and start synthesis:
 ```
 TaskUpdate({ id: scanning_qa_task_id, status: "completed" })
-TaskCreate({ description: "Phase 4: Synthesizing insights (7 sprints)", status: "in_progress" })
+TaskCreate({ description: "Phase 4: Synthesizing insights (11 sprints)", status: "in_progress" })
 ```
 Save the returned task ID as `synthesis_task_id`.
 
@@ -414,7 +418,7 @@ Spawn **`synthesizer-coordinator`** with:
 - scan-spec.json (with sprint contracts)
 - List of degraded/missing sources (so synthesis knows what to expect)
 
-The synthesizer-coordinator runs 7 sequential sprints internally. You do NOT manage individual sprints — the coordinator owns that.
+The synthesizer-coordinator runs 11 sequential sprints internally. You do NOT manage individual sprints — the coordinator owns that.
 
 The synthesizer-coordinator spawns sub-agents that are LEAF agents (subagent_type references).
 This means synthesis is exactly 2 levels deep: orchestrator → synthesizer-coordinator → leaf analysts.
@@ -431,6 +435,10 @@ VERIFY sprint intermediate files exist:
 - Sprint 3: s3-needs-reddit.json, s3-needs-hn-web.json, s3-needs-other.json
 - Sprint 5: s5-feature-list.json, s5-complaint-gaps.json
 - Sprint 6: s6-scores.json, s6-idea-sketches.json
+- Sprint 8: synthesis-8-signal-strength.json
+- Sprint 9: synthesis-9-counter-positioning.json
+- Sprint 10: synthesis-10-consolidation-forecast.json
+- Sprint 11: synthesis-11-founder-profiles.json
 IF intermediate files missing but final synthesis-N file exists:
   - Log: "Sprint N coordinator did work inline — sub-agent fan-out failed"
   - Accept results (don't block pipeline) but flag in QA

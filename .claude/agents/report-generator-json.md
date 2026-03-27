@@ -23,6 +23,10 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `synthesis-5-gap-matrix.json` — validated gap matrix
 - `synthesis-6-opportunities.json` — scored opportunities with idea sketches
 - `synthesis-7-rescued.json` — false-negative rescue results (if exists)
+- `synthesis-8-signal-strength.json` — evidence credibility scores and confidence tiers
+- `synthesis-9-counter-positioning.json` — incumbent response analysis and moat assessments
+- `synthesis-10-consolidation-forecast.json` — M&A predictions and market shape forecast
+- `synthesis-11-founder-profiles.json` — founder/leadership profiles and patterns
 - `judge-synthesis-COMPLETE.json` — QA evaluation results
 
 ## Task
@@ -43,7 +47,11 @@ Compile all synthesis outputs into a single structured report:
 7. **Gap matrix** — from Sprint 5
 8. **Ranked opportunities** — from Sprint 6, with idea sketches
 9. **Rescue findings** — from Sprint 7 (if applicable)
-10. **Data quality** — QA scores and notes
+10. **Signal strength** — from Sprint 8, evidence tiers (GOLD/SILVER/BRONZE) per claim
+11. **Counter-positioning** — from Sprint 9, moat assessments and red-team rebuttals per opportunity
+12. **Market consolidation forecast** — from Sprint 10, M&A predictions and 2028 market shape
+13. **Founder profiles** — from Sprint 11, leadership backgrounds and company health signals
+14. **Data quality** — QA scores and notes
 
 ## Output
 
@@ -72,6 +80,10 @@ Write to: `/tmp/gapscout-<scan-id>/report.json`
   "gapMatrix": { },
   "opportunities": [ ],
   "rescueFindings": { },
+  "signalStrength": { },
+  "counterPositioning": { },
+  "consolidationForecast": { },
+  "founderProfiles": { },
   "dataQuality": {
     "qaVerdict": "<PASS|MARGINAL|FAIL>",
     "compositeScore": <N>,
