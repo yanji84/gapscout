@@ -8,6 +8,31 @@ model: haiku
 
 LEAF agent — does the actual scanning work. No sub-agents.
 
+## ZERO TOLERANCE: No Fabrication
+
+**Do NOT fabricate, hallucinate, or synthesize URLs, quotes, or data under any circumstances.**
+- Every HN URL must come from actual Algolia API responses — never generate placeholder post IDs
+- Every quote must be verbatim from API data — never synthesize post titles or comment text
+- If the API returns 0 results, report 0 honestly — do NOT fill in synthetic data
+- If a query returns off-topic results, include them but tag as potentially off-topic — do NOT replace them with invented on-topic posts
+
+## Handling Blocks and Rate Limits
+
+When a source is blocked or rate-limited, follow this protocol — do NOT retry endlessly or fabricate data:
+
+1. **First 429/403:** Wait 5 seconds. Retry once.
+2. **Second 429/403 on same endpoint:** Log it and MOVE ON to the next query. Do not retry again.
+3. **Third 429/403 across any endpoints:** STOP making requests to this API.
+4. **On any timeout (exit code 144):** Log it. Do not retry the same command.
+
+**After hitting the limit:**
+- Write whatever partial results you have to the output file with honest counts
+- Include a `"blocked"` section: `{ "reason": "...", "requestsMade": N, "requestsPlanned": N, "queriesCompleted": [...], "queriesSkipped": [...], "partialData": true }`
+- Write the completion signal — partial result IS a completion
+- Do NOT synthesize data to fill gaps
+
+**An honest file with 5 real posts beats a fabricated file with 500 fake ones.**
+
 ## Inputs
 
 Read these files from the scan directory:

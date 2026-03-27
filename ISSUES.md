@@ -165,9 +165,21 @@ Comprehensive list of bugs, problems, and improvement opportunities discovered d
 - **Description:** Same issue. Competitive intelligence tools don't have public GitHub repos with complaint issues. Source irrelevant for this market.
 
 ### 40. G2/Capterra browser scraping returns 0 results
+- **Severity:** CRITICAL (upgraded from HIGH — confirmed recurring across all production scans)
+- **Status:** OPEN
+- **Description:** Cloudflare blocking prevented any review data from being collected. Confirmed in market-gap-analysis-20260326 scan: all 4 review batches fell back to WebSearch SERP extraction. Chrome unavailable in every batch. The browser-dependent path is never working in production; WebSearch aggregation is the de facto path. The most valuable data source (competitor reviews) is hardest to access. Fix: make WebSearch aggregation + TrustRadius direct fetch the primary path; make Chrome optional.
+
+### 41. Scanner agents produce no output on silent failure or timeout
+- **Severity:** CRITICAL
+- **Status:** OPEN
+- **Affects:** All scanner agents (websearch confirmed; other agents likely)
+- **Description:** In market-gap-analysis-20260326, the websearch scanner agent ran for 90 minutes and produced zero output — no scan-websearch.json partial file, no error file, no COMPLETE signal. When the agent timed out or was killed, all collected data was lost. Every scanner agent must register a SIGTERM handler that flushes collected data before exit, and must write a partial output file after every N queries completed (suggested: every 10 queries). This is the primary driver of the 676/9000 post shortfall (7.5% of target).
+
+### 42. Stage-complete aggregation does not validate against output files
 - **Severity:** HIGH
 - **Status:** OPEN
-- **Description:** Cloudflare blocking prevented any review data from being collected. The most valuable data source (competitor reviews) is the hardest to access.
+- **Affects:** orchestrator stage-complete generation
+- **Description:** In market-gap-analysis-20260326, stage-complete-scanning.json reported bySource.reddit: 0 while scanner-reddit-COMPLETE.json reported postsCollected: 187 and scan-reddit.json contained 187 posts. The orchestrator aggregated source counts from COMPLETE signals rather than from actual output files. A COMPLETE signal and the actual output file contradicting each other is a hard error that should halt the pipeline, not a silent discrepancy. Fix: orchestrator must compute bySource counts by reading and counting records in each scan output file directly.
 
 ---
 

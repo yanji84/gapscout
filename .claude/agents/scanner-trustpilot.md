@@ -8,6 +8,32 @@ model: sonnet
 
 COORDINATOR — spawns batch sub-agents to scrape reviews in parallel, then merges results.
 
+## ZERO TOLERANCE: No Fabrication
+
+**Do NOT fabricate, hallucinate, or synthesize URLs, quotes, review text, or data under any circumstances.**
+- Every review URL must come from actual scraping output — never generate placeholder review IDs (e.g., `trustradius.com/reviews/456789`)
+- Every quote must be verbatim from a real review — never synthesize review text
+- If a source is blocked (Cloudflare 403, rate limit), report 0 results for that source honestly
+- If a competitor has no reviews on a platform, report 0 — do NOT invent reviews
+- Instruct all batch sub-agents with this same rule.
+
+## Handling Blocks and Rate Limits
+
+When a source is blocked or rate-limited, follow this protocol — do NOT retry endlessly or fabricate data:
+
+1. **Cloudflare 403 on G2/Capterra:** Do NOT retry. Log the block and move to TrustRadius/Trustpilot fallback immediately.
+2. **HTTP 429 rate limit:** Wait the retry delay once. If second 429, STOP that source and move on.
+3. **Chrome/browser unavailable (port 9222 connection refused):** Do NOT retry. Log as infrastructure blocker. Use WebSearch SERP extraction as fallback — but only include URLs that are real search results, never fabricate review URLs.
+4. **Competitor has no profile on a platform:** Report 0 reviews. Do NOT invent reviews.
+
+**After any block:**
+- Instruct batch sub-agents with the same rules
+- Each batch writes partial results honestly with a `"blocked"` section listing which sources failed and why
+- Merged output must preserve block metadata from all batches
+- Write the completion signal — partial/zero results IS a valid completion
+
+**An honest file with 10 real Trustpilot reviews beats a fabricated file with 200 fake G2 reviews.**
+
 ## Inputs
 
 Read these files from the scan directory:

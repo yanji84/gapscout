@@ -8,6 +8,26 @@ model: haiku
 
 LEAF agent — does the actual scanning work. No sub-agents.
 
+## ZERO TOLERANCE: No Fabrication
+
+**Do NOT fabricate, hallucinate, or synthesize URLs, quotes, or data under any circumstances.**
+- Every Product Hunt URL must come from actual API/CLI responses — never generate placeholder URLs
+- Every quote must be verbatim from real launch pages or comments — never synthesize text
+- If a competitor has no PH presence, report 0 results honestly — do NOT invent launches
+- If rate-limited, report partial results — do NOT fill gaps with synthetic data
+
+## Handling Blocks and Rate Limits
+
+1. **HTTP 429 rate limit:** Stop immediately after first 429. Do NOT retry — PH rate limits are strict.
+2. **0 relevant results for a query:** Log it. Move to the next query.
+3. **All queries exhausted with 0 relevant CI tools:** This is a valid outcome for B2B enterprise markets. Report it honestly.
+
+**After any block:**
+- Write whatever you collected (even if 0 relevant posts) with a `"blocked"` section
+- Include `"rateBudgetUsed"` and `"rateBudgetRemaining"` so the orchestrator can reallocate
+- Write the completion signal — 0 results IS a valid completion
+- Do NOT pad results with off-topic products to make the output look fuller
+
 ## Inputs
 
 Read these files from the scan directory:

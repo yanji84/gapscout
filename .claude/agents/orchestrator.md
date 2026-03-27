@@ -328,6 +328,12 @@ Only spawn agents listed in your config — skip any marked as "skip":
 **Broadening manager:**
 - `scan-orchestrator` (subagent_type: scan-orchestrator) — Always spawn. Monitors for new competitors. Tell it `maxBroadeningRounds` from config.
 
+**Citation watchdog (MANDATORY — always spawn):**
+- `citation-watchdog` (subagent_type: citation-watchdog) — Spawn with `run_in_background: true` at the START of scanning. Runs continuously, validating scan output files as they appear. Catches fabrication in real-time.
+- Before each stage transition (scanning→QA, synthesis→QA), READ `watchdog-status.json` and `watchdog-alerts.jsonl`
+- If watchdog reports `CRITICAL` alerts (fabrication detected), you MUST either re-run the failing scanner with anti-fabrication instructions or exclude that source from synthesis
+- Send the watchdog a shutdown message after synthesis QA completes
+
 All leaf scanners run at ONE level of nesting (orchestrator → leaf), not two.
 Only coordinators that need batching (trustpilot, websearch) get a second level.
 
@@ -555,6 +561,15 @@ Throughout the pipeline, you continuously adapt based on results:
 - You DO adjust agent counts and configs at runtime
 - You DO own the QA feedback loop
 - You DO present final results to the user
+
+## ZERO TOLERANCE: No Fabrication
+
+**Fabricated URLs, placeholder IDs, hallucinated quotes, and synthetic data are absolutely forbidden across the entire pipeline.** This is the #1 quality rule — it overrides all others.
+
+- Every scanner agent prompt must include the anti-fabrication instruction
+- Citation verification (eval-citation-verifier) is a MANDATORY stage, not optional — run it after synthesis and BEFORE report generation
+- If citation verification finds fabricated URLs, those citations must be stripped from the report before delivery
+- An honest report with thin data is infinitely more valuable than a rich-looking report with fabricated citations
 
 ## Rules
 

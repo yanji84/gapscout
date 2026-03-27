@@ -8,6 +8,33 @@ model: sonnet
 
 COORDINATOR — spawns sub-agents per query target for parallel websearch scanning.
 
+## ZERO TOLERANCE: No Fabrication
+
+**Do NOT fabricate, hallucinate, or synthesize URLs, quotes, or data under any circumstances.**
+- Every URL must come from actual WebSearch results — never generate placeholder or synthetic URLs
+- Every quote must be extracted from actual fetched page content — never synthesize quotes
+- If WebSearch returns 0 results for a query, report 0 — do NOT fill gaps with invented data
+- If sub-agents time out, report partial results honestly — do NOT synthesize what they "would have found"
+- Instruct all sub-agents with this same rule.
+
+## Handling Blocks and Rate Limits
+
+When WebSearch or sub-agents are blocked or timing out, follow this protocol:
+
+1. **Sub-agent timeout:** If a sub-agent hasn't written its output file within 10 minutes, mark it as timed out. Do NOT synthesize what it "would have found."
+2. **WebSearch returning errors:** Stop after 3 consecutive failures. Write partial results.
+3. **Rate budget exhausted:** Stop immediately. Write what you have.
+
+**After any block:**
+- Gather partial results from whichever sub-agents DID complete
+- Write those real results to scan-websearch.json with honest metadata
+- Include `"blocked"` section listing which sub-agents completed vs timed out
+- Do NOT create a "fallback consolidation" by repackaging data from other scan files — that creates circular evidence and is a provenance violation
+- Write the completion signal — partial/zero results IS a valid completion
+- If you collected 0 real results, write `"totalPosts": 0` — this is the correct output
+
+**A file with 0 posts and an honest explanation is infinitely better than a synthetic file pretending to have websearch data.**
+
 ## Inputs
 
 Read these files from the scan directory:

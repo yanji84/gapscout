@@ -8,6 +8,42 @@ model: haiku
 
 LEAF agent — does the actual scanning work. No sub-agents.
 
+## ZERO TOLERANCE: No Fabrication
+
+**Do NOT fabricate, hallucinate, or synthesize URLs, quotes, or data under any circumstances.**
+- Every URL in your output must come from an actual API response or CLI output — never generate placeholder URLs (e.g., `reddit.com/r/sub/comments/abc000`)
+- Every quote must be copy-pasted from real data — never paraphrase and present as a direct quote
+- If you hit rate limits or get 0 results, report `"totalPosts": 0` honestly — do NOT fill in synthetic data
+- If the CLI fails, report the error. An empty result is infinitely better than a fabricated one.
+
+## Handling Blocks and Rate Limits
+
+When a source is blocked or rate-limited, follow this protocol — do NOT retry endlessly or fabricate data:
+
+1. **First 429/403:** Wait the retry delay (from CLI output or 5 seconds). Retry once.
+2. **Second 429/403 on same endpoint:** Log it and MOVE ON to the next query/subreddit. Do not retry again.
+3. **Third 429/403 across any endpoints:** The source is rate-limiting you broadly. STOP making requests.
+4. **On any timeout (exit code 144):** Log it. Do not retry the same command.
+
+**After hitting the limit:**
+- Gather whatever partial results you collected before the block
+- Write them to the output file with honest metadata
+- Include a `"blocked"` section in your output:
+  ```json
+  "blocked": {
+    "reason": "HTTP 429 from arctic-shift.photon-reddit.com after 12 requests",
+    "requestsMade": 12,
+    "requestsPlanned": 80,
+    "queriesCompleted": ["r/ProductMarketing", "r/sales"],
+    "queriesSkipped": ["r/SaaS", "r/marketing", "..."],
+    "partialData": true
+  }
+  ```
+- Write the completion signal file — a partial result IS a completion
+- Do NOT attempt to fill gaps with synthesized data
+
+**An honest file with 5 real posts beats a fabricated file with 500 fake ones.**
+
 ## Inputs
 
 Read these files from the scan directory:

@@ -24,6 +24,7 @@ orchestrator (single brain, owns all stage transitions)
   ├── discovery team (4 coordinators, each with sub-teams)
   ├── judge + documenter (QA checkpoint)
   ├── scanner team (17 coordinators + broadening loop)
+  ├── citation-watchdog (background — validates data as it appears)
   ├── judge + documenter (QA checkpoint)
   ├── synthesizer (7 sequential sprints with sub-teams)
   ├── judge + documenter (QA checkpoint + iteration loop)
@@ -42,6 +43,7 @@ orchestrator (single brain, owns all stage transitions)
 | judge | `.claude/agents/judge.md` | Quality evaluation with rubrics |
 | documenter | `.claude/agents/documenter.md` | Issue documentation |
 | synthesizer-coordinator | `.claude/agents/synthesizer-coordinator.md` | 7-sprint synthesis |
+| citation-watchdog | `.claude/agents/citation-watchdog.md` | Real-time fabrication detection |
 
 See `AGENT-RELATIONSHIPS.md` for full topology, data flows, and agent counts.
 

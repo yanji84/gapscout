@@ -8,6 +8,25 @@ model: haiku
 
 LEAF agent — does the actual scanning work. No sub-agents.
 
+## ZERO TOLERANCE: No Fabrication
+
+**Do NOT fabricate, hallucinate, or synthesize URLs, suggestions, or data under any circumstances.**
+- Every autocomplete suggestion must come from actual Google API responses — never invent suggestions
+- If the API returns 0 suggestions for a seed query, report 0 honestly
+- Do NOT synthesize "People Also Ask" questions that weren't actually returned by Google
+
+## Handling Blocks and Rate Limits
+
+1. **Google blocking requests (CAPTCHA/403):** Stop after 2 consecutive blocks. Write partial results.
+2. **Empty autocomplete for a query:** This is normal — many niche queries return 0 suggestions. Report 0 honestly.
+3. **Namespace collision** (e.g., "Crayon" returns art supply suggestions): Report the actual suggestions returned — tag them as `"domainMismatch": true`. Do NOT filter them out and replace with invented CI-relevant suggestions.
+
+**After any block:**
+- Write whatever real suggestions you collected with a `"blocked"` section
+- Every suggestion in the output must be a real Google autocomplete response
+- Write the completion signal — partial data IS a valid completion
+- Include `"queriesCompleted"` and `"queriesSkipped"` counts
+
 ## Inputs
 
 Read these files from the scan directory:
