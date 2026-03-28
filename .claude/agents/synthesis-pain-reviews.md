@@ -16,6 +16,7 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `scan-g2.json` — G2 review data (if exists)
 - `scan-capterra.json` — Capterra review data (if exists)
 - Any other `scan-*review*.json` files
+- `watchdog-blocklist.json` — citation blocklist from watchdog (if exists)
 
 ## Task
 
@@ -75,3 +76,4 @@ Write to: `/tmp/gapscout-<scan-id>/s2-pain-reviews.json`
 - Every quote must come verbatim from the scan data — do not paraphrase or fabricate
 - If a review source file doesn't exist, skip it and note which sources were missing
 - If input files are missing, report error — do not hallucinate data
+- **CITATION BLOCKLIST ENFORCEMENT**: If `watchdog-blocklist.json` exists, read it first. Exclude any URL or quote listed in `blockedCitations`. Exclude any source file listed in `blockedFiles`. Note excluded count in output.

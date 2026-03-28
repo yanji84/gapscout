@@ -81,6 +81,10 @@ You (orchestrator)
 │   └── query-generator (4 query sub-agents)
 │   Output: competitor-map, profiles, subreddits, queries
 │
+├── Phase 2b: TRUST SCORING
+│   └── trust-scorer (4 dimension sub-agents)
+│   Output: competitor-trust-scores.json
+│
 ├── Phase 2-QA: DISCOVERY QA
 │   ├── judge-discovery (N+2 eval sub-agents)
 │   └── documenter-discovery (4 observer sub-agents)
@@ -92,6 +96,10 @@ You (orchestrator)
 │   ├── Specialists: 3 (websearch, switching, profiler)
 │   └── scan-orchestrator (4 broaden agents per new competitor)
 │   Output: 15-20 scan result files
+│
+├── Phase 3b: SCAN AUDIT
+│   └── scan-auditor (data integrity validation)
+│   Output: scan-audit.json
 │
 ├── Phase 3-QA: SCANNING QA
 │   ├── judge-scanning (N+2 eval sub-agents)
@@ -204,6 +212,17 @@ Save your orchestration config to `/tmp/gapscout-<scan-id>/orchestration-config.
       "sprint2SubAgents": 3,
       "sprint3SubAgents": 3,
       "maxIterationRounds": 3
+    },
+    "trustScoring": {
+      "enabled": true,
+      "dimensions": ["webPresence", "techFootprint", "communityReputation", "domainBusiness"],
+      "suspectThreshold": 15,
+      "unverifiedThreshold": 30
+    },
+    "scanAudit": {
+      "enabled": true,
+      "blockOnFail": false,
+      "checks": ["postCount", "provenance", "queryCoverage", "deduplication", "apiMethod"]
     }
   },
   "rateBudget": {
@@ -269,9 +288,35 @@ IF new market segments discovered (not in original spec):
   - Adjust scanning queries accordingly
 ```
 
-After reading and verifying discovery results, mark discovery complete and start QA:
+After reading and verifying discovery results, mark discovery complete and start trust scoring:
 ```
 TaskUpdate({ id: discovery_task_id, status: "completed" })
+TaskCreate({ description: "Phase 2b: Scoring competitor trust and legitimacy", status: "in_progress" })
+```
+Save the returned task ID as `trust_scoring_task_id`.
+
+### Step 2b: Spawn Trust Scorer
+
+After profile-scraper writes `competitor-profiles.json`, spawn the trust-scorer to assess competitor legitimacy:
+
+```
+Agent({
+  description: "Score competitor trust and legitimacy",
+  subagent_type: "trust-scorer",
+  prompt: "Score trust for all competitors. Scan dir: {scan_dir}",
+  run_in_background: false
+})
+```
+
+Wait for: `{scan_dir}/trust-scorer-COMPLETE.txt`
+
+Read `{scan_dir}/competitor-trust-scores.json`. Log trust tier distribution.
+
+**Decision point**: If >50% of "core" tier competitors are SUSPECT or UNVERIFIED, log a warning — the competitive landscape may be inflated by vaporware. Note this in the orchestration log for synthesis agents to reference.
+
+After trust scoring completes, start discovery QA:
+```
+TaskUpdate({ id: trust_scoring_task_id, status: "completed" })
 TaskCreate({ description: "Phase 2-QA: Evaluating discovery quality", status: "in_progress" })
 ```
 Save the returned task ID as `discovery_qa_task_id`.
@@ -393,8 +438,9 @@ For each source in scan-spec.scanningSpec.categoryB.sources:
 
 **Citation watchdog (MANDATORY — always spawn):**
 - `citation-watchdog` (subagent_type: citation-watchdog) — Spawn with `run_in_background: true` at the START of scanning. Runs continuously, validating scan output files as they appear. Catches fabrication in real-time.
-- Before each stage transition (scanning→QA, synthesis→QA), READ `watchdog-status.json` and `watchdog-alerts.jsonl`
+- Before each stage transition (scanning→QA, synthesis→QA), READ `watchdog-status.json`, `watchdog-alerts.jsonl`, AND `watchdog-blocklist.json`
 - If watchdog reports `CRITICAL` alerts (fabrication detected), you MUST either re-run the failing scanner with anti-fabrication instructions or exclude that source from synthesis
+- **BLOCKLIST ENFORCEMENT**: The watchdog writes `watchdog-blocklist.json` with flagged citations. All synthesis agents read this file and exclude blocked citations. Before spawning the synthesizer-coordinator, VERIFY the blocklist file exists (even if empty). If the watchdog hasn't written it yet, create an empty one: `{"lastUpdated": "<ISO>", "blockedCitations": [], "blockedFiles": []}`
 - Send the watchdog a shutdown message after synthesis QA completes
 
 All leaf scanners run at ONE level of nesting (orchestrator → leaf), not two.
@@ -437,6 +483,28 @@ TaskCreate({ description: "Phase 3-QA: Evaluating scan quality", status: "in_pro
 ```
 Save the returned task ID as `scanning_qa_task_id`.
 
+### Step 4b: Spawn Scan Auditor
+
+After all scanners complete and before scanning QA, run the scan-auditor to validate data integrity:
+
+Agent({
+  description: "Audit scan data integrity",
+  subagent_type: "scan-auditor",
+  prompt: "Audit all scan output files in {scan_dir}. Scan dir: {scan_dir}",
+  run_in_background: false
+})
+
+Wait for: `{scan_dir}/scan-auditor-COMPLETE.txt`
+
+Read `{scan_dir}/scan-audit.json`. Check overall verdict.
+
+**Decision points**:
+- If verdict is FAIL: Log which checks failed. Pass audit findings to scanning QA judge for consideration. Do NOT block the pipeline — audit failures are informational for synthesis.
+- If verdict is WARN: Note warnings in orchestration log.
+- If verdict is PASS: Proceed normally.
+
+The scan-audit.json file will be read by synthesis agents to adjust confidence in source data.
+
 ### Step 5: Spawn Scanning QA
 
 Same pattern as Step 3. Spawn judge-scanning + documenter-scanning in parallel.
@@ -476,6 +544,14 @@ Spawn **`synthesizer-coordinator`** with:
 - orchestration-config.json (with adjusted sprint sub-agent counts)
 - scan-spec.json (with sprint contracts)
 - List of degraded/missing sources (so synthesis knows what to expect)
+- scan-audit.json — data integrity audit results (if exists). Sources with FAIL verdicts should have their evidence weighted lower.
+
+**IMPORTANT: Trust Score Integration.** Include in the synthesizer-coordinator prompt:
+> Read `{scan_dir}/competitor-trust-scores.json`. Pass each competitor's trustTier to sprint sub-agents. Instruct them:
+> - Competitors with trustTier SUSPECT or UNVERIFIED should be flagged in analysis but NOT counted as real competitive threats
+> - Pain evidence FROM these competitors is still valid (users complain about them)
+> - But their FEATURES/CAPABILITIES should not be treated as confirmed — they may be marketing claims from vaporware
+> - The competitive gap analysis should note which "competitors" in a gap are ESTABLISHED vs SUSPECT
 
 The synthesizer-coordinator runs 11 sequential sprints internally. You do NOT manage individual sprints — the coordinator owns that.
 

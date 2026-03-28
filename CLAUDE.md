@@ -47,6 +47,8 @@ orchestrator (single brain, owns all stage transitions)
 | synthesis-counter-positioning | `.claude/agents/synthesis-counter-positioning.md` | Incumbent moat analysis |
 | synthesis-consolidation-forecast | `.claude/agents/synthesis-consolidation-forecast.md` | M&A and market forecast |
 | synthesis-founder-profiles | `.claude/agents/synthesis-founder-profiles.md` | Leadership research |
+| trust-scorer | `.claude/agents/trust-scorer.md` | Competitor legitimacy scoring |
+| scan-auditor | `.claude/agents/scan-auditor.md` | Post-scan data integrity validation |
 | citation-watchdog | `.claude/agents/citation-watchdog.md` | Real-time fabrication detection |
 
 See `AGENT-RELATIONSHIPS.md` for full topology, data flows, and agent counts.

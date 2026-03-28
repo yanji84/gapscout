@@ -17,6 +17,7 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `scan-reddit.json` — Reddit data (switching threads)
 - Any `scan-reddit-*.json` files with competitor deep-dive data
 - `scan-websearch-broad.json` — broad websearch (migration guides, comparison posts)
+- `watchdog-blocklist.json` — citation blocklist from watchdog (if exists)
 
 ## Task
 
@@ -93,3 +94,4 @@ Done when switching signals are mapped to specific competitor pairs with directi
 - Write output to the specified file path
 - Every switching claim must have a citation URL
 - If input files are missing, report error — do not hallucinate data
+- **CITATION BLOCKLIST ENFORCEMENT**: If `watchdog-blocklist.json` exists, read it first. Exclude any URL or quote listed in `blockedCitations`. Note excluded count in output.

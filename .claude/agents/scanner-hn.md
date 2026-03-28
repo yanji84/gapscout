@@ -85,6 +85,13 @@ Read these files from the scan directory:
      --scan-dir /tmp/gapscout-<scan-id>
    ```
 
+   **IMPORTANT — Keyword disambiguation:** When a competitor or market keyword has common non-market meanings (e.g., "Linear" also means linear algebra, "Mercury" also means the planet/element, "Notion" also means general concept), add exclusion terms to reduce noise:
+   - For "Linear" (PM tool): use `"Linear project management" OR "Linear app"` — NOT just `"Linear"`
+   - Add negative keywords: `-"linear algebra" -"linear regression" -"linear model" -"linear programming"`
+   - After collecting results, tag posts as `"domainRelevance": "HIGH|MEDIUM|LOW"` based on whether they discuss the actual competitor or the homonym
+   - Posts tagged LOW should be excluded from pain theme aggregation but kept in rawPosts for transparency
+   - Report the noise ratio: `"offTopicFiltered": N` in your output metadata
+
 5. Run targeted scans for key pain themes from scanning-queries:
    ```bash
    node scripts/cli.mjs hn scan \
@@ -186,6 +193,7 @@ Write to `/tmp/gapscout-<scan-id>/scan-hn.json`:
 - Every evidence entry MUST have a valid HN URL.
 - If a CLI command fails or times out, log the error and continue with remaining commands.
 - Filter out Show HN / Launch HN posts unless they contain pain-signal comments.
+- **Query logging**: Persist all executed query strings in the output file under a `queriesExecuted` array. Include the actual search string, not just a count. This is required for scan audit compliance.
 - Do NOT proceed to any next stage. Write your output file and stop.
 - Theme frequency counts must ONLY include posts that passed the relevance filter.
   A theme with 5 genuinely relevant posts has more signal than one with 100 loosely matched posts.

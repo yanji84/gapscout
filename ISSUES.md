@@ -192,7 +192,7 @@ Comprehensive list of bugs, problems, and improvement opportunities discovered d
 
 ### 20. No per-scan directory
 - **Severity:** MEDIUM
-- **Status:** OPEN
+- **Status:** RESOLVED — confirmed fixed in scan 4703d82c (home espresso machines, 2026-03-27). Scan data now written to `/root/gapscout/data/scans/<scan-id>/` with full isolation.
 - **Description:** All scan data goes to flat `/tmp/gapscout-*.json` files. Old scan data can mix with new scan data. No scan ID isolation.
 
 ### 21. No checkpoint/resume
@@ -262,3 +262,38 @@ Comprehensive list of bugs, problems, and improvement opportunities discovered d
 - **Severity:** LOW
 - **Status:** OPEN
 - **Description:** Free tier ($0, 500 posts/month) may suffice. Basic tier ($200/month) for 10K tweets. Would resolve issue #27.
+
+### 43. Profile scraper has no ASIN fallback for brands without Amazon brand storefronts
+- **Severity:** HIGH
+- **Status:** OPEN
+- **Affects:** Consumer hardware markets where premium/specialist brands sell via individual ASINs, not brand storefronts
+- **First observed:** Scan 4703d82c — home espresso machines — 2026-03-27
+- **Description:** When a brand has no Amazon brand store page, the profiler sets amazonUrl: null and the Category A scanner has no scan target for that brand. Brands like ECM, Profitec, Rocket Espresso, Lelit, and Rancilio (all $700–$3,500 machines) sell on Amazon via individual product ASINs but have no branded storefront. The profiler should fall back to a keyword ASIN search (e.g., "ECM Synchronika espresso machine") to retrieve product-level ASINs for direct review scanning. Without this, the entire prosumer segment in consumer hardware scans has zero Amazon review coverage.
+
+### 44. sprint-contracts.discovery profile-coverage gate is miscalibrated for dealer-distributed consumer hardware
+- **Severity:** MEDIUM
+- **Status:** OPEN
+- **Affects:** scan-spec.json sprint contract validation, judge rubric for discovery stage
+- **First observed:** Scan 4703d82c — home espresso machines — 2026-03-27
+- **Description:** The discovery sprint contract sets a single "≥80% URL/Trustpilot/Amazon coverage" gate. For consumer hardware markets where high-end brands are sold exclusively through specialty dealers (no Trustpilot page, no Amazon storefront), this gate will always fail even when discovery is excellent. The gate should distinguish three sub-criteria: (1) website URL coverage ≥100% (hard requirement), (2) Trustpilot coverage ≥80% for mass-market brands only (dealer-only brands excluded), (3) Amazon coverage ≥80% for mass-market brands only. The judge rubric should be updated to accept structural coverage gaps for dealer-distributed competitors without penalizing the discovery score.
+
+### 46. Scanner agents can substitute primary data source with no decision log or escalation
+- **Severity:** HIGH
+- **Status:** OPEN
+- **Affects:** All scanner agents
+- **First observed:** Scan d586fc87 — language learning apps — 2026-03-27
+- **Description:** The Reddit scanner agent in scan d586fc87 bypassed PullPush entirely and used WebSearch site:reddit.com queries instead. The methodNotes state this explicitly: "rateBudgetRemaining: ~775 of 800 PullPush requests (not consumed; used WebSearch alternative)". The substitution produced 47 posts instead of the expected 400-500. No decision log was written explaining the substitution. No MARGINAL flag was raised. The orchestrator received a COMPLETE signal as if the scan was nominal. Scanner agents must write a decision log entry when substituting their primary data collection method, and must classify the substitution as DEGRADED (not COMPLETE) when the fallback yields <50% of target volume. The orchestrator must treat DEGRADED scanner completions as requiring review before proceeding to synthesis.
+
+### 47. App Store scanner silently omitted from scanning phase — no error, no signal
+- **Severity:** CRITICAL
+- **Status:** OPEN
+- **Affects:** scanner-appstore agent, orchestrator scanning stage
+- **First observed:** Scan d586fc87 — language learning apps — 2026-03-27
+- **Description:** The App Store scanner was the highest-priority source per the scan-spec ("Language learning is predominantly a mobile category"). The scan-spec reserved 160 App Store API calls for the scanning phase. No scan-appstore.json was written. No scanner-appstore-COMPLETE.txt or error file was created. The watchdog-status.json listed scan-appstore.json in scanFilesNotYetPresent throughout the scan. The orchestrator nonetheless proceeded to produce scanning-phase documentation without raising an alert. This is a repeat of the pattern documented in issue #41 (scanner agents producing no output on silent failure). Fix: The orchestrator must validate that all Category A sources specified in scan-spec.scanningSpec.categoryA.reviewSources either produced output files or produced explicit error files before marking the scanning phase complete. Missing a required source with no explanation is a blocking error.
+
+### 45. query-generator produces no trim log when cutting from intermediate to final query count
+- **Severity:** LOW
+- **Status:** OPEN
+- **Affects:** scanning-queries.json, query-generator agent
+- **First observed:** Scan 4703d82c — home espresso machines — 2026-03-27
+- **Description:** The query-generator trimmed 28 queries (from 88 across intermediates to 60 final) with no record of what was dropped. Feature-request queries were cut most aggressively (16 to 6, 62.5% removed). If trimmed queries covered unique pain themes, those signals will be absent from scanning with no way to detect the gap. The query-generator should write a queries-trim-log.json file documenting each dropped query and the trim reason (duplicate, low priority, over budget).

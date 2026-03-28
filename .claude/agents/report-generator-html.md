@@ -14,8 +14,10 @@ You are a LEAF AGENT in the GapScout pipeline. You do analytical work directly �
 
 ## Inputs
 
-Read this file from `/tmp/gapscout-<scan-id>/`:
+Read these files from `/tmp/gapscout-<scan-id>/`:
 - `report.json` — the complete structured report
+- `competitor-trust-scores.json` — competitor trust scores (if exists)
+- `scan-audit.json` — scan audit results (if exists)
 
 ## Task
 
@@ -28,7 +30,8 @@ Generate a self-contained HTML report from report.json:
 2. **Sections (in order):**
    - **Header**: Market name, date, scan ID, QA badge (PASS=green, MARGINAL=yellow, FAIL=red)
    - **Executive Summary**: Top 3 opportunities as cards with scores
-   - **Competitive Landscape**: Competitor table grouped by segment, tier badges
+   - **Competitive Landscape**: Competitor table grouped by segment, tier badges. If competitor-trust-scores.json exists, add a "Trust" column with colored tier badges (ESTABLISHED=green, CREDIBLE=blue, EARLY-STAGE=yellow, UNVERIFIED=orange, SUSPECT=red)
+   - **Trust Assessment** (if competitor-trust-scores.json exists): Trust tier distribution summary, competitors flagged as UNVERIFIED/SUSPECT with red flags listed, impact on opportunity scoring
    - **Pain Analysis**: Collapsible per-competitor pain themes with severity badges
    - **Gap Matrix**: Feature x Competitor table with color-coded cells (YES=red, PARTIAL=yellow, NO=green)
    - **Ranked Opportunities**: Cards with score breakdowns, idea sketches, WTP evidence
@@ -37,6 +40,7 @@ Generate a self-contained HTML report from report.json:
    - **Counter-Positioning**: Per-opportunity moat assessment cards with STRONG(green)/MEDIUM(yellow)/WEAK(red) badges, structural barriers list, red-team rebuttals in collapsible sections
    - **Market Consolidation**: M&A probability table (competitor × acquirer/target %), segment convergence arrows, failure risk badges, 2028 market shape summary
    - **Founder Profiles**: Leadership cards per competitor showing founder photo placeholder, background, funding, headcount trend arrow (↑↓→), health signal badges
+   - **Scan Audit** (if scan-audit.json exists): Per-source data integrity table with PASS(green)/WARN(yellow)/FAIL(red) badges, post count discrepancies, provenance issues, query coverage gaps
    - **Data Quality**: QA scores table
    - **Raw Citations**: Expandable citation list with clickable URLs
 3. **Styling:**

@@ -14,6 +14,7 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `s5-feature-list.json` — Feature x Competitor grid
 - `s5-complaint-gaps.json` — complaint-to-gap mapping
 - All `scan-*-raw.json` or `scan-*.json` files — raw scan data for validation
+- `watchdog-blocklist.json` — citation blocklist from watchdog (if exists)
 
 ## Task
 
@@ -83,3 +84,4 @@ Done when each gap cell is traceable to scan data. No gap marked YES without >=2
 - VALIDATE every YES gap against raw data — this is your primary job
 - Downgrade gaps that lack raw data support
 - If input files are missing, report error — do not hallucinate data
+- **CITATION BLOCKLIST ENFORCEMENT**: If `watchdog-blocklist.json` exists, read it first. Exclude any URL or quote listed in `blockedCitations` from your validation evidence. Any gap whose ONLY supporting evidence comes from blocked citations MUST be downgraded to NO.

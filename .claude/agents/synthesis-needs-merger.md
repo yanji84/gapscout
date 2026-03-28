@@ -16,6 +16,7 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `s3-needs-other.json` — unmet needs from autocomplete + PH + other
 - `synthesis-2-competitor-pain.json` — competitor pain (for cross-reference)
 - `synthesis-1-competitive-map.json` — competitor features (to validate gaps)
+- `watchdog-blocklist.json` — citation blocklist from watchdog (if exists)
 
 ## Task
 
@@ -85,3 +86,4 @@ Done when unmet needs are validated against competitor feature lists. Each need 
 - Remove needs that are served by existing competitors — this is critical
 - Every need must have at least 2 citation URLs
 - If input files are missing, report error — do not hallucinate data
+- **CITATION BLOCKLIST ENFORCEMENT**: If `watchdog-blocklist.json` exists, read it first. Exclude any URL or quote listed in `blockedCitations`. Exclude any source file listed in `blockedFiles`. Note excluded count in output.

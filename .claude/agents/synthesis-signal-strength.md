@@ -20,6 +20,9 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `synthesis-6-opportunities.json` — scored opportunities
 - `synthesis-7-rescue.json` — rescued false negatives (if exists)
 - `scan-spec.json` — scan parameters
+- `watchdog-blocklist.json` — citation blocklist from watchdog (if exists)
+- `watchdog-alerts.jsonl` — watchdog alerts log (if exists)
+- `competitor-trust-scores.json` — competitor trust scores (if exists)
 
 ## Task
 
@@ -76,6 +79,22 @@ Score every evidence item on a 0-100 credibility scale and assign confidence tie
 4. **Flag claims below SILVER:**
    - Any claim rated BRONZE or UNVERIFIED that materially affects an opportunity's score must be flagged
    - For each flagged claim, note what additional evidence would be needed to upgrade it
+
+5. **Verify statistics against their cited sources:**
+   - For any precise statistic (percentage, dollar amount, specific count) that cites a URL, check whether the scan data's raw content from that URL actually contains the claimed number
+   - If a statistic cites a URL but the scan data shows no evidence the number appears at that URL, downgrade to UNVERIFIED and flag as `"STATISTIC_SOURCE_MISMATCH"`
+   - Example: "32% counterfeiting rate" citing a URL that doesn't mention 32% anywhere → UNVERIFIED
+
+6. **Enforce citation blocklist:**
+   - If `watchdog-blocklist.json` exists, any evidence item whose URL appears in the blocklist MUST be scored 0 for Source Authority and flagged as UNVERIFIED
+   - Any evidence item whose quote matches a blocked quote MUST be excluded entirely
+   - Report `"blockedCitationsDowngraded": N` in your output
+
+7. **Trust-weighted source adjustment:**
+   - Evidence items that cite competitor marketing claims (e.g., "eSIM.dog claims 70% success rate") should be cross-referenced against the competitor's trust score
+   - If the cited competitor has trustTier SUSPECT or UNVERIFIED, downgrade Source Authority by 20 points for claims originating from that competitor's own materials
+   - If the cited competitor has trustTier ESTABLISHED, no adjustment
+   - This does NOT apply to user complaints about the competitor — those are still valid evidence regardless of the competitor's trust score
 
 ## Output
 

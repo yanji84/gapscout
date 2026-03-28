@@ -14,6 +14,7 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `s2-pain-reviews.json` — pain from review sources
 - `s2-pain-reddit.json` — pain from Reddit + HN
 - `s2-pain-websearch.json` — pain from websearch sources
+- `watchdog-blocklist.json` — citation blocklist from watchdog (if exists)
 
 ## Task
 
@@ -84,3 +85,4 @@ Done when each competitor with >=10 data points has >=1 classified pain theme. E
 - Every quote must have a citation URL — drop quotes without URLs
 - Prefer cross-source validated themes over single-source themes
 - If input files are missing, report error — do not hallucinate data
+- **CITATION BLOCKLIST ENFORCEMENT**: If `watchdog-blocklist.json` exists, read it BEFORE merging. Any URL or quote appearing in `blockedCitations` MUST be excluded from your output. Any source file listed in `blockedFiles` MUST be excluded entirely. This is mandatory — do not include blocked citations even if they support a strong pain theme. Note excluded citations in a `"blockedCitationsRemoved"` count in your output.

@@ -15,6 +15,7 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `scan-reddit.json` — Reddit scan data (competitor complaints, market discussions)
 - `scan-hn.json` — Hacker News scan data (if exists)
 - Any other `scan-reddit-*.json` files
+- `watchdog-blocklist.json` — citation blocklist from watchdog (if exists)
 
 ## Task
 
@@ -80,3 +81,4 @@ Write to: `/tmp/gapscout-<scan-id>/s2-pain-reddit.json`
 - Every quote must come verbatim from the scan data — do not paraphrase or fabricate
 - Pay special attention to implicit signals — Reddit pain is often expressed indirectly
 - If input files are missing, report error — do not hallucinate data
+- **CITATION BLOCKLIST ENFORCEMENT**: If `watchdog-blocklist.json` exists, read it first. Exclude any URL or quote listed in `blockedCitations`. Exclude any source file listed in `blockedFiles`. Note excluded count in output.

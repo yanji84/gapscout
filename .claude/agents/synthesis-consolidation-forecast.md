@@ -16,6 +16,7 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `synthesis-1-competitive-map.json` — competitive landscape
 - `synthesis-4-switching.json` — switching signals (migration flows)
 - `scan-spec.json` — scan parameters and market definition
+- `competitor-trust-scores.json` — competitor trust scores (if exists)
 
 ## Task
 
@@ -48,7 +49,13 @@ Forecast market consolidation over a 2-3 year horizon:
    - What new segments will emerge that do not exist today?
    - Where are the gaps that new entrants can exploit during consolidation chaos?
 
-5. **New entrant implications:**
+5. **Trust-informed predictions:**
+   - Competitors with trustTier SUSPECT have HIGH failure risk regardless of other signals
+   - Competitors with trustTier UNVERIFIED have MEDIUM-HIGH failure risk
+   - Factor trust scores into M&A probability — SUSPECT companies are unlikely acquisition targets (nothing to acquire)
+   - When predicting market shape, exclude SUSPECT competitors from "survivors" lists
+
+6. **New entrant implications:**
    - How does the consolidation forecast affect each opportunity from Sprint 6?
    - Which opportunities become MORE attractive during consolidation (switching windows, distracted incumbents)?
    - Which opportunities become LESS attractive (acquirer fills gap, segment collapses)?

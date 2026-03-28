@@ -45,6 +45,24 @@ Before spawning any analyst:
 3. Read `/tmp/gapscout-judge-scanning.json` — check scanning QA verdict
 4. If scanning verdict is FAIL, **stop** and report to team lead. Do not synthesize bad data.
 5. List all `/tmp/gapscout-<scan-id>/*.json` scan output files — this is the data corpus
+6. **Read `/tmp/gapscout-<scan-id>/watchdog-blocklist.json`** — verify it exists. Every sprint sub-agent prompt MUST include the instruction: "Read watchdog-blocklist.json before incorporating any citations. Exclude all URLs and quotes listed in blockedCitations. Exclude all source files listed in blockedFiles."
+7. **Read `/tmp/gapscout-<scan-id>/competitor-trust-scores.json`** — if it exists, load trust data. This data must be passed to all sprint sub-agents that reference competitor capabilities or competitive landscape.
+8. **Read `{scan_dir}/scan-audit.json`** — if it exists, load audit results. Sources with FAIL verdicts should have their evidence weighted lower in all sprint sub-agents. Pass the following guidance to sprint sub-agents that cite scan data:
+   - Sources with provenance FAIL (e.g., scan-reddit.json with 0 Reddit URLs): treat as "websearch aggregation" not as the claimed source
+   - Sources with post count FAIL (>30% inflation): use actual array count, not claimed count, when citing volume
+   - Duplicate posts across files: count as ONE citation, not multiple
+
+**Trust Score Integration:** If `competitor-trust-scores.json` exists, every sprint sub-agent prompt that references competitor features, capabilities, or competitive positioning MUST include:
+
+> Read `{scan_dir}/competitor-trust-scores.json`. When analyzing competitors:
+> - Only treat competitors with trustTier ESTABLISHED or CREDIBLE as confirmed operational products
+> - Competitors with trustTier EARLY-STAGE should be noted as "early-stage, features unverified"
+> - Competitors with trustTier UNVERIFIED or SUSPECT should be flagged as "unverified product — may be vaporware or pre-launch"
+> - User complaints and pain evidence about ANY competitor (regardless of trust tier) remain valid
+> - But feature claims and capability claims from UNVERIFIED/SUSPECT competitors should NOT be treated as confirmed
+> - When counting "how many competitors serve this need", only count ESTABLISHED + CREDIBLE as confirmed
+
+This applies to Sprints 1, 2, 5, 6, 9, 10, and 11 — all sprints that discuss competitor capabilities.
 
 After verifying readiness, create the first sprint task:
 ```
@@ -74,6 +92,7 @@ Spawn **3 sub-agents in parallel** (in a single message):
 3. Agent `map-classifier` (after both above complete):
    ```
    Read: s1-original-competitors.json, s1-broadened-competitors.json
+   Also read: competitor-trust-scores.json if it exists. Factor trust tiers into your analysis per the trust integration rules.
    Produce: /tmp/gapscout-<scan-id>/synthesis-1-competitive-map.json
      - Merged + deduplicated competitor list
      - Classify into tiers: leader / challenger / niche / oss
@@ -216,6 +235,7 @@ After Sprint 4 READY. Spawn **2 sub-agents in parallel** (in a single message):
    ```
    Read: synthesis-1-competitive-map.json, synthesis-2-competitor-pain.json,
          synthesis-3-unmet-needs.json
+   Also read: competitor-trust-scores.json if it exists. Factor trust tiers into your analysis per the trust integration rules.
    Produce: /tmp/gapscout-<scan-id>/s5-feature-list.json
      - Feature × Competitor grid: YES / Partial / No / BROKEN
      - Built from competitor profiles, pain themes, and unmet needs
@@ -225,6 +245,7 @@ After Sprint 4 READY. Spawn **2 sub-agents in parallel** (in a single message):
    ```
    Read: synthesis-2-competitor-pain.json, synthesis-3-unmet-needs.json,
          synthesis-4-switching.json
+   Also read: competitor-trust-scores.json if it exists. Factor trust tiers into your analysis per the trust integration rules.
    Produce: /tmp/gapscout-<scan-id>/s5-complaint-gaps.json
      - Map complaint themes to feature gaps
      - Cross-reference: features competitors CLAIM vs what users say is broken
@@ -256,6 +277,7 @@ After Sprint 5 READY. Spawn **2 sub-agents in parallel** (in a single message):
 1. Agent `scorer-compute`:
    ```
    Read: synthesis-1 through synthesis-5 (ALL from FILE)
+   Also read: competitor-trust-scores.json if it exists. Factor trust tiers into your analysis per the trust integration rules.
    Produce: /tmp/gapscout-<scan-id>/s6-scores.json
      - Composite scores per gap: pain evidence + WTP + competition + switching + source breadth
      - WTP and switching weighted 2x
@@ -347,6 +369,7 @@ After Sprint 8 READY. Spawn **1 sub-agent**:
 
 Agent `counter-positioning` (subagent_type: synthesis-counter-positioning):
 Read: synthesis-6-opportunities.json, synthesis-5-gap-matrix.json, synthesis-2-competitor-pain.json, competitor-profiles.json
+Also read: competitor-trust-scores.json if it exists. Factor trust tiers into your analysis per the trust integration rules.
 Produce: /tmp/gapscout-<scan-id>/synthesis-9-counter-positioning.json
   - For each top 5 opportunity: incumbent response prediction, structural barriers, moat assessment (STRONG/MEDIUM/WEAK), red-team rebuttal
 Signal completion: write synthesis-9-READY.txt
@@ -365,6 +388,7 @@ After Sprint 9 READY. Spawn **1 sub-agent**:
 
 Agent `consolidation-forecast` (subagent_type: synthesis-consolidation-forecast):
 Read: competitor-profiles.json, competitor-map.json, synthesis-1-competitive-map.json, synthesis-4-switching.json
+Also read: competitor-trust-scores.json if it exists. Factor trust tiers into your analysis per the trust integration rules.
 Produce: /tmp/gapscout-<scan-id>/synthesis-10-consolidation-forecast.json
   - M&A probability matrix per major competitor
   - Segment convergence map
@@ -387,6 +411,7 @@ After Sprint 10 READY. Spawn **1 sub-agent**:
 
 Agent `founder-profiles` (subagent_type: synthesis-founder-profiles):
 Read: competitor-profiles.json, competitor-map.json
+Also read: competitor-trust-scores.json if it exists. Factor trust tiers into your analysis per the trust integration rules.
 Produce: /tmp/gapscout-<scan-id>/synthesis-11-founder-profiles.json
   - Founder/CEO profiles for top 15-20 competitors via WebSearch
   - Founding story, funding, headcount, culture DNA

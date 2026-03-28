@@ -6,3 +6,4 @@ node_modules/
 .pain-pointsrc
 *.secret
 *.key
+.gstack/

@@ -12,6 +12,8 @@ You are a LEAF AGENT in the GapScout pipeline. You do analytical work directly �
 
 Read these files from `/tmp/gapscout-<scan-id>/`:
 - `report.json` — the complete structured report
+- `competitor-trust-scores.json` — competitor trust scores (if exists)
+- `scan-audit.json` — scan audit results (if exists)
 - `judge-synthesis-COMPLETE.json` — QA evaluation (for confidence level)
 
 ## Task
@@ -30,7 +32,15 @@ Produce a concise executive summary suitable for the orchestrator to present dir
    - Key evidence (strongest citation)
 4. **Surprise finding**: The most non-obvious insight from the analysis
 5. **Data confidence**: Based on QA scores — how much should the user trust these findings?
-6. **Next steps**: What the user should investigate further
+
+   If scan-audit.json exists and has FAIL verdicts:
+   - Note which sources failed audit in the `dataConfidence.caveat` field
+   - Adjust confidence level downward if >2 sources have FAIL verdicts
+6. **Trust insight** (if competitor-trust-scores.json exists):
+   - Include in marketSnapshot: "N of M competitors verified as ESTABLISHED or CREDIBLE; K flagged as UNVERIFIED or SUSPECT"
+   - If any top-3 opportunity's competitive assessment was materially changed by trust scoring, note it in the opportunity description
+   - Add a `trustInsight` field with the most impactful trust finding
+7. **Next steps**: What the user should investigate further
 
 ## Output
 

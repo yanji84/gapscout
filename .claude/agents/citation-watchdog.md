@@ -86,6 +86,36 @@ After each validation pass, update `/tmp/gapscout-<scan-id>/watchdog-status.json
 }
 ```
 
+### Enforcement: Blocking Flagged Citations from Synthesis
+
+When you detect a CRITICAL or HIGH alert, you MUST write a **citation blocklist** that synthesis agents will check before using any citation:
+
+Write to `/tmp/gapscout-<scan-id>/watchdog-blocklist.json` (create or update):
+```json
+{
+  "lastUpdated": "ISO8601",
+  "blockedCitations": [
+    {
+      "url": "<flagged URL>",
+      "quote": "<flagged quote or null>",
+      "sourceFile": "<scan file that contains it>",
+      "reason": "CONTENT_MISMATCH|FABRICATION_SUSPECTED|FLOATING_QUOTE|PROVENANCE_VIOLATION",
+      "severity": "CRITICAL|HIGH",
+      "flaggedAt": "ISO8601"
+    }
+  ],
+  "blockedFiles": [
+    {
+      "file": "<scan file name>",
+      "reason": "FABRICATION_SUSPECTED — entire file rejected",
+      "flaggedAt": "ISO8601"
+    }
+  ]
+}
+```
+
+This blocklist is **authoritative**. Synthesis agents MUST read it before incorporating any citation. Any URL or quote appearing in the blocklist MUST be excluded from synthesis output. This is the enforcement mechanism — flagging alone is insufficient.
+
 ### Interaction with Orchestrator
 
 - The orchestrator reads `watchdog-status.json` before each stage transition
@@ -94,6 +124,7 @@ After each validation pass, update `/tmp/gapscout-<scan-id>/watchdog-status.json
   - Proceed without that source
   - Halt the pipeline
 - You do NOT make pipeline decisions — you only report findings
+- However, your `watchdog-blocklist.json` IS enforced by synthesis agents regardless of orchestrator decisions
 
 ## Rules
 

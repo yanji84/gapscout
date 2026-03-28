@@ -17,6 +17,7 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `scan-websearch-switching.json` — switching-related websearch (if exists)
 - Any other `scan-websearch-*.json` files
 - `scan-google.json` — Google autocomplete data (if exists)
+- `watchdog-blocklist.json` — citation blocklist from watchdog (if exists)
 
 ## Task
 
@@ -81,3 +82,4 @@ Write to: `/tmp/gapscout-<scan-id>/s2-pain-websearch.json`
 - Every claim must have a citation URL from the scan data
 - Every quote must come verbatim from the scan data — do not paraphrase or fabricate
 - If input files are missing, report error — do not hallucinate data
+- **CITATION BLOCKLIST ENFORCEMENT**: If `watchdog-blocklist.json` exists, read it first. Exclude any URL or quote listed in `blockedCitations`. Exclude any source file listed in `blockedFiles`. Note excluded count in output.

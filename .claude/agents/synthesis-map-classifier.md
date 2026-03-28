@@ -14,6 +14,7 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `s1-original-competitors.json` — original competitors from map-original agent
 - `s1-broadened-competitors.json` — broadened competitors from map-broadened agent
 - `scan-spec.json` — for market context and segment definitions
+- `competitor-trust-scores.json` — trust scoring from trust-scorer agent (if exists)
 
 ## Task
 
@@ -26,8 +27,13 @@ Merge both competitor lists and classify every competitor:
    - `challenger` — growing, competitive features, actively gaining users
    - `niche` — specialized focus, smaller user base, serves a specific sub-market
    - `oss` — open source alternative
-4. **Stats** — compute total competitors (M original + K broadened)
-5. **Pricing coverage** — flag competitors missing pricing data (target >=80% coverage)
+4. **Trust overlay** — if `competitor-trust-scores.json` exists, merge trust data:
+   - Add `trustTier` and `trustScore` to each competitor entry
+   - Flag competitors with trustTier SUSPECT or UNVERIFIED with `"trustWarning": "This competitor may not have a real operational product"`
+   - In the output stats, add `trustDistribution` showing how many competitors fall into each trust tier
+   - If a competitor classified as `leader` or `challenger` has trustTier SUSPECT or UNVERIFIED, downgrade to `niche` and note the reason
+5. **Stats** — compute total competitors (M original + K broadened)
+6. **Pricing coverage** — flag competitors missing pricing data (target >=80% coverage)
 
 ## Output
 

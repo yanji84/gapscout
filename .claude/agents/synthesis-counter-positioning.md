@@ -18,6 +18,7 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `competitor-map.json` — competitor landscape (if exists)
 - `synthesis-1-competitive-map.json` — competitive landscape
 - Any `scan-websearch-*.json` files — for recent competitor activity
+- `competitor-trust-scores.json` — competitor trust scores (if exists)
 
 ## Task
 
@@ -46,7 +47,13 @@ For each of the top 5 opportunities (by composite score from Sprint 6), analyze 
    - Assume the rebuttal is written by a skeptical VC who has seen similar pitches fail
    - Include specific risks: market size, execution difficulty, incumbent response speed, customer willingness to adopt
 
-5. **Net assessment:**
+5. **Trust-informed competitive assessment:**
+   - When analyzing "which incumbents could respond", only treat ESTABLISHED and CREDIBLE competitors as capable of responding
+   - EARLY-STAGE competitors may respond but with lower likelihood (they may not survive)
+   - UNVERIFIED and SUSPECT competitors should NOT be listed as competitive threats — they may not be real products
+   - Note the trust tier of each competitor mentioned in the counter-positioning analysis
+
+6. **Net assessment:**
    - Combine incumbent response, structural barriers, moat strength, and red-team rebuttal into a final confidence rating: HIGH CONFIDENCE, MEDIUM CONFIDENCE, or LOW CONFIDENCE
    - Be honest — if the moat is weak, say so
 

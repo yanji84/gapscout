@@ -97,7 +97,14 @@ Read these files from the scan directory:
      --scan-dir /tmp/gapscout-<scan-id>
    ```
 
-5. Deduplicate results by post URL. Merge all posts into a single collection.
+5. **CRITICAL: Verify Reddit provenance.** Before proceeding:
+   - Every post in your output MUST have an individual Reddit permalink URL (e.g., `https://reddit.com/r/espresso/comments/abc123/post_title/`). Subreddit-level URLs (`https://reddit.com/r/espresso`) are NOT acceptable as post citations.
+   - If the CLI returned data from non-Reddit sources (Steam forums, niche forums, etc.), do NOT include them in scan-reddit.json. Label them honestly or discard them.
+   - If you could not obtain individual post URLs from the API, report `"provenanceStatus": "NO_INDIVIDUAL_URLS"` and set the post count to the number of posts you can actually cite with individual URLs (which may be 0).
+   - Do NOT claim a post count higher than the number of posts with individual URLs in your output. If you have 31 posts with URLs, report `"postsCollected": 31`, not 87.
+   - NEVER fabricate dates. If dates are unavailable from the API, set `"date": null` — do NOT insert default dates like "2025-06".
+
+6. Deduplicate results by post URL. Merge all posts into a single collection.
 
 6. For each post, classify into pain themes:
    - Extract the core complaint or frustration
@@ -156,7 +163,9 @@ Write to `/tmp/gapscout-<scan-id>/scan-reddit.json`:
 - Stay within the pullpush rate budget from orchestration-config. Track requests made.
 - Do NOT spawn sub-agents. Do all work directly.
 - Deduplicate by URL before writing output.
-- Every evidence entry MUST have a valid URL.
+- Every evidence entry MUST have a valid individual Reddit permalink URL (not a subreddit-level URL).
+- If you fall back to WebSearch with `site:reddit.com` instead of using the Arctic Shift/PullPush API, you MUST report `"apiUsed": "websearch-fallback"` in your output metadata. Do NOT disguise websearch results as API data.
 - If a CLI command fails or times out, log the error in the output and continue with remaining commands.
 - Classify themes semantically — use your understanding of the complaints, not keyword matching.
+- **Query logging**: Persist all executed query strings in the output file under a `queriesExecuted` array. Include the actual search string, not just a count. This is required for scan audit compliance.
 - Do NOT proceed to any next stage. Write your output file and stop.

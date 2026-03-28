@@ -17,6 +17,7 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `synthesis-4-switching.json` — switching signals
 - `synthesis-5-gap-matrix.json` — validated gap matrix
 - `scan-spec.json` — for scoring formula if defined
+- `competitor-trust-scores.json` — competitor trust scores (if exists)
 
 ## Task
 
@@ -39,7 +40,14 @@ Compute composite opportunity scores for each gap classified YES or PARTIAL in S
 2. **Composite score** = (pain + WTP*2 + competition + switching*2 + breadth) / 7 * 100 / 20
    - Normalize to 0-100 scale
 
-3. **Verdict:**
+3. **Trust-adjusted competition score**: If competitor-trust-scores.json exists:
+   - When scoring "Competition weakness" (0-20), only count competitors with trustTier ESTABLISHED or CREDIBLE as real competitive threats
+   - Competitors with trustTier EARLY-STAGE count as 0.5x competitive threat
+   - Competitors with trustTier UNVERIFIED or SUSPECT count as 0x competitive threat (they don't reduce the gap score)
+   - Add a `trustAdjustedCompetition` field showing the adjusted score alongside the raw score
+   - Example: If 5 competitors "serve" a gap but 3 are SUSPECT, effective competition = 2 (not 5)
+
+4. **Verdict:**
    - VALIDATED (>=60) — strong evidence, actionable opportunity
    - NEEDS EVIDENCE (40-59) — promising but needs more validation
    - TOO WEAK (<40) — insufficient evidence

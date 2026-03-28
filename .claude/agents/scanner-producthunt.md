@@ -116,4 +116,5 @@ Write to `/tmp/gapscout-<scan-id>/scan-producthunt.json`:
 - Deduplicate by product slug before writing output.
 - Every evidence entry MUST have a valid URL.
 - If the CLI returns an error (e.g., no API token, rate limit), log the error and write output with what was collected.
+- **Query logging**: Persist all executed query strings in the output file under a `queriesExecuted` array. Include the actual search string, not just a count. This is required for scan audit compliance.
 - Do NOT proceed to any next stage. Write your output file and stop.
