@@ -128,7 +128,38 @@ If deep mode is active:
    - A post mentioning "agent" generically is NOT relevant unless it also mentions
      phone numbers, SMS, OTP, verification services, or specific competitors
 
-8. For each post, classify into pain themes:
+8. **Per-Post Credibility Scoring.** For every post, compute a `credibility` object before classification:
+
+   ```json
+   {
+     "credibility": {
+       "score": 0-100,
+       "tier": "HIGH|MEDIUM|LOW",
+       "factors": {
+         "sourceAuthority": 0-100,
+         "engagement": 0-100,
+         "specificity": 0-100,
+         "recency": 0-100,
+         "authorCredibility": 0-100
+       }
+     }
+   }
+   ```
+
+   **HN-specific scoring rules:**
+   - **sourceAuthority**: HN is a high-authority technical source. Base = 70 for all HN posts. "Ask HN" and "Show HN" threads with significant discussion = 80-90. Flagged/dead posts = 30.
+   - **engagement**: Based on points + comment count. 100+ points = 90-100; 30-99 = 70-89; 10-29 = 50-69; 1-9 = 30-49; 0 = 10.
+   - **specificity**: Does the post/comment mention specific tools, APIs, error messages, benchmarks, or quantified claims? Technical depth with specifics = 90-100; general technical discussion = 50-70; vague opinion = 10-30.
+   - **recency**: Posts within 30 days = 100; 30-90 days = 85; 90-180 days = 70; 180-365 days = 50; older = 30.
+   - **authorCredibility**: If karma is available from API data — karma > 10K = 90; 1K-10K = 70; 100-1K = 50; < 100 or unknown = 40. HN accounts are generally higher quality, so floor is 40 (not 30).
+
+   **Composite score** = weighted average: sourceAuthority 20%, engagement 20%, specificity 25%, recency 15%, authorCredibility 20%.
+
+   **Tier assignment:** HIGH >= 70, MEDIUM 40-69, LOW < 40.
+
+   Include the `credibility` object on every entry in `rawPosts` and on every entry in `painThemes[].evidence`.
+
+9. For each post, classify into pain themes:
    - Extract the core complaint or discussion point
    - Assign a descriptive theme name
    - Rate intensity: URGENT, ACTIVE, or LATENT
@@ -140,7 +171,7 @@ If deep mode is active:
    - "Browser automation for AI agents" is NOT evidence of "OTP automation bottleneck"
      unless it specifically discusses phone number or SMS verification.
 
-9. Aggregate themes by frequency and intensity.
+10. Aggregate themes by frequency and intensity.
 
 ## Output
 
@@ -163,7 +194,18 @@ Write to `/tmp/gapscout-<scan-id>/scan-hn.json`:
           "quote": "<exact quote from post or comment>",
           "url": "<HN story URL>",
           "score": <points>,
-          "comments": <comment count>
+          "comments": <comment count>,
+          "credibility": {
+            "score": "<0-100>",
+            "tier": "HIGH|MEDIUM|LOW",
+            "factors": {
+              "sourceAuthority": "<0-100>",
+              "engagement": "<0-100>",
+              "specificity": "<0-100>",
+              "recency": "<0-100>",
+              "authorCredibility": "<0-100>"
+            }
+          }
         }
       ]
     }
@@ -175,7 +217,18 @@ Write to `/tmp/gapscout-<scan-id>/scan-hn.json`:
       "score": <number>,
       "comments": <number>,
       "theme": "<assigned theme>",
-      "intensity": "URGENT|ACTIVE|LATENT"
+      "intensity": "URGENT|ACTIVE|LATENT",
+      "credibility": {
+        "score": "<0-100>",
+        "tier": "HIGH|MEDIUM|LOW",
+        "factors": {
+          "sourceAuthority": "<0-100>",
+          "engagement": "<0-100>",
+          "specificity": "<0-100>",
+          "recency": "<0-100>",
+          "authorCredibility": "<0-100>"
+        }
+      }
     }
   ],
   "queryLog": [

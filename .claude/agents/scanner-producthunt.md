@@ -67,7 +67,38 @@ Read these files from the scan directory:
    - Rate intensity: URGENT, ACTIVE, or LATENT
    - Preserve the original Product Hunt URL
 
-6. Aggregate themes by frequency and intensity.
+6. **Per-Post Credibility Scoring.** For every comment/post, compute a `credibility` object:
+
+   ```json
+   {
+     "credibility": {
+       "score": 0-100,
+       "tier": "HIGH|MEDIUM|LOW",
+       "factors": {
+         "sourceAuthority": 0-100,
+         "engagement": 0-100,
+         "specificity": 0-100,
+         "recency": 0-100,
+         "authorCredibility": 0-100
+       }
+     }
+   }
+   ```
+
+   **Product Hunt-specific scoring rules:**
+   - **sourceAuthority**: PH is a curated launch platform. Base = 65. Top-5 product of the day = 85; featured launch = 75; unfeatured product = 50.
+   - **engagement**: Based on product upvotes + comment count. 500+ upvotes = 90-100; 100-499 = 70-89; 20-99 = 50-69; < 20 = 30-49.
+   - **specificity**: Does the comment mention specific use cases, comparison with alternatives, pricing concerns, or concrete feature gaps? Detailed comparison = 90-100; moderate feedback = 50-70; generic praise/complaint = 10-30.
+   - **recency**: Posts within 30 days = 100; 30-90 days = 85; 90-180 days = 70; 180-365 days = 50; older = 30.
+   - **authorCredibility**: Maker badge (product team member commenting) = 60 (biased but informed); PH user with 100+ followers = 80; hunter with track record = 85; anonymous or new account = 35.
+
+   **Composite score** = weighted average: sourceAuthority 20%, engagement 20%, specificity 25%, recency 15%, authorCredibility 20%.
+
+   **Tier assignment:** HIGH >= 70, MEDIUM 40-69, LOW < 40.
+
+   Include the `credibility` object on every entry in `painThemes[].evidence` and `rawProducts`.
+
+7. Aggregate themes by frequency and intensity.
 
 ## Output
 
@@ -91,7 +122,18 @@ Write to `/tmp/gapscout-<scan-id>/scan-producthunt.json`:
           "quote": "<exact quote from comment or review>",
           "url": "<Product Hunt URL>",
           "productName": "<product name>",
-          "upvotes": <number>
+          "upvotes": <number>,
+          "credibility": {
+            "score": "<0-100>",
+            "tier": "HIGH|MEDIUM|LOW",
+            "factors": {
+              "sourceAuthority": "<0-100>",
+              "engagement": "<0-100>",
+              "specificity": "<0-100>",
+              "recency": "<0-100>",
+              "authorCredibility": "<0-100>"
+            }
+          }
         }
       ]
     }
@@ -102,7 +144,18 @@ Write to `/tmp/gapscout-<scan-id>/scan-producthunt.json`:
       "url": "<Product Hunt URL>",
       "upvotes": <number>,
       "commentCount": <number>,
-      "painSignals": <number of pain-relevant comments>
+      "painSignals": <number of pain-relevant comments>,
+      "credibility": {
+        "score": "<0-100>",
+        "tier": "HIGH|MEDIUM|LOW",
+        "factors": {
+          "sourceAuthority": "<0-100>",
+          "engagement": "<0-100>",
+          "specificity": "<0-100>",
+          "recency": "<0-100>",
+          "authorCredibility": "<0-100>"
+        }
+      }
     }
   ]
 }

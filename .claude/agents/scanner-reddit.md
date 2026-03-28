@@ -121,14 +121,45 @@ If the orchestration-config or prompt indicates "deep" mode:
 
 6. Deduplicate results by post URL. Merge all posts into a single collection.
 
-6. For each post, classify into pain themes:
+6. **Per-Post Credibility Scoring.** For every post, compute a `credibility` object before classification:
+
+   ```json
+   {
+     "credibility": {
+       "score": 0-100,
+       "tier": "HIGH|MEDIUM|LOW",
+       "factors": {
+         "sourceAuthority": 0-100,
+         "engagement": 0-100,
+         "specificity": 0-100,
+         "recency": 0-100,
+         "authorCredibility": 0-100
+       }
+     }
+   }
+   ```
+
+   **Reddit-specific scoring rules:**
+   - **sourceAuthority**: Subreddit relevance to the market domain. Niche professional subreddits (r/sysadmin, r/devops) = 80-100; large general subreddits (r/technology) = 50-70; off-topic or meme subreddits = 10-30.
+   - **engagement**: Based on upvotes + comment count. 100+ upvotes = 90-100; 20-99 = 70-89; 5-19 = 50-69; 1-4 = 30-49; 0 = 10.
+   - **specificity**: Does the post mention specific product names, prices, dates, version numbers, or quantified metrics? Exact numbers/names = 90-100; some details = 50-70; vague grumbling = 10-30.
+   - **recency**: Posts within 30 days = 100; 30-90 days = 85; 90-180 days = 70; 180-365 days = 50; older = 30.
+   - **authorCredibility**: If available from API data — karma > 10K = 90; 1K-10K = 70; 100-1K = 50; < 100 or unknown = 30. Account age > 2yr = +10 bonus (cap 100).
+
+   **Composite score** = weighted average: sourceAuthority 25%, engagement 20%, specificity 25%, recency 15%, authorCredibility 15%.
+
+   **Tier assignment:** HIGH >= 70, MEDIUM 40-69, LOW < 40.
+
+   Include the `credibility` object on every entry in `rawPosts` and on every entry in `painThemes[].evidence`.
+
+7. For each post, classify into pain themes:
    - Extract the core complaint or frustration
    - Assign a theme name (descriptive, e.g. "commission-rate-too-high" not "pricing")
    - Rate intensity: URGENT (switching/quitting), ACTIVE (seeking workarounds), LATENT (grumbling)
    - Extract the best quote
    - Preserve the original URL
 
-7. Aggregate themes: count frequency, determine overall intensity, collect top evidence posts.
+8. Aggregate themes: count frequency, determine overall intensity, collect top evidence posts.
 
 ## Output
 
@@ -153,7 +184,18 @@ Write to `/tmp/gapscout-<scan-id>/scan-reddit.json`:
           "url": "<permalink to post>",
           "score": <upvotes>,
           "comments": <comment count>,
-          "subreddit": "<subreddit>"
+          "subreddit": "<subreddit>",
+          "credibility": {
+            "score": "<0-100>",
+            "tier": "HIGH|MEDIUM|LOW",
+            "factors": {
+              "sourceAuthority": "<0-100>",
+              "engagement": "<0-100>",
+              "specificity": "<0-100>",
+              "recency": "<0-100>",
+              "authorCredibility": "<0-100>"
+            }
+          }
         }
       ]
     }
@@ -167,7 +209,18 @@ Write to `/tmp/gapscout-<scan-id>/scan-reddit.json`:
       "comments": <number>,
       "body": "<post body excerpt, max 500 chars>",
       "theme": "<assigned theme>",
-      "intensity": "URGENT|ACTIVE|LATENT"
+      "intensity": "URGENT|ACTIVE|LATENT",
+      "credibility": {
+        "score": "<0-100>",
+        "tier": "HIGH|MEDIUM|LOW",
+        "factors": {
+          "sourceAuthority": "<0-100>",
+          "engagement": "<0-100>",
+          "specificity": "<0-100>",
+          "recency": "<0-100>",
+          "authorCredibility": "<0-100>"
+        }
+      }
     }
   ]
 }

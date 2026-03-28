@@ -70,6 +70,7 @@ Read these files from the scan directory:
        --scan-dir /tmp/gapscout-<scan-id>
      ```
    - Instructions to write output to `/tmp/gapscout-<scan-id>/scan-trustpilot-batch-<N>.json`
+   - Instructions to compute a `credibility` object for each review (see Per-Review Credibility Scoring below)
    - Instructions to classify each review into pain themes with severity ratings
 
 4. Wait for all batch files to appear: `scan-trustpilot-batch-1.json` through `scan-trustpilot-batch-N.json`
@@ -79,6 +80,39 @@ Read these files from the scan directory:
    - Deduplicate any reviews that appear in multiple batches
    - Aggregate pain themes across all competitors
    - Count total reviews collected per competitor
+
+## Per-Review Credibility Scoring
+
+Every review in the output MUST include a `credibility` object:
+
+```json
+{
+  "credibility": {
+    "score": 0-100,
+    "tier": "HIGH|MEDIUM|LOW",
+    "factors": {
+      "sourceAuthority": 0-100,
+      "engagement": 0-100,
+      "specificity": 0-100,
+      "recency": 0-100,
+      "authorCredibility": 0-100
+    }
+  }
+}
+```
+
+**Trustpilot-specific scoring rules:**
+- **sourceAuthority**: Trustpilot is a verified review platform. Base = 75 for all Trustpilot reviews. Reviews on companies with 500+ total reviews = 85 (established profile). Companies with < 10 reviews = 60 (thin profile).
+- **engagement**: Trustpilot reviews have limited engagement signals. Reviews marked "useful" by other users = 80; reviews with company reply = 70 (indicates the company noticed); no engagement signals = 40.
+- **specificity**: Does the review mention specific features, dates, support ticket numbers, dollar amounts, or timelines? Highly specific with evidence = 90-100; moderate detail = 50-70; vague "terrible service" = 10-30.
+- **recency**: Reviews within 30 days = 100; 30-90 days = 85; 90-180 days = 70; 180-365 days = 50; older = 30.
+- **authorCredibility**: Verified purchase badge = 90; reviewer has 5+ reviews on Trustpilot = 75; unverified with single review = 35.
+
+**Composite score** = weighted average: sourceAuthority 20%, engagement 10%, specificity 30%, recency 15%, authorCredibility 25%.
+
+**Tier assignment:** HIGH >= 70, MEDIUM 40-69, LOW < 40.
+
+Include the `credibility` object on every `painPosts` entry and on every `aggregatedThemes[].topEvidence` entry.
 
 ## Output
 
@@ -100,7 +134,18 @@ Write to `/tmp/gapscout-<scan-id>/scan-trustpilot.json`:
           "quote": "<exact quote from review>",
           "url": "<trustpilot review URL>",
           "severity": "CRITICAL|HIGH|MEDIUM|LOW",
-          "stars": <1-3>
+          "stars": <1-3>,
+          "credibility": {
+            "score": "<0-100>",
+            "tier": "HIGH|MEDIUM|LOW",
+            "factors": {
+              "sourceAuthority": "<0-100>",
+              "engagement": "<0-100>",
+              "specificity": "<0-100>",
+              "recency": "<0-100>",
+              "authorCredibility": "<0-100>"
+            }
+          }
         }
       ]
     }
@@ -114,7 +159,18 @@ Write to `/tmp/gapscout-<scan-id>/scan-trustpilot.json`:
         {
           "quote": "<quote>",
           "url": "<url>",
-          "competitor": "<name>"
+          "competitor": "<name>",
+          "credibility": {
+            "score": "<0-100>",
+            "tier": "HIGH|MEDIUM|LOW",
+            "factors": {
+              "sourceAuthority": "<0-100>",
+              "engagement": "<0-100>",
+              "specificity": "<0-100>",
+              "recency": "<0-100>",
+              "authorCredibility": "<0-100>"
+            }
+          }
         }
       ]
     }

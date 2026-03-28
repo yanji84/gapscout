@@ -99,6 +99,7 @@ For each additional source in scan-spec.additionalSources, spawn a websearch sub
    - The scan directory path
    - Its allocated websearch budget
    - Instructions to use the **WebSearch tool** for each query
+   - Instructions to compute a `credibility` object for each post/result (see Per-Post Credibility Scoring below)
    - Instructions to extract pain signals from search results: read snippets, identify complaint patterns, capture URLs
    - Output file path
 
@@ -113,6 +114,39 @@ For each additional source in scan-spec.additionalSources, spawn a websearch sub
    - Each file has valid JSON
    - Total websearch budget was not exceeded
    - Log any sub-agents that returned 0 results
+
+## Per-Post Credibility Scoring
+
+Every post/result in sub-agent output MUST include a `credibility` object:
+
+```json
+{
+  "credibility": {
+    "score": 0-100,
+    "tier": "HIGH|MEDIUM|LOW",
+    "factors": {
+      "sourceAuthority": 0-100,
+      "engagement": 0-100,
+      "specificity": 0-100,
+      "recency": 0-100,
+      "authorCredibility": 0-100
+    }
+  }
+}
+```
+
+**Websearch-specific scoring rules:**
+- **sourceAuthority**: Based on domain reputation. Major publications (TechCrunch, Ars Technica, NYT) = 90-100; established blogs/forums (NamePros, IndieHackers, dev.to) = 60-80; personal blogs with engagement = 40-60; unknown domains = 20-40. GitHub issues/discussions on repos with 1K+ stars = 80-90; < 100 stars = 40-50.
+- **engagement**: Comment count on the page if visible; social shares if available. 50+ comments = 90; 10-49 = 70; 1-9 = 50; no engagement data = 30. For GitHub: issue with 10+ participants = 90; 3-9 = 70; 1-2 = 40.
+- **specificity**: Does the post cite specific products, version numbers, dollar amounts, benchmarks, or named individuals? Detailed analysis with data = 90-100; general discussion = 50-70; vague mentions = 10-30.
+- **recency**: Published within 30 days = 100; 30-90 days = 85; 90-180 days = 70; 180-365 days = 50; older or date unknown = 30.
+- **authorCredibility**: Named author with byline and bio = 80; known industry figure = 90-100; anonymous or no author attribution = 30. For GitHub: maintainer/contributor = 90; drive-by issue reporter = 40.
+
+**Composite score** = weighted average: sourceAuthority 30%, engagement 15%, specificity 25%, recency 15%, authorCredibility 15%.
+
+**Tier assignment:** HIGH >= 70, MEDIUM 40-69, LOW < 40.
+
+Include the `credibility` object on every entry in `painThemes[].evidence`.
 
 ## Output
 
@@ -137,7 +171,18 @@ Sub-agent output format (each file):
         {
           "quote": "<snippet or title from search result>",
           "url": "<source URL>",
-          "postTitle": "<page title if available>"
+          "postTitle": "<page title if available>",
+          "credibility": {
+            "score": "<0-100>",
+            "tier": "HIGH|MEDIUM|LOW",
+            "factors": {
+              "sourceAuthority": "<0-100>",
+              "engagement": "<0-100>",
+              "specificity": "<0-100>",
+              "recency": "<0-100>",
+              "authorCredibility": "<0-100>"
+            }
+          }
         }
       ]
     }

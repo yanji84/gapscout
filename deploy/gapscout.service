@@ -1,0 +1,24 @@
+[Unit]
+Description=GapScout Market Intelligence Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/gapscout
+ExecStart=/usr/bin/node server/index.mjs
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3002
+Environment=DATA_DIR=/root/gapscout/data
+Environment=BASE_PATH=/gapscout
+Environment=MAX_CONCURRENT_SCANS=3
+Environment=HOME=/root
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gapscout
+
+[Install]
+WantedBy=multi-user.target

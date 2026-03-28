@@ -26,7 +26,23 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 
 ## Task
 
-Score every evidence item on a 0-100 credibility scale and assign confidence tiers to pain themes and opportunities:
+Score every evidence item on a 0-100 credibility scale and assign confidence tiers to pain themes and opportunities.
+
+### Consuming Per-Post Credibility Scores from Scanners
+
+Scanner agents (reddit, hn, trustpilot, websearch, producthunt) now emit a `credibility` object on every post/evidence item with a composite `score` (0-100), `tier` (HIGH/MEDIUM/LOW), and per-factor breakdowns (`sourceAuthority`, `engagement`, `specificity`, `recency`, `authorCredibility`).
+
+**When scanner-level credibility scores are present:**
+- Use them as the **starting point** for your per-evidence scoring. Do NOT discard them and re-score from scratch.
+- Map scanner factors to your dimensions: scanner `sourceAuthority` -> your `Source Authority`; scanner `engagement` -> your `Engagement`; scanner `specificity` -> your `Specificity`; scanner `recency` -> your `Recency`.
+- Your `Corroboration` and `Actionability` dimensions have no scanner equivalent -- score these fresh based on cross-source analysis.
+- If a scanner credibility score is present, compute your composite as: **(scanner composite * 0.6) + (your corroboration score * 0.2 + your actionability score * 0.1 + your independent adjustment * 0.1)** where independent adjustment accounts for any corrections you make after cross-referencing (e.g., a scanner scored engagement high but the post has a blocklisted URL).
+- If a scanner credibility score is **missing** (older scan data, google-autocomplete, or partial results), fall back to scoring from scratch using the 6-dimension rubric below.
+
+**Per-post trust aggregation for themes:**
+- When computing `avgScore` for a pain theme, use the per-post `credibility.score` from scanner data as a weight: higher-credibility posts contribute more to the theme average.
+- Formula: `themeAvgScore = sum(post.credibility.score * evidenceDimensionComposite) / sum(post.credibility.score)` for all posts in that theme.
+- This ensures a theme supported by 3 HIGH-credibility posts outranks a theme with 10 LOW-credibility posts.
 
 1. **Score each evidence item on 6 dimensions (weighted average = composite 0-100):**
    - **Source Authority** (25%): How credible is the source?
@@ -68,7 +84,9 @@ Score every evidence item on a 0-100 credibility scale and assign confidence tie
 
 ### Per-Post Trust Score
 
-Every individual evidence post/review/comment gets a trust score (0-100) computed from:
+Every individual evidence post/review/comment gets a trust score (0-100). **If the scanner already provided a `credibility.score`, use it directly as `postTrustScore` and skip re-computation for that item.** Only compute from scratch for items missing scanner credibility data.
+
+For items without scanner credibility, compute from:
 
 1. **Account credibility** (25%):
    - Reddit: karma > 10K = 90, 1K-10K = 70, 100-1K = 50, <100 = 30

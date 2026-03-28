@@ -189,6 +189,25 @@ If the user provides a path to a previous scan directory (e.g., `/tmp/gapscout-<
 
 5. After report generation, spawn `delta-summarizer` (see separate agent).
 
+#### RESUME MODE MANDATORY STAGES
+
+The following stages MUST ALWAYS run in resume mode, regardless of what the resumption plan says to skip or keep:
+
+```
+- Trust Scoring (Phase 2b): ALWAYS run, even when discovery is SKIP.
+  If competitor-trust-scores.json exists from previous scan, REFRESH it
+  (market conditions change, new competitors discovered during scanning).
+
+- Community Validation (Sprint 12): ALWAYS run after synthesis completes.
+  This produces human-actionable validation plans per opportunity.
+  It was added as a mandatory sprint — never skip it.
+
+- These stages are NOT optional in resume mode. The resumption plan's
+  "keep" list must NEVER include trust-scorer or community-validator.
+  If the resumption plan lists sprint 12 in "keep", OVERRIDE it and
+  move sprint 12 to "rerun".
+```
+
 After creating the scan directory, create the first progress task:
 ```
 TaskCreate({ description: "Phase 1: Planning market scope", status: "in_progress" })
@@ -619,7 +638,9 @@ Spawn **`synthesizer-coordinator`** with:
 > - But their FEATURES/CAPABILITIES should not be treated as confirmed — they may be marketing claims from vaporware
 > - The competitive gap analysis should note which "competitors" in a gap are ESTABLISHED vs SUSPECT
 
-The synthesizer-coordinator runs 11 sequential sprints internally. You do NOT manage individual sprints — the coordinator owns that.
+The synthesizer-coordinator runs sprints internally. You do NOT manage individual sprints — the coordinator owns that.
+
+**MANDATORY SPRINT: Sprint 12 (Community Validation).** Even in resume mode where some sprints are skipped via `plan.synthesis.keep`, Sprint 12 MUST ALWAYS run. It produces `community-validation.json` with human-actionable validation plans per opportunity. When passing the resumption plan to the synthesizer-coordinator, ensure sprint 12 is in the `rerun` list, never in `keep`.
 
 The synthesizer-coordinator spawns sub-agents that are LEAF agents (subagent_type references).
 This means synthesis is exactly 2 levels deep: orchestrator → synthesizer-coordinator → leaf analysts.
@@ -784,7 +805,8 @@ All report generators receive:
 - All synthesis files
 - `deep-research-summary.json` — verification results (if deep research was enabled and ran)
 - `deep-research-verification-round-{N}.json` — per-round detail files (for evidence drill-down)
-- `community-validation.json` — community validation suggestions (from Sprint 12)
+- `competitor-trust-scores.json` — competitor legitimacy scores (from Phase 2b)
+- `community-validation.json` — community validation suggestions (from Sprint 12, MANDATORY)
 
 4. **`delta-summarizer`** (subagent_type: delta-summarizer) — ONLY if resumeMode is enabled. Compares new vs. previous report.
 

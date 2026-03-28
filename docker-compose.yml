@@ -1,0 +1,16 @@
+services:
+  gapscout:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - gapscout-data:/app/data
+    environment:
+      - PORT=3000
+      - DATA_DIR=/app/data
+      - SESSION_SECRET=${SESSION_SECRET:-}
+      - MAX_CONCURRENT_SCANS=${MAX_CONCURRENT_SCANS:-3}
+    restart: unless-stopped
+
+volumes:
+  gapscout-data:

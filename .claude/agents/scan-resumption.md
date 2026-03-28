@@ -37,6 +37,10 @@ Do NOT fabricate any data. Only read and analyze existing files.
    - Which synthesis sprints need RE-RUN (with more data)
    - Which synthesis sprints can be KEPT (still valid)
 
+   **MANDATORY RE-RUN STAGES (never place in "keep"):**
+   - **Trust Scoring (Phase 2b):** ALWAYS re-run, even when discovery is SKIP. Market conditions change and new competitors may have been discovered during scanning. Never place trust-scorer in any "keep" or "skip" list.
+   - **Community Validation (Sprint 12):** ALWAYS re-run. It produces human-actionable validation plans per opportunity. Sprint 12 must ALWAYS appear in synthesis.rerun, NEVER in synthesis.keep.
+
 4. **Copy previous files to new scan directory:**
    - Copy all files from previousScanDir to the new scan dir
    - Rename originals with `.prev` suffix (e.g., `competitor-map.prev.json`)
@@ -74,10 +78,15 @@ Write to: `/tmp/gapscout-<scan-id>/resumption-plan.json`
       "expand": ["appstore — missing entirely", "linkedin — new source"],
       "skip": []
     },
+    "trustScoring": {
+      "action": "RERUN",
+      "reason": "MANDATORY — always re-run trust scoring in resume mode"
+    },
     "synthesis": {
-      "rerun": [1, 2, 3, 4, 5, 6],
+      "rerun": [1, 2, 3, 4, 5, 6, 12],
       "keep": [9, 10, 11],
-      "reason": "Sprints 1-6 need rerun with expanded data; 9-11 can be kept if scan data doesn't change fundamentally"
+      "mandatoryRerun": [12],
+      "reason": "Sprints 1-6 need rerun with expanded data; 9-11 can be kept if scan data doesn't change fundamentally; Sprint 12 (community validation) is MANDATORY and must always rerun"
     }
   },
   "previousFiles": {
@@ -93,3 +102,6 @@ Write to: `/tmp/gapscout-<scan-id>/resumption-plan.json`
 - Use Bash `cp` and `mv` commands to copy and rename files
 - Do NOT modify the previous scan directory — only copy FROM it
 - Write output to the NEW scan directory
+- NEVER place trust-scorer or Sprint 12 (community-validator) in any "keep" or "skip" list — these are mandatory re-run stages
+- Always include `trustScoring.action: "RERUN"` in the plan
+- Always include sprint 12 in `synthesis.rerun` and `synthesis.mandatoryRerun`

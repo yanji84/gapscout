@@ -1,0 +1,10 @@
+{
+  "name": "gapscout-server",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "express": "^4.21.0",
+    "better-sqlite3": "^11.7.0",
+    "bcryptjs": "^2.4.3"
+  }
+}
