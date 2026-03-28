@@ -794,6 +794,73 @@ TaskCreate({ description: "Phase 5: Generating reports", status: "in_progress" }
 ```
 Save the returned task ID as `report_task_id`.
 
+### Step 7.5: Citation Verification & Enrichment (MANDATORY)
+
+After synthesis QA passes and before report generation, run citation verification to ensure every evidence item in the synthesis has a verifiable URL. This phase catches the gap between scan data (which has URLs) and synthesis outputs (which may have lost URLs during summarization).
+
+**Why this exists:** The #1 user complaint about GapScout reports is missing citation links. A report where every claim links to its source is trustworthy. A report without links is not. This phase is mandatory — never skip it.
+
+**Spawn 5 parallel verification agents:**
+
+```
+Agent({
+  description: "Verify opportunity evidence URLs",
+  prompt: "Read synthesis-6-opportunities.json and deep-research-*.json. For every evidence item, verify the URL exists in the scan data files. If URLs are missing, use WebSearch to find the real source. Write citation-links-opportunities.json.",
+  run_in_background: true
+})
+
+Agent({
+  description: "Verify competitor and founder URLs",
+  prompt: "Read synthesis-1-competitive-map.json and synthesis-11-founder-profiles.json. Verify every company website is live. Find GitHub, Crunchbase, HN Show HN URLs for each competitor. Write citation-links-competitors.json.",
+  run_in_background: true
+})
+
+Agent({
+  description: "Verify pain theme evidence URLs",
+  prompt: "Read synthesis-2-competitor-pain.json and synthesis-3-unmet-needs.json. For every evidence item, find the real source URL. Write citation-links-pain-themes.json.",
+  run_in_background: true
+})
+
+Agent({
+  description: "Verify specs, papers, and standards URLs",
+  prompt: "Read all synthesis files. Find URLs for every RFC, arxiv paper, standard, GitHub issue/repo referenced. Write citation-links-specs-papers.json.",
+  run_in_background: true
+})
+
+Agent({
+  description: "Verify community and HN thread URLs",
+  prompt: "Read scan-hn.json, scan-websearch-forums.json, community-validation.json. Verify every HN item ID, forum thread, and community URL. Write citation-links-community.json.",
+  run_in_background: true
+})
+```
+
+Wait for all 5 to complete.
+
+Read each citation-links-*.json. Log:
+- Total citations verified
+- Citations not found
+- Content discrepancies (mark for correction in report)
+
+**Pass all citation-links-*.json files to the report generators** so they can build inline links.
+
+Update the report generation spawn to include citation files:
+```
+All report generators receive (in addition to existing files):
+- citation-links-opportunities.json
+- citation-links-competitors.json
+- citation-links-pain-themes.json
+- citation-links-specs-papers.json
+- citation-links-community.json
+```
+
+After report.html is generated, verify it has inline links:
+```
+VERIFY: grep -c '<a href=' report.html > 100
+IF link count < 100:
+  Log WARNING: "Report has insufficient inline citations"
+  Consider re-running report-generator-html with explicit citation instructions
+```
+
 ### Step 8: Spawn Report Generation Team
 
 Spawn **in a single message** (parallel):
@@ -807,6 +874,11 @@ All report generators receive:
 - `deep-research-verification-round-{N}.json` — per-round detail files (for evidence drill-down)
 - `competitor-trust-scores.json` — competitor legitimacy scores (from Phase 2b)
 - `community-validation.json` — community validation suggestions (from Sprint 12, MANDATORY)
+- `citation-links-opportunities.json` — verified opportunity evidence URLs (from Step 7.5, MANDATORY)
+- `citation-links-competitors.json` — verified competitor and founder URLs (from Step 7.5, MANDATORY)
+- `citation-links-pain-themes.json` — verified pain theme evidence URLs (from Step 7.5, MANDATORY)
+- `citation-links-specs-papers.json` — verified specs, papers, and standards URLs (from Step 7.5, MANDATORY)
+- `citation-links-community.json` — verified community and HN thread URLs (from Step 7.5, MANDATORY)
 
 4. **`delta-summarizer`** (subagent_type: delta-summarizer) — ONLY if resumeMode is enabled. Compares new vs. previous report.
 

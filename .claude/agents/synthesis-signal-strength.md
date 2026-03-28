@@ -166,6 +166,24 @@ Add `recencyMultiplier` and `ageInDays` to each evidence item output.
    - If the cited competitor has trustTier ESTABLISHED, no adjustment
    - This does NOT apply to user complaints about the competitor — those are still valid evidence regardless of the competitor's trust score
 
+## Citation URL Passthrough
+
+Every evidence item you output MUST preserve the source URL from the scan data. When reading scan-*.json files, extract the `url` field from each post/evidence and carry it through to your output.
+
+Your output evidence arrays MUST use this format:
+```json
+{
+  "text": "The evidence quote or description",
+  "url": "https://exact-source-url-from-scan-data",
+  "sourceType": "hackernews|reddit|trustpilot|websearch|producthunt",
+  "date": "2026-03-28"
+}
+```
+
+**Do NOT summarize evidence without preserving its URL.** A pain theme or need without source URLs is unverifiable and will be flagged by the citation pipeline.
+
+When multiple evidence items support the same theme, preserve ALL their URLs — not just one representative example. The report needs every claim linked to its source.
+
 ## Output
 
 Write to: `/tmp/gapscout-<scan-id>/synthesis-8-signal-strength.json`

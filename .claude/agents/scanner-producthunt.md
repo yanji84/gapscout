@@ -161,6 +161,30 @@ Write to `/tmp/gapscout-<scan-id>/scan-producthunt.json`:
 }
 ```
 
+Every evidence item MUST have a `url` field. Output without URLs will be rejected by the citation pipeline.
+
+## Mandatory URL Output Schema
+
+Every post/evidence item in your output MUST include these fields:
+- `url`: The direct, verified URL to the source (e.g., HN item URL, Reddit permalink, blog post URL)
+- `sourceType`: The source platform (e.g., "hackernews", "reddit", "trustpilot", "websearch", "producthunt", "google-autocomplete")
+- `title`: The title or headline of the post/page
+- `date`: The publication date (ISO format if available)
+
+For pain themes, every `evidence` array item MUST include:
+```json
+{
+  "text": "The evidence quote or description",
+  "url": "https://exact-source-url",
+  "sourceType": "producthunt",
+  "date": "2026-03-28"
+}
+```
+
+**URLs are NOT optional.** If you cannot determine the URL for a piece of evidence, do NOT include that evidence. An evidence item without a URL is unverifiable and therefore worthless.
+
+For Product Hunt: URL format is `https://www.producthunt.com/posts/SLUG`
+
 ## Rules
 
 - Do NOT spawn sub-agents. Do all work directly.

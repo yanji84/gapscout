@@ -18,6 +18,27 @@ You orchestrate the synthesis stage as a **sequential pipeline of analyst sprint
 
 Instruct every sprint sub-agent with this rule. A synthesis with 5 real citations is worth infinitely more than one with 50 fabricated ones. Each analyst runs in isolation with a fresh context, reads previous outputs from files, and writes its own output to a file. This prevents context anxiety and guarantees completeness.
 
+## URL Preservation Mandate
+
+Every sprint sub-agent prompt MUST include this instruction:
+
+> **PRESERVE SOURCE URLs:** When reading scan-*.json files, every evidence item you cite MUST include its source URL from the scan data. Your output evidence arrays MUST use this format:
+> ```json
+> {
+>   "text": "The evidence quote or description",
+>   "url": "https://exact-source-url-from-scan-data",
+>   "sourceType": "hackernews|github|reddit|websearch|producthunt|trustpilot",
+>   "date": "2026-03-28"
+> }
+> ```
+> A pain theme, unmet need, or opportunity without source URLs is unverifiable and will be rejected by the citation pipeline. If the scan data item does not have a URL, search the other scan files for the same evidence with a URL. If no URL can be found, mark the evidence as `"url": null, "citationStatus": "URL_MISSING"`.
+
+This instruction is as important as the anti-fabrication rule. A synthesis with evidence URLs enables the report to have clickable inline citations. A synthesis without URLs produces an unverifiable report that users cannot trust.
+
+When verifying sprint outputs (checking READY files), also verify that evidence items have URL fields:
+- If >50% of evidence items are missing URLs, log a warning
+- If >80% are missing URLs, consider re-running the sprint with explicit URL instructions
+
 ## Progress Tracking
 
 Create a task for each sprint as it begins, and update it to completed when that sprint's READY file is written. This gives the user real-time visibility into which synthesis sprint is currently running.
@@ -100,6 +121,8 @@ Spawn **3 sub-agents in parallel** (in a single message):
    Signal completion: write synthesis-1-READY.txt
    ```
 
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
+
 **Contract**: Done when all competitors (original + broadened) are classified with ≥80% having pricing data.
 
 After synthesis-1-READY.txt is confirmed:
@@ -146,6 +169,8 @@ Produce: /tmp/gapscout-<scan-id>/synthesis-2-competitor-pain.json
   - WTP signals extracted per competitor
 Signal completion: write synthesis-2-READY.txt
 ```
+
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
 
 **Contract**: Done when each competitor with ≥10 data points has ≥1 classified pain theme. Every quote has a URL.
 
@@ -198,6 +223,8 @@ Produce: /tmp/gapscout-<scan-id>/synthesis-3-unmet-needs.json
 Signal completion: write synthesis-3-READY.txt
 ```
 
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
+
 **Contract**: Done when unmet needs are validated against competitor feature lists. Each need has ≥2 source citations.
 
 After synthesis-3-READY.txt is confirmed:
@@ -218,6 +245,8 @@ Produce: /tmp/gapscout-<scan-id>/synthesis-4-switching.json
   - Competitor pairs with highest migration flow
 Signal completion: write synthesis-4-READY.txt
 ```
+
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
 
 **Contract**: Done when switching signals are mapped to specific competitor pairs with directional evidence.
 
@@ -262,6 +291,8 @@ Produce: /tmp/gapscout-<scan-id>/synthesis-5-gap-matrix.json
 Signal completion: write synthesis-5-READY.txt
 ```
 
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
+
 **Contract**: Done when each gap cell is traceable to scan data. No gap marked "YES" without ≥2 source evidence.
 
 After synthesis-5-READY.txt is confirmed:
@@ -303,6 +334,8 @@ Produce: /tmp/gapscout-<scan-id>/synthesis-6-opportunities.json
 Signal completion: write synthesis-6-READY.txt
 ```
 
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
+
 **Contract**: Done when scores follow the formula from scan-spec.json. Each VALIDATED opportunity has a concrete idea sketch.
 
 After synthesis-6-READY.txt is confirmed:
@@ -334,6 +367,8 @@ Produce: /tmp/gapscout-<scan-id>/synthesis-7-rescued.json
 Signal completion: write synthesis-7-READY.txt
 ```
 
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
+
 **Contract**: Done when raw data has been sampled and false-negative check is complete.
 
 After synthesis-7-READY.txt is confirmed:
@@ -355,6 +390,8 @@ Produce: /tmp/gapscout-<scan-id>/synthesis-8-signal-strength.json
   - Flag claims below SILVER tier
 Signal completion: write synthesis-8-READY.txt
 
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
+
 **Contract**: Done when every pain theme has a confidence tier and every opportunity has been re-scored.
 
 After synthesis-8-READY.txt is confirmed:
@@ -373,6 +410,8 @@ Also read: competitor-trust-scores.json if it exists. Factor trust tiers into yo
 Produce: /tmp/gapscout-<scan-id>/synthesis-9-counter-positioning.json
   - For each top 5 opportunity: incumbent response prediction, structural barriers, moat assessment (STRONG/MEDIUM/WEAK), red-team rebuttal
 Signal completion: write synthesis-9-READY.txt
+
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
 
 **Contract**: Done when each top opportunity has moat assessment and at least 2 structural barriers identified.
 
@@ -397,6 +436,8 @@ Produce: /tmp/gapscout-<scan-id>/synthesis-10-consolidation-forecast.json
   - New entrant implications
 Signal completion: write synthesis-10-READY.txt
 
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
+
 **Contract**: Done when all major competitors have M&A probability scores and at least 3 segment convergence predictions.
 
 After synthesis-10-READY.txt is confirmed:
@@ -417,6 +458,8 @@ Produce: /tmp/gapscout-<scan-id>/synthesis-11-founder-profiles.json
   - Founding story, funding, headcount, culture DNA
   - Pattern analysis: founder-led advantage, distress signals, strongest newcomers
 Signal completion: write synthesis-11-READY.txt
+
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
 
 **Contract**: Done when >=15 competitors have founder/CEO profiles with verified data.
 
@@ -441,6 +484,8 @@ Produce: /tmp/gapscout-<scan-id>/community-validation.json
   - Cross-cutting communities that span multiple opportunities
 Signal completion: write community-validation-READY.txt
 
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
+
 **Contract**: Done when top 5 opportunities each have at least 3 verified community recommendations.
 
 After community-validation-READY.txt is confirmed:
@@ -461,6 +506,8 @@ Read: synthesis-6-opportunities.json, synthesis-1-competitive-map.json, synthesi
 Produce: synthesis-13-market-sizing.json
 Signal completion: write synthesis-13-READY.txt
 
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
+
 **Contract**: Done when each VALIDATED opportunity has TAM/SAM/SOM estimates with confidence levels and a GTM playbook.
 
 After synthesis-13-READY.txt is confirmed:
@@ -478,6 +525,8 @@ Read: synthesis-2-competitor-pain.json, synthesis-6-opportunities.json, synthesi
 Produce: synthesis-14-causal-chains.json
 Signal completion: write synthesis-14-READY.txt
 
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
+
 **Contract**: Done when top 5 pain themes each have a root cause chain with structural forces and change catalysts.
 
 After synthesis-14-READY.txt is confirmed:
@@ -494,6 +543,8 @@ Agent `strategic-narrative` (subagent_type: synthesis-strategic-narrative):
 Read: ALL synthesis files (sprints 1-14)
 Produce: synthesis-15-strategic-narrative.json
 Signal completion: write synthesis-15-READY.txt
+
+**URL Reminder**: All sub-agents in this sprint MUST preserve source URLs per the URL Preservation Mandate above.
 
 **Contract**: Done when market story arc, opportunity playbooks, BUILD/WATCH/AVOID recommendations, and decision framework are complete.
 

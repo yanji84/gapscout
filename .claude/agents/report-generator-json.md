@@ -127,6 +127,44 @@ Build a research-paper style citation system throughout the report:
 
 6. **Deduplication**: If the same URL appears in multiple synthesis files, it gets ONE citation ID. Map all references to that single ID.
 
+## Citation Pipeline — MANDATORY
+
+The citation bibliography is the MOST IMPORTANT part of the report. A report without verifiable citations is worthless. Follow these steps EXACTLY:
+
+### Step 1: Build Citation Index from Scan Data
+Before writing any report content, scan ALL input files and extract every unique URL:
+- From scan-*.json: every post/evidence `url` field
+- From synthesis-*.json: every evidence item's `url` field
+- From deep-research-verification-round-*.json: every `newEvidence[].url`
+- From community-validation.json: every community/thread URL
+
+Deduplicate by URL. Assign sequential citation IDs starting from 1.
+
+### Step 2: Inject citationIds Everywhere
+Every claim, statistic, or evidence reference in the report MUST have a `citationIds` array pointing to the bibliography. If a claim has no citation, either find one or mark it as `"citationStatus": "UNCITED"`.
+
+### Step 3: Build the citations Array
+The top-level `citations` array MUST contain every unique URL used in the report. Schema per entry:
+```json
+{
+  "id": 1,
+  "url": "https://...",
+  "source": "hackernews|github|reddit|websearch|producthunt|trustpilot|arxiv|rfc",
+  "title": "Page or thread title",
+  "date": "2026-03-28",
+  "quote": "Key quote from this source (if applicable)",
+  "context": "What this citation supports in the report"
+}
+```
+
+### Step 4: Verify Completeness
+Before writing the file, verify:
+- Every opportunity has citationIds
+- Every pain theme has citationIds
+- Every switching signal has citationIds
+- Every competitor has at least a website URL
+- citationStats.total matches citations array length
+
 ## Output
 
 Write to: `/tmp/gapscout-<scan-id>/report.json`

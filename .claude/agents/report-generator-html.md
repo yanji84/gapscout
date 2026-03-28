@@ -23,13 +23,123 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 
 ## Task
 
+## Table of Contents — MANDATORY
+
+The HTML report MUST include a sticky/fixed Table of Contents for navigation. This is mandatory for all reports.
+
+### Implementation
+
+1. **TOC placement:** Immediately after the report header/title, before the Executive Summary section.
+
+2. **TOC structure:** A `<nav>` element with id="toc" containing an ordered list of all major sections:
+```html
+<nav id="toc" class="toc">
+  <h2>Table of Contents</h2>
+  <ol>
+    <li><a href="#executive-summary">Executive Summary</a></li>
+    <li><a href="#competitive-landscape">Competitive Landscape</a></li>
+    <li><a href="#pain-analysis">Pain Analysis</a></li>
+    <li><a href="#unmet-needs">Unmet Needs</a></li>
+    <li><a href="#switching-signals">Switching Signals</a></li>
+    <li><a href="#gap-matrix">Gap Matrix</a></li>
+    <li><a href="#ranked-opportunities">Ranked Opportunities</a>
+      <ol>
+        <li><a href="#opp-1">OPP-1: [Title] — Score: N</a></li>
+        <li><a href="#opp-2">OPP-2: [Title] — Score: N</a></li>
+        <!-- one entry per opportunity -->
+      </ol>
+    </li>
+    <li><a href="#signal-strength">Signal Strength</a></li>
+    <li><a href="#counter-positioning">Counter-Positioning</a></li>
+    <li><a href="#consolidation-forecast">Consolidation Forecast</a></li>
+    <li><a href="#founder-profiles">Founder Profiles</a></li>
+    <li><a href="#community-validation">Community Validation</a></li>
+    <li><a href="#data-quality">Data Quality</a></li>
+    <li><a href="#citation-index">Citation Index</a></li>
+  </ol>
+</nav>
+```
+
+3. **Section anchors:** Every `<h2>` section heading MUST have a matching `id` attribute:
+```html
+<h2 id="executive-summary">1. Executive Summary</h2>
+<h2 id="competitive-landscape">2. Competitive Landscape</h2>
+<!-- etc -->
+```
+
+4. **Nested TOC entries:** The Ranked Opportunities section should have nested sub-entries for each opportunity, showing the opportunity title and score. Similarly, Competitive Landscape can have sub-entries for each segment.
+
+5. **TOC styling (add to CSS):**
+```css
+.toc {
+  background: var(--card-bg-dark);
+  border: 1px solid var(--border-dark);
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin: 24px 0 32px;
+}
+.toc h2 {
+  font-size: 1.1rem;
+  margin-bottom: 12px;
+  color: var(--accent-blue);
+}
+.toc ol {
+  list-style-type: decimal;
+  padding-left: 20px;
+  margin: 0;
+}
+.toc ol ol {
+  list-style-type: decimal;
+  margin-top: 4px;
+  font-size: 0.9em;
+}
+.toc li {
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+.toc a {
+  color: var(--text-dark);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--border-dark);
+}
+.toc a:hover {
+  color: var(--accent-blue);
+  border-bottom-color: var(--accent-blue);
+}
+
+/* Back-to-top link after each section */
+.back-to-top {
+  display: inline-block;
+  margin-top: 16px;
+  font-size: 0.8rem;
+  color: var(--accent-blue);
+  text-decoration: none;
+  opacity: 0.6;
+}
+.back-to-top:hover {
+  opacity: 1;
+}
+```
+
+6. **Back-to-top links:** At the end of each major section, add a "Back to top" link:
+```html
+<a href="#toc" class="back-to-top">↑ Back to Table of Contents</a>
+```
+
+7. **Dynamic generation:** The TOC must be generated dynamically from the actual report content — if a section is absent (e.g., no delta summary, no market sizing), it should NOT appear in the TOC. Only list sections that have content.
+
+8. **Opportunity scores in TOC:** Each opportunity entry in the TOC should show the score and verdict badge inline, making the TOC itself a useful summary:
+```html
+<li><a href="#opp-1">OPP-1: Phone-native MCP Auth SDK — <span class="score-badge green">87</span> VALIDATED</a></li>
+```
+
 Generate a self-contained HTML report from report.json:
 
 1. **HTML structure:**
    - Single-file, self-contained HTML (all CSS inline, no external dependencies)
    - Responsive layout that works on desktop and mobile
    - Dark/light mode support via CSS media query
-2. **Sections (in order):**
+2. **Sections (in order).** Each section `<h2>` must have an `id` attribute matching its TOC anchor. See Table of Contents section for required IDs.
    - **Header**: Market name, date, scan ID, QA badge (PASS=green, MARGINAL=yellow, FAIL=red), citation count badge showing total references
    - **What Changed** (if delta-summary.json exists, show FIRST after header):
      - Narrative summary in a highlighted callout box with a "Delta" badge
@@ -92,6 +202,40 @@ Generate a self-contained HTML report from report.json:
    - In the bibliography section, each entry has an `id="cite-N"` anchor
    - Bibliography entry format: `[N] "Quote..." — Source, Date. <a href="url" target="_blank">url</a>`
    - Bibliography entries have alternating background rows for readability
+
+## Citation Rendering — MANDATORY
+
+The HTML report MUST render citations as clickable inline links. This is not optional — it is the primary quality signal for the report.
+
+### How to Render Citations
+
+1. **Build a citation map** from report.json's `citations` array: `citationId → {url, source, title, quote}`
+
+2. **For every evidence string** in the report that contains `[N]` notation:
+   - Replace `[N]` with `<sup><a href="#cite-N" class="cite-link" title="QUOTE">[N]</a></sup>`
+   - The link scrolls to the bibliography entry
+
+3. **For every company name** in competitor tables:
+   - Wrap in `<a href="COMPANY_URL" target="_blank" rel="noopener noreferrer">Company Name</a>`
+
+4. **For every GitHub issue reference** (e.g., "Issue #952"):
+   - Wrap in `<a href="GITHUB_ISSUE_URL" target="_blank" rel="noopener noreferrer">Issue #952</a>`
+
+5. **For every statistic** (e.g., "88% of MCP servers"):
+   - Add a superscript citation link to the source
+
+6. **Bibliography section** at the bottom:
+   - Render every citation as: `<div id="cite-N">[N] "Quote..." — Source. <a href="URL">URL</a></div>`
+
+### Fallback: No citations Array
+If report.json does NOT have a `citations` array (legacy reports), the HTML generator MUST:
+1. Read all scan-*.json and synthesis-*.json files from the scan directory
+2. Extract URLs from evidence items
+3. Build the citation index at render time
+4. Still produce inline links
+
+**A report without inline citation links is a FAILED report. Do not write report.html without verifying that inline links are present in at least the Executive Summary, Pain Analysis, and Opportunities sections.**
+
 5. **Interactivity (CSS-only, no JS required):**
    - Collapsible sections using `<details>` and `<summary>` elements
    - Hover effects on table rows

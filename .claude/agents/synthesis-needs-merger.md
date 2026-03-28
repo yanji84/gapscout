@@ -45,6 +45,24 @@ Apply the same trust-weight and recency-weight model as pain analysis:
 - Output `weightedMentionCount`, `avgTrustScore`, `avgRecencyDays` per need
 - Needs with high trust + high recency are prioritized over stale/low-trust needs
 
+## Citation URL Passthrough
+
+Every evidence item you output MUST preserve the source URL from the scan data. When reading scan-*.json files, extract the `url` field from each post/evidence and carry it through to your output.
+
+Your output evidence arrays MUST use this format:
+```json
+{
+  "text": "The evidence quote or description",
+  "url": "https://exact-source-url-from-scan-data",
+  "sourceType": "hackernews|reddit|trustpilot|websearch|producthunt",
+  "date": "2026-03-28"
+}
+```
+
+**Do NOT summarize evidence without preserving its URL.** A pain theme or need without source URLs is unverifiable and will be flagged by the citation pipeline.
+
+When multiple evidence items support the same theme, preserve ALL their URLs — not just one representative example. The report needs every claim linked to its source.
+
 ## Output
 
 Write to: `/tmp/gapscout-<scan-id>/synthesis-3-unmet-needs.json`
