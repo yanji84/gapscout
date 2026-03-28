@@ -209,6 +209,11 @@ Save your orchestration config to `/tmp/gapscout-<scan-id>/orchestration-config.
   "rateBudget": {
     "discovery": { "pullpush": 200, "producthunt": 50 },
     "scanning": { "pullpush": 800, "producthunt": 150 }
+  },
+  "sourceDisposition": {
+    "reddit": { "scanner": "scanner-reddit", "status": "spawned" },
+    "github-issues": { "scanner": "scanner-websearch", "status": "fallback", "siteQuery": "site:github.com" },
+    "stackernews": { "scanner": null, "status": "gap", "reason": "no agent type" }
   }
 }
 ```
@@ -316,13 +321,67 @@ Save the returned task ID as `scanning_task_id`.
 
 Spawn ALL scanning agents in a **SINGLE message**. This includes both leaf scanners AND coordinators. The goal is to minimize nesting depth — leaf scanners run at ONE level (orchestrator → leaf), not two.
 
+#### Pre-Spawn Validation: Source Coverage Check
+
+Before spawning any scanners, validate that EVERY source in scan-spec has a disposition:
+
+```
+allSources = scan-spec.scanningSpec.categoryA.reviewSources
+           + scan-spec.scanningSpec.categoryB.sources
+           + scan-spec.scanningSpec.categoryB.additionalSources (if present)
+
+For each source in allSources:
+  IF source is in orchestration-config.categoryASkip or categoryBSkip:
+    → Log: "Source {source} explicitly skipped. Reason: {reason from config}"
+  ELSE IF source has a matching scanner agent type (see mapping table):
+    → Log: "Source {source} → spawning {agent_type}"
+  ELSE IF source can be covered by scanner-websearch with site: queries:
+    → Log: "Source {source} → fallback to scanner-websearch with site:{domain} queries"
+  ELSE:
+    → Log: "WARNING: Source {source} has no scanner and no fallback. This is a coverage gap."
+    → Add to orchestrator-log.jsonl as a warning
+
+IF any sources have no scanner AND no fallback:
+  → Write warning to orchestrator-log.jsonl
+  → Include in scanning QA notes so the judge can flag it
+  → Do NOT silently drop — at minimum, attempt scanner-websearch with relevant queries
+
+Summary line in log: "Source coverage: {N}/{total} sources have dedicated scanners, {M} using websearch fallback, {K} explicitly skipped, {J} coverage gaps"
+```
+
+This validation runs ONCE before spawning and ensures zero silent drops. Record the results in the `sourceDisposition` field of orchestration-config.json.
+
 Only spawn agents listed in your config — skip any marked as "skip":
 
+#### Source-to-Scanner Mapping
+
+Use this table to map scan-spec sources to scanner agent types. For ANY source in scan-spec.scanningSpec.categoryB.sources that isn't in categoryASkip or categoryBSkip, spawn the corresponding scanner.
+
+| scan-spec source | Agent subagent_type | Nesting | Fallback if no agent exists |
+|---|---|---|---|
+| reddit | scanner-reddit | leaf | websearch with site:reddit.com queries |
+| hackernews | scanner-hn | leaf | websearch with site:news.ycombinator.com queries |
+| producthunt | scanner-producthunt | leaf | websearch with site:producthunt.com queries |
+| google-autocomplete | scanner-google-autocomplete | leaf | skip (low value for niche markets) |
+| trustpilot | scanner-trustpilot | coordinator | websearch with site:trustpilot.com queries |
+| github-issues | scanner-websearch | leaf | websearch with site:github.com queries targeting known repos |
+| stackernews | scanner-websearch | leaf | websearch with site:stacker.news queries |
+| g2 | scanner-websearch | leaf | websearch with site:g2.com queries |
+| capterra | scanner-websearch | leaf | websearch with site:capterra.com queries |
+| appstore | scanner-websearch | leaf | websearch with site:apps.apple.com queries |
+| indiehackers | scanner-websearch | leaf | websearch with site:indiehackers.com queries |
+| discord-answeroverflow | scanner-websearch | leaf | websearch with site:answeroverflow.com queries |
+
+**If a scan-spec source has no dedicated scanner agent type, use scanner-websearch with appropriate site: queries as fallback.**
+
+**CRITICAL: Every source listed in scan-spec.scanningSpec.categoryB.sources MUST either be spawned or explicitly listed in categoryBSkip with a logged reason. No silent drops.**
+
 **Leaf scanners (do actual scanning work — ONE level of nesting):**
-- `scanner-reddit` (subagent_type: scanner-reddit) — if in `categoryBScanners`
-- `scanner-hn` (subagent_type: scanner-hn) — if in `categoryBScanners`
-- `scanner-producthunt` (subagent_type: scanner-producthunt) — if in `categoryBScanners`
-- `scanner-google-autocomplete` (subagent_type: scanner-google-autocomplete) — if in `categoryBScanners`
+For each source in scan-spec.scanningSpec.categoryB.sources:
+- Look up the source in the Source-to-Scanner Mapping table above
+- If a dedicated agent type exists AND is not in categoryBSkip: spawn it
+- If no dedicated agent type exists: spawn scanner-websearch with site:-scoped queries for that source
+- Log the disposition of every source (spawned/skipped/fallback) to orchestrator-log.jsonl
 
 **Coordinator scanners (spawn their own batch sub-agents — TWO levels max):**
 - `scanner-trustpilot` (subagent_type: scanner-trustpilot) — if in `categoryACoordinators`. Spawns batch agents per competitor chunk.
