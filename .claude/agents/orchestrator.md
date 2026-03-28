@@ -155,6 +155,11 @@ You (orchestrator)
 │   │   │  │   └── verdict-agent × M               │                    │
 │   │   │  │   Output: debate-round-{N}.json       │                    │
 │   │   │  │                                        │                    │
+│   │   │  │ 6b.5 STRATEGIC REVIEW              │                    │
+│   │   │  │   └── strategic-reviewer            │                    │
+│   │   │  │       └── opportunity-strategist ×M  │                    │
+│   │   │  │   Output: strategic-review-{N}.json  │                    │
+│   │   │  │                                        │                    │
 │   │   │  │ 6c. IMPROVEMENT PLAN                  │                    │
 │   │   │  │   └── improvement-planner             │                    │
 │   │   │  │   Output: improvement-plan-{N}.json   │                    │
@@ -176,6 +181,10 @@ You (orchestrator)
 │   │   │  │                                        │                    │
 │   │   │  │ IF STOP → break to Phase 7             │                    │
 │   │   │  │ IF CONTINUE → loop to 6a               │                    │
+│   │   │  │                                        │                    │
+│   │   │  │ 6g. JOURNAL                          │                    │
+│   │   │  │   └── iteration-journal              │                    │
+│   │   │  │   Output: iteration-journal.md       │                    │
 │   │   │  └──────────────────────────────────────┘                    │
 │   │                                                                   │
 │   ├── Phase 7: FINAL REPORT + SUMMARY                                │
@@ -334,7 +343,9 @@ Save your orchestration config to `/tmp/gapscout-<scan-id>/orchestration-config.
         "newEvidenceRateStop": 0.10
       },
       "debateTopN": 5,
-      "skipInnerQA": true
+      "skipInnerQA": true,
+      "strategicReviewTopN": 5,
+      "journalEnabled": true
     },
     "deepResearch": {
       "enabled": true,
@@ -1046,6 +1057,28 @@ WHILE outer_iteration < max_outer_iterations:
   Log: "New citations from debates: {totalNewCitationsAcrossDebates}"
 
   ═══════════════════════════════════════════════════════
+  STEP 6b.5: STRATEGIC REVIEW
+  ═══════════════════════════════════════════════════════
+
+  Spawn strategic-reviewer after debates complete:
+
+  Agent({
+    description: "Strategic review — iteration {outer_iteration+1}",
+    subagent_type: "strategic-reviewer",
+    prompt: "Apply CEO/founder-mode strategic review to top opportunities. Round: {outer_iteration+1}. Spawn parallel opportunity-strategist agents. Challenge premises, find 10-star versions, analyze wedges. Build on debate results, don't repeat them. CITATION MANDATE: ground insights in evidence where possible, label speculation as hypotheses. Scan dir: {scan_dir}",
+    run_in_background: false
+  })
+
+  Wait for: strategic-review-round-{outer_iteration+1}.json
+  Read strategic review results.
+
+  Log: "Strategic review: {count} reframings suggested, recommended focus: {recommendedFocus}"
+
+  IF any opportunity has scopeRecommendation.mode == "EXPAND":
+    Log: "Strategic expansion suggested for: {opportunity names}"
+    # The improvement planner will generate broader search queries based on reframings
+
+  ═══════════════════════════════════════════════════════
   STEP 6c: IMPROVEMENT PLAN
   ═══════════════════════════════════════════════════════
 
@@ -1054,7 +1087,7 @@ WHILE outer_iteration < max_outer_iterations:
   Agent({
     description: "Plan improvements — iteration {outer_iteration+1}",
     subagent_type: "improvement-planner",
-    prompt: "Read critique-round-{outer_iteration+1}.json and debate-round-{outer_iteration+1}.json. Produce a targeted improvement plan. Prioritize by impact/cost. Include citation expansion actions. Round: {outer_iteration+1}. Scan dir: {scan_dir}",
+    prompt: "Read critique-round-{outer_iteration+1}.json, debate-round-{outer_iteration+1}.json, AND strategic-review-round-{outer_iteration+1}.json. Use reframing suggestions to generate broader search queries. Use scope recommendations to adjust iteration focus. Produce a targeted improvement plan. Prioritize by impact/cost. Include citation expansion actions. Round: {outer_iteration+1}. Scan dir: {scan_dir}",
     run_in_background: false
   })
 
@@ -1172,6 +1205,22 @@ WHILE outer_iteration < max_outer_iterations:
   IF decision == "CONTINUE":
     Log: "Continuing to iteration {outer_iteration+2}. Reason: {continueReason}"
     TaskUpdate({ id: iteration_task_id, description: "Iteration {outer_iteration+1}: Complete — continuing ({continueReason})", status: "completed" })
+
+  ═══════════════════════════════════════════════════════
+  STEP 6g: ITERATION JOURNAL
+  ═══════════════════════════════════════════════════════
+
+  Spawn iteration-journal to record this iteration's activity:
+
+  Agent({
+    description: "Record iteration {outer_iteration+1} to journal",
+    subagent_type: "iteration-journal",
+    prompt: "Append iteration {outer_iteration+1} entry to the journal. Read all iteration artifacts: critique-round-{N}.json, debate-round-{N}.json, strategic-review-round-{N}.json, improvement-plan-round-{N}.json, convergence-check-{N}.json, and report.json. If this is iteration 1, write the preamble first. If convergence decision is STOP, write the final summary. Scan dir: {scan_dir}",
+    run_in_background: true
+  })
+
+  # Journal runs in background — don't block the loop on it
+
     outer_iteration += 1
 
 IF outer_iteration == max_outer_iterations AND decision != "STOP":
@@ -1262,6 +1311,7 @@ IF fresh scan:
 - Iteration artifacts: critique-round-*.json, debate-round-*.json
 - Improvement plans: improvement-plan-round-*.json
 - Delta summary: delta-summary.json
+- Iteration journal: /tmp/gapscout-{id}/iteration-journal.md
 ```
 
 ---
@@ -1386,6 +1436,9 @@ Throughout the pipeline, you continuously adapt based on results:
 | Improvement plan has 0 CRITICAL actions | Likely near convergence — loop-controller should lean toward STOP |
 | All top-5 debates are BULL wins with HIGH confidence | Strong convergence signal — ship |
 | New evidence rate < 5% for 2 consecutive iterations | Diminishing returns — STOP regardless of other metrics |
+| Strategic reviewer suggests EXPAND for top opportunity | Improvement planner generates broader queries targeting the reframed version |
+| Strategic reviewer suggests REDUCE | Improvement planner narrows focus, may drop low-potential opportunities |
+| Multiple opportunities have synergies | Note in journal, improvement planner may suggest combining |
 
 ## What You Do NOT Do
 

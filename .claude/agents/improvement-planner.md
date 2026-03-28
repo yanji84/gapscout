@@ -30,6 +30,7 @@ Read from `/tmp/gapscout-<scan-id>/`:
 - `convergence-check-{N-1}.json` — previous convergence check (if N > 1)
 - `improvement-plan-round-{N-1}.json` — previous plan (to avoid repeating actions)
 - `resumption-baseline.json` — previous scan inventory (if resume mode — indicates this is iterating on a previous report, not a lean draft)
+- `strategic-review-round-{N}.json` — strategic review results (reframings, scope recommendations, wedge analysis, 10-star versions)
 
 ## Planning Logic
 
@@ -83,6 +84,30 @@ For EVERY opportunity in the report, regardless of critique findings:
 - Every iteration should increase the total citation count
 - Target the weakest-cited opportunities first (fewest URLs per claim)
 
+### 8. Strategic Review Reframings
+
+For each opportunity where `strategic-review-round-{N}.json` has `reframing.shouldReframe == true`:
+
+- Add the `newSearchQueries` from the reframing to `actions.newSearchQueries` with priority HIGH
+- Set the `purpose` field to: "Exploring reframed opportunity: '{proposedFraming}' (was: '{originalFraming}'). Reframe suggested by strategic-reviewer round {N}."
+- If the scope recommendation is EXPAND, also generate queries for:
+  - The adjacent problems identified in `tenStarVersion.adjacentProblems`
+  - The most desperate buyer persona from `wedgeAnalysis.mostDesperateBuyer`
+  - The expand path steps from `wedgeAnalysis.expandPath`
+
+For each opportunity where `strategic-review-round-{N}.json` has `scopeRecommendation.mode == "REDUCE"`:
+- Do NOT generate expansion queries for this opportunity
+- Instead, add a note to the plan that the next synthesis re-run should narrow the framing
+- Add the `narrowestWedge` as a focus constraint for any re-scan targeting this opportunity
+
+For `crossOpportunityInsights.synergies`:
+- If two opportunities could be combined, add queries exploring the combined space
+- Priority: MEDIUM (speculative but high-upside)
+
+For `crossOpportunityInsights.biggestBlindSpot`:
+- Generate 2-3 queries specifically targeting the identified blind spot
+- Priority: HIGH (the strategic reviewer identified something the whole report is missing)
+
 ### Resume Mode Considerations
 
 When `resumption-baseline.json` exists, this iteration is refining a previous full report (draft v0) rather than a lean draft. Key differences:
@@ -112,6 +137,8 @@ Each action has an estimated cost:
 - Competitor profiling: 3 units (discovery + site visit + scanning)
 - Citation verification search: 1 unit
 - Synthesis sprint rerun: 5 units
+
+Strategic expansion queries should be budgeted generously — they explore potentially high-value reframings that could change the top opportunity rankings.
 
 Total plan cost must fit within the iteration budget. If total estimated cost exceeds budget:
 1. Sort all actions by `priority` (CRITICAL > HIGH > MEDIUM) then by expected impact
@@ -192,6 +219,17 @@ Write to: `/tmp/gapscout-<scan-id>/improvement-plan-round-{N}.json`
         "targetOpportunity": "<gap name>",
         "priority": "HIGH|MEDIUM"
       }
+    ],
+    "strategicExpansions": [
+      {
+        "opportunity": "<gap name>",
+        "originalFraming": "<current>",
+        "reframedAs": "<new framing from strategic review>",
+        "scopeMode": "EXPAND|SELECTIVE_EXPAND|HOLD|REDUCE",
+        "expansionQueries": ["<queries exploring the reframed/expanded opportunity>"],
+        "wedgeFocus": "<narrowest entry point>",
+        "priority": "CRITICAL|HIGH|MEDIUM"
+      }
     ]
   },
   "budget": {
@@ -201,7 +239,8 @@ Write to: `/tmp/gapscout-<scan-id>/improvement-plan-round-{N}.json`
       "newSearches": 0,
       "rescanning": 0,
       "profiling": 0,
-      "citationVerification": 0
+      "citationVerification": 0,
+      "strategicExpansion": 0
     }
   },
   "expectedOutcome": {

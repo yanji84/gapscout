@@ -33,10 +33,12 @@ orchestrator (single brain, owns all stage transitions)
   └── ITERATIVE REFINEMENT LOOP (max 3 iterations):
       ├── report-critic (5 parallel sub-teams: evidence, perspective, bias, competitors, counter-evidence)
       ├── debate-agent (parallel bull/bear pairs per top opportunity)
+      ├── strategic-reviewer (parallel strategist per opportunity — CEO lens)
       ├── improvement-planner (targeted action plan)
       ├── targeted re-scan + re-synthesize + citation expansion
       ├── report v(N+1)
-      └── loop-controller (converge or continue?)
+      ├── loop-controller (converge or continue?)
+      └── iteration-journal (appends human-readable record)
 
 Resume mode: previous report → draft v0 → enters loop at critique step
 ```
@@ -84,6 +86,8 @@ orchestrator
 | debate-agent | `.claude/agents/debate-agent.md` | Bull vs bear debates per opportunity (spawns parallel pairs) |
 | improvement-planner | `.claude/agents/improvement-planner.md` | Targeted improvement plan from critique + debates |
 | loop-controller | `.claude/agents/loop-controller.md` | Convergence manager for iterative loop |
+| strategic-reviewer | `.claude/agents/strategic-reviewer.md` | CEO/founder-mode strategic review per opportunity |
+| iteration-journal | `.claude/agents/iteration-journal.md` | Human-readable iteration history journal |
 
 See `AGENT-RELATIONSHIPS.md` for full topology, data flows, and agent counts.
 

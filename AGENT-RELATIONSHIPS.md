@@ -671,6 +671,36 @@ loop-controller  [LEAF — no sub-agents]
 
 **Sub-agents: 0 (leaf agent)**
 
+### 2T. Strategic-Reviewer (Iterative Draft Mode)
+
+```
+strategic-reviewer
+  |-- [PARALLEL — one strategist per top opportunity, up to 5]
+  |   |-- opportunity-strategist-1
+  |   |     Reads: report.json, synthesis-6-opportunities.json, debate-round-{N}.json
+  |   |     Writes: partial results merged by coordinator
+  |   |
+  |   |-- opportunity-strategist-2 (same structure)
+  |   |-- ...
+  |   +-- opportunity-strategist-5
+  |
+  +-- [MERGE all reviews + cross-opportunity insights]
+        Writes: strategic-review-round-{N}.json
+```
+
+**Sub-agents: up to 5 parallel**
+
+### 2U. Iteration-Journal (Iterative Draft Mode)
+
+```
+iteration-journal  [LEAF — no sub-agents]
+  Reads: critique-round-{N}.json, debate-round-{N}.json, strategic-review-round-{N}.json,
+         improvement-plan-round-{N}.json, convergence-check-{N}.json, report.json
+  Appends to: iteration-journal.md
+```
+
+**Sub-agents: 0 (leaf agent)**
+
 ### Iterative Loop Data Flow
 
 ```
@@ -774,6 +804,8 @@ Per iteration:
 | `citation-expansion-iter-{N}-{idx}.json` | citation search agents | report generator, synthesizer | Iteration N |
 | `refutation-iter-{N}-{idx}.json` | refutation agents | synthesizer (re-run) | Iteration N |
 | `broadened-profile-iter-{N}-{slug}.json` | adhoc profiler agents | synthesizer Sprint 1 (re-run) | Iteration N |
+| `strategic-review-round-{N}.json` | strategic-reviewer | improvement-planner, loop-controller, iteration-journal | Iteration N |
+| `iteration-journal.md` | iteration-journal | user (chat reference) | All iterations |
 | `resumption-baseline.json` | scan-resumption | improvement-planner, report-critic | Resume entry |
 
 Note: In resume mode, `scan-resumption` copies all previous scan files into the new workspace and writes `resumption-baseline.json`. These files feed into the iterative refinement loop (not a separate pipeline).
@@ -1005,9 +1037,12 @@ data already exists. The critic red-teams the existing report as-is.
 | citation verifiers | 5 | mandatory |
 | report generators | 2 | JSON + HTML |
 | loop-controller | 1 | leaf |
-| **Subtotal per iteration** | **~40-60** | |
+| strategic-reviewer | 1 coordinator | |
+| opportunity-strategist agents | up to 5 | parallel |
+| iteration-journal | 1 | leaf, runs in background |
+| **Subtotal per iteration** | **~45-65** | |
 
-**Total across 3 iterations: ~120-180 additional agents**
+**Total across 3 iterations: ~135-195 additional agents**
 
 **Convergence criteria (ALL must be true to STOP):**
 - Critique score < 25
@@ -1201,6 +1236,8 @@ If judge iteration loops trigger (assume 1 round of re-runs):
 | debate-agent | `.claude/agents/debate-agent.md` | Bull vs bear debates per opportunity (spawns parallel pairs) |
 | improvement-planner | `.claude/agents/improvement-planner.md` | Targeted improvement plan from critique + debates |
 | loop-controller | `.claude/agents/loop-controller.md` | Convergence manager for iterative loop |
+| strategic-reviewer | `.claude/agents/strategic-reviewer.md` | CEO/founder-mode strategic review per opportunity |
+| iteration-journal | `.claude/agents/iteration-journal.md` | Human-readable iteration history journal |
 | scan-resumption | `.claude/agents/scan-resumption.md` | Copy previous scan files and set iteration baseline |
 | delta-summarizer | `.claude/agents/delta-summarizer.md` | Compares first draft to final report (iterative and resume modes) |
 | All other agents | Defined inline in `GAPSCOUT-WORKFLOW.md` | Scanner coordinators, discovery agents, etc. |
