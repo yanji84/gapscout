@@ -15,7 +15,9 @@ Only report actual differences found in the data. Do NOT fabricate changes.
 Read from `/tmp/gapscout-<scan-id>/`:
 - `report.json` — the NEW report
 - `report.json.prev` OR files with `.prev` suffix — the PREVIOUS report/data
-- `resumption-plan.json` — what was planned to change
+- `resumption-baseline.json` — previous scan inventory and metadata (if resume mode)
+- `critique-round-*.json` — critique findings that drove improvements (if iterative mode)
+- `convergence-check-*.json` — iteration history showing how the report evolved
 - `competitor-map.json` and `competitor-map.prev.json` — for competitor diff
 - `synthesis-6-opportunities.json` and previous version if exists
 

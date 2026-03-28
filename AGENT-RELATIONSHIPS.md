@@ -142,6 +142,14 @@
                /tmp/gapscout-<id>/report.json
 ```
 
+### Resume Mode Entry Point
+
+```
+RESUME MODE: previous scan → scan-resumption (copy + baseline) → enters iterative loop at CRITIQUE
+```
+
+When resuming from an existing report, the `scan-resumption` agent copies previous scan files into the new workspace and writes `resumption-baseline.json`. The pipeline then enters the iterative refinement loop (Section 5C) at the critique step, treating the previous report as draft v0.
+
 ### Transition Summary Table
 
 | From | To | Trigger | Artifact Passed | Gate Condition |
@@ -587,6 +595,101 @@ documenter-<stage>
 
 **Sub-agents: 3-4 parallel per stage (observer-cross-stage only runs at Scanning and Synthesis stages)**
 
+### 2P. Report-Critic (Iterative Draft Mode)
+
+```
+report-critic
+  |-- [PARALLEL, single message — 5 critique dimensions]
+  |   |-- evidence-auditor
+  |   |     Reads: report.json, synthesis-8-signal-strength.json, citation-links-*.json
+  |   |     Checks: BRONZE-tier, single-source, stale (>12 month) evidence
+  |   |
+  |   |-- perspective-checker
+  |   |     Reads: report.json, synthesis-2-competitor-pain.json
+  |   |     Checks: missing user segments, geographies, company sizes
+  |   |
+  |   |-- bias-detector
+  |   |     Reads: report.json, synthesis-6-opportunities.json, scan-spec.json
+  |   |     Checks: confirmation bias, survivorship bias, selection bias
+  |   |
+  |   |-- competitor-gap-finder
+  |   |     Reads: competitor-map.json, report.json
+  |   |     Uses: WebSearch to find missing competitors
+  |   |
+  |   +-- counter-evidence-hunter
+  |         Reads: synthesis-6-opportunities.json
+  |         Uses: WebSearch to find evidence AGAINST each top opportunity
+  |
+  +-- [MERGE all critique dimensions]
+        Writes: critique-round-{N}.json
+```
+
+**Sub-agents: 5 parallel**
+
+### 2Q. Debate-Agent (Iterative Draft Mode)
+
+```
+debate-agent
+  |-- [PARALLEL — one debate per top opportunity, up to 5]
+  |   |
+  |   |-- Opportunity 1 debate:
+  |   |   |-- bull-agent    (cites evidence FOR the opportunity)
+  |   |   |-- bear-agent    (cites evidence AGAINST the opportunity)
+  |   |   +-- verdict-agent (synthesizes winner, adjusts score)
+  |   |
+  |   |-- Opportunity 2 debate: (same structure)
+  |   |-- Opportunity 3 debate: (same structure)
+  |   |-- Opportunity 4 debate: (same structure)
+  |   +-- Opportunity 5 debate: (same structure)
+  |
+  +-- [MERGE all verdicts]
+        Writes: debate-round-{N}.json
+```
+
+**Sub-agents: 3 per opportunity × 5 opportunities = 15 parallel (in batches)**
+
+### 2R. Improvement-Planner (Iterative Draft Mode)
+
+```
+improvement-planner  [LEAF — no sub-agents]
+  Reads: critique-round-{N}.json, debate-round-{N}.json, scan-spec.json,
+         orchestration-config.json, previous improvement plans
+  Writes: improvement-plan-round-{N}.json
+```
+
+**Sub-agents: 0 (leaf agent)**
+
+### 2S. Loop-Controller (Iterative Draft Mode)
+
+```
+loop-controller  [LEAF — no sub-agents]
+  Reads: critique-round-{N}.json, debate-round-{N}.json, improvement-plan-round-{N}.json,
+         report.json, previous convergence-check-*.json files
+  Writes: convergence-check-{N}.json
+  Decision: CONTINUE or STOP
+```
+
+**Sub-agents: 0 (leaf agent)**
+
+### Iterative Loop Data Flow
+
+```
+Per iteration:
+  critique-round-{N}.json ──┐
+                             ├──→ improvement-plan-round-{N}.json
+  debate-round-{N}.json ────┘         │
+                                       ├──→ targeted-scan-iter-{N}-*.json
+                                       ├──→ citation-expansion-iter-{N}-*.json
+                                       ├──→ refutation-iter-{N}-*.json
+                                       └──→ synthesis re-runs (selective sprints)
+                                                    │
+                                                    v
+                                           report.json v(N+1)
+                                                    │
+                                                    v
+                                     convergence-check-{N}.json → STOP/CONTINUE
+```
+
 ---
 
 ## 3. Data Flow Diagram
@@ -659,7 +762,23 @@ documenter-<stage>
 | `synthesis-6-opportunities.json` | analyst-sprint-6-opportunities | Sprint 7 agent | Synthesis S6 |
 | `synthesis-7-rescued.json` | analyst-sprint-7-rescue | report generation | Synthesis S7 |
 
-### 3E. QA Files (Produced at Every Stage)
+### 3E. Iterative Refinement Files (Iterative Draft Mode)
+
+| File | Producer | Consumer(s) | Stage |
+|------|----------|-------------|-------|
+| `critique-round-{N}.json` | report-critic | improvement-planner, loop-controller | Iteration N |
+| `debate-round-{N}.json` | debate-agent | improvement-planner, loop-controller | Iteration N |
+| `improvement-plan-round-{N}.json` | improvement-planner | orchestrator (executes plan) | Iteration N |
+| `convergence-check-{N}.json` | loop-controller | orchestrator (continue/stop) | Iteration N |
+| `targeted-scan-iter-{N}-{idx}.json` | targeted search agents | synthesizer (re-run) | Iteration N |
+| `citation-expansion-iter-{N}-{idx}.json` | citation search agents | report generator, synthesizer | Iteration N |
+| `refutation-iter-{N}-{idx}.json` | refutation agents | synthesizer (re-run) | Iteration N |
+| `broadened-profile-iter-{N}-{slug}.json` | adhoc profiler agents | synthesizer Sprint 1 (re-run) | Iteration N |
+| `resumption-baseline.json` | scan-resumption | improvement-planner, report-critic | Resume entry |
+
+Note: In resume mode, `scan-resumption` copies all previous scan files into the new workspace and writes `resumption-baseline.json`. These files feed into the iterative refinement loop (not a separate pipeline).
+
+### 3F. QA Files (Produced at Every Stage)
 
 | File | Producer | Consumer(s) | Stage |
 |------|----------|-------------|-------|
@@ -823,7 +942,99 @@ gap-analyst completes report
   Max 3 rounds, then ship with weakness note
 ```
 
-### 5C. Stage-Level Re-Run (Team Lead Decision)
+### 5C. Outer Iterative Refinement Loop (Iterative Draft Mode)
+
+```
+                   LEAN DRAFT (6 sprints)
+                          |
+                          v
+                   DRAFT REPORT v1
+                          |
+       ┌──────────────────┼──────────────────┐
+       |                  |                  |
+       v                  v                  v
+  report-critic      debate-agent     (parallel)
+  (5 sub-teams)      (5 debate pairs)
+       |                  |
+       └──────┬───────────┘
+              v
+    improvement-planner
+              |
+              v
+    TARGETED EXECUTION:
+    ├── new searches (parallel)
+    ├── citation expansion (parallel)
+    ├── hypothesis refutation (parallel)
+    ├── new competitor profiling (parallel)
+    └── selective sprint re-runs
+              |
+              v
+    CITATION RE-VERIFICATION (5 parallel)
+              |
+              v
+    REGENERATE REPORT v(N+1)
+              |
+              v
+    loop-controller
+         /        \
+    CONTINUE     STOP
+       |           |
+    loop to       SHIP
+    critique
+```
+
+**Resume mode enters this loop with the previous report as draft v0.**
+The `scan-resumption` agent copies files and writes `resumption-baseline.json`.
+The `improvement-planner` reads `resumption-baseline.json` to understand what
+data already exists. The critic red-teams the existing report as-is.
+
+**Per-iteration agent counts:**
+
+| Agent | Count per iteration | Notes |
+|-------|-------------------|-------|
+| report-critic | 1 coordinator | |
+| critique sub-agents | 5 | parallel |
+| debate-agent | 1 coordinator | |
+| bull/bear/verdict agents | 15 | 3 per opportunity × 5 |
+| improvement-planner | 1 | leaf |
+| targeted search agents | 5-15 | varies by plan |
+| citation expansion agents | 3-5 | varies by gaps |
+| refutation agents | 2-5 | varies by hypotheses |
+| new competitor profilers | 0-5 | only if critic finds gaps |
+| synthesizer-coordinator (re-run) | 1 | only re-runs affected sprints |
+| citation verifiers | 5 | mandatory |
+| report generators | 2 | JSON + HTML |
+| loop-controller | 1 | leaf |
+| **Subtotal per iteration** | **~40-60** | |
+
+**Total across 3 iterations: ~120-180 additional agents**
+
+**Convergence criteria (ALL must be true to STOP):**
+- Critique score < 25
+- Max opportunity score change < 5
+- No new opportunities in top 10
+- No CRITICAL findings
+- New evidence rate < 10%
+- OR max iterations reached (hard stop)
+
+**Continue criteria (ANY triggers CONTINUE):**
+- Any CRITICAL critique finding unaddressed
+- Any top-5 opportunity with LOW confidence
+- Citation coverage < 70%
+- A top-5 opportunity lost its debate (BEAR won)
+- New evidence rate > 30%
+
+**Deferred sprint pull-in rules:**
+| Critic flags... | Pull in sprint... |
+|-----------------|-------------------|
+| Weak evidence quality | Sprint 8 (signal strength) |
+| Missing competitive moat analysis | Sprint 9 (counter-positioning) |
+| No market forecast | Sprint 10 (consolidation forecast) |
+| Missing leadership context | Sprint 11 (founder profiles) |
+| No validation plan | Sprint 12 (community validation) |
+| Missed pain signals | Sprint 7 (false-negative rescue) |
+
+### 5D. Stage-Level Re-Run (Team Lead Decision)
 
 When a judge returns `blockerForNextStage: true`:
 - Team lead reviews the blocker reason
@@ -902,6 +1113,23 @@ When a judge returns `blockerForNextStage: true`:
 
 ### 6B. Total Agent Count
 
+**Iterative Draft Mode (default):**
+
+| Category | Count |
+|----------|-------|
+| Planning | 5 |
+| Discovery | 25 |
+| Scanning | 129 |
+| Scan Audit | 1 |
+| Lean Synthesis (6 sprints) | 14 |
+| Citation Verification | 5 |
+| Draft Report | 2 |
+| Iterative Loop (×3 iterations) | ~120-180 |
+| Final Report + Summary | 2 |
+| **TOTAL** | **~300-360** |
+
+**Full Single-Pass Mode:**
+
 | Category | Count |
 |----------|-------|
 | Planning | 5 |
@@ -909,7 +1137,7 @@ When a judge returns `blockerForNextStage: true`:
 | QA: Discovery | 11 |
 | Scanning | 129 |
 | QA: Scanning | 23 |
-| Synthesis | 17 |
+| Synthesis (15 sprints) | 17 |
 | QA: Synthesis | 15 |
 | **TOTAL** | **~225** |
 
@@ -968,7 +1196,13 @@ If judge iteration loops trigger (assume 1 round of re-runs):
 | gap-analyst | `.claude/agents/gap-analyst.md` | Analyzes scan data, produces pain report |
 | judge | `.claude/agents/judge.md` | Evaluates outputs against rubrics |
 | documenter | `.claude/agents/documenter.md` | Documents issues and quality observations |
-| synthesizer-coordinator | `.claude/agents/synthesizer-coordinator.md` | Runs 7 sequential synthesis sprints |
+| synthesizer-coordinator | `.claude/agents/synthesizer-coordinator.md` | Runs 6-15 synthesis sprints (lean or full) |
+| report-critic | `.claude/agents/report-critic.md` | Adversarial red-team critique (spawns 5 sub-teams) |
+| debate-agent | `.claude/agents/debate-agent.md` | Bull vs bear debates per opportunity (spawns parallel pairs) |
+| improvement-planner | `.claude/agents/improvement-planner.md` | Targeted improvement plan from critique + debates |
+| loop-controller | `.claude/agents/loop-controller.md` | Convergence manager for iterative loop |
+| scan-resumption | `.claude/agents/scan-resumption.md` | Copy previous scan files and set iteration baseline |
+| delta-summarizer | `.claude/agents/delta-summarizer.md` | Compares first draft to final report (iterative and resume modes) |
 | All other agents | Defined inline in `GAPSCOUT-WORKFLOW.md` | Scanner coordinators, discovery agents, etc. |
 
 Workflow file: `/home/jayknightcoolie/claude-business/gapscout/GAPSCOUT-WORKFLOW.md`

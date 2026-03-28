@@ -65,6 +65,22 @@ TaskUpdate({ id: <task-id>, description: "Phase 3: Scanning (retry 1/2 — rate 
 
 This gives users a live checklist of pipeline progress without requiring them to inspect log files.
 
+## Pipeline Modes
+
+### Iterative Draft Mode (DEFAULT)
+
+The pipeline runs in **iterative draft mode** by default. This produces a lean first draft quickly, then refines it through critique→debate→improve cycles. Each iteration deepens evidence and expands verified inline citations.
+
+```
+DRAFT 1 (lean) → CRITIQUE → DEBATE → IMPROVE → DRAFT 2 → CRITIQUE → ... → CONVERGED → SHIP
+```
+
+**Lean draft** cuts inner QA loops and late-stage synthesis sprints. The outer loop recovers this quality — and more — by directing effort where the critic says it's needed rather than spreading it uniformly.
+
+### Full Single-Pass Mode
+
+Set `iterativeMode.enabled: false` in orchestration-config to run the original full pipeline with all QA checkpoints and all 15 synthesis sprints. Use this when you want one thorough pass instead of iterative refinement.
+
 ## Agent Topology Reference
 
 ```
@@ -72,7 +88,7 @@ You (orchestrator)
 │
 ├── Phase 0.5: SCAN RESUMPTION (resume mode only)
 │   └── scan-resumption
-│   Output: resumption-plan.json
+│   Output: resumption-baseline.json
 │
 ├── Phase 1: PLANNING
 │   └── planner (4 research sub-agents)
@@ -89,58 +105,107 @@ You (orchestrator)
 │   └── trust-scorer (4 dimension sub-agents)
 │   Output: competitor-trust-scores.json
 │
-├── Phase 2-QA: DISCOVERY QA
-│   ├── judge-discovery (N+2 eval sub-agents)
-│   └── documenter-discovery (4 observer sub-agents)
-│   Output: judge verdict, issues log
-│
-├── Phase 3: SCANNING
+├── Phase 3: SCANNING (all sources — they run in parallel, no time savings from cutting)
 │   ├── Category A: 6 coordinators (each spawns batch sub-agents)
 │   ├── Category B: 6 single scanners
 │   ├── Specialists: 3 (websearch, switching, profiler)
-│   └── scan-orchestrator (4 broaden agents per new competitor)
+│   ├── scan-orchestrator (4 broaden agents per new competitor)
+│   └── citation-watchdog (background — real-time fabrication detection)
 │   Output: 15-20 scan result files
 │
 ├── Phase 3b: SCAN AUDIT
 │   └── scan-auditor (data integrity validation)
 │   Output: scan-audit.json
 │
-├── Phase 3-QA: SCANNING QA
-│   ├── judge-scanning (N+2 eval sub-agents)
-│   └── documenter-scanning (4 observer sub-agents)
-│   Output: judge verdict, issues log
+│   ┌─── IF iterativeMode.enabled (DEFAULT) ───────────────────────────┐
+│   │                                                                   │
+│   ├── Phase 4-LEAN: LEAN SYNTHESIS (6 core sprints only)             │
+│   │   └── synthesizer-coordinator (lean mode)                         │
+│   │       ├── Sprint 1: 3 sub-agents (competitive map)               │
+│   │       ├── Sprint 2: 3 sub-agents (competitor pain)               │
+│   │       ├── Sprint 3: 3 sub-agents (unmet needs)                   │
+│   │       ├── Sprint 4: 1 agent (switching signals)                  │
+│   │       ├── Sprint 5: 3 sub-agents (gap matrix)                    │
+│   │       └── Sprint 6: 2 sub-agents (scoring + ranking)             │
+│   │   Output: 6 synthesis files                                       │
+│   │                                                                   │
+│   ├── Phase 5-LEAN: LEAN CITATION VERIFICATION                       │
+│   │   └── 5 parallel citation verifiers                               │
+│   │   Output: citation-links-*.json                                   │
+│   │                                                                   │
+│   ├── Phase 5-LEAN-RPT: DRAFT REPORT GENERATION                      │
+│   │   ├── report-generator-json                                       │
+│   │   └── report-generator-html                                       │
+│   │   Output: report.json, report.html (draft v1)                     │
+│   │                                                                   │
+│   ├── Phase 6: ITERATIVE REFINEMENT LOOP (max N iterations)          │
+│   │   │                                                               │
+│   │   │  ┌──────────────────────────────────────┐                    │
+│   │   │  │ 6a. CRITIQUE (report-critic)          │                    │
+│   │   │  │   ├── evidence-auditor                │                    │
+│   │   │  │   ├── perspective-checker             │                    │
+│   │   │  │   ├── bias-detector                   │                    │
+│   │   │  │   ├── competitor-gap-finder           │                    │
+│   │   │  │   └── counter-evidence-hunter         │                    │
+│   │   │  │   Output: critique-round-{N}.json     │                    │
+│   │   │  │                                        │                    │
+│   │   │  │ 6b. DEBATE (debate-agent)             │                    │
+│   │   │  │   ├── bull-agent × M (parallel)       │                    │
+│   │   │  │   ├── bear-agent × M (parallel)       │                    │
+│   │   │  │   └── verdict-agent × M               │                    │
+│   │   │  │   Output: debate-round-{N}.json       │                    │
+│   │   │  │                                        │                    │
+│   │   │  │ 6c. IMPROVEMENT PLAN                  │                    │
+│   │   │  │   └── improvement-planner             │                    │
+│   │   │  │   Output: improvement-plan-{N}.json   │                    │
+│   │   │  │                                        │                    │
+│   │   │  │ 6d. TARGETED RE-SCAN + RE-SYNTHESIZE  │                    │
+│   │   │  │   ├── Targeted scanners (as needed)   │                    │
+│   │   │  │   ├── Citation expansion searches     │                    │
+│   │   │  │   ├── New competitor profiling         │                    │
+│   │   │  │   └── Selective sprint re-runs         │                    │
+│   │   │  │                                        │                    │
+│   │   │  │ 6e. REGENERATE REPORT                 │                    │
+│   │   │  │   ├── report-generator-json            │                    │
+│   │   │  │   └── report-generator-html            │                    │
+│   │   │  │   Output: report.json v(N+1)           │                    │
+│   │   │  │                                        │                    │
+│   │   │  │ 6f. CONVERGENCE CHECK                 │                    │
+│   │   │  │   └── loop-controller                 │                    │
+│   │   │  │   Output: convergence-check-{N}.json  │                    │
+│   │   │  │                                        │                    │
+│   │   │  │ IF STOP → break to Phase 7             │                    │
+│   │   │  │ IF CONTINUE → loop to 6a               │                    │
+│   │   │  └──────────────────────────────────────┘                    │
+│   │                                                                   │
+│   ├── Phase 7: FINAL REPORT + SUMMARY                                │
+│   │   └── report-summary-presenter                                    │
+│   │   └── delta-summarizer (all iterative scans)                      │
+│   │   Output: executive summary, iteration history, delta summary     │
+│   │                                                                   │
+│   └───────────────────────────────────────────────────────────────────┘
 │
-├── Phase 4: SYNTHESIS (12 sequential sprints)
-│   └── synthesizer-coordinator
-│       ├── Sprint 1: 3 sub-agents (competitive map)
-│       ├── Sprint 2: 3 sub-agents (competitor pain)
-│       ├── Sprint 3: 3 sub-agents (unmet needs)
-│       ├── Sprint 4: 1 agent (switching)
-│       ├── Sprint 5: 3 sub-agents (gap matrix)
-│       ├── Sprint 6: 1 agent (opportunities)
-│       ├── Sprint 7: 1 agent (rescue)
-│       ├── Sprint 8: 1 agent (signal strength scoring)
-│       ├── Sprint 9: 1 agent (counter-positioning)
-│       ├── Sprint 10: 1 agent (consolidation forecast)
-│       ├── Sprint 11: 1 agent (founder profiles)
-│       └── Sprint 12: 1 agent (community validation)
-│   Output: 12 synthesis files + report
-│
-├── Phase 4.5: DEEP RESEARCH VERIFICATION (iterative)
-│   └── deep-research-verifier (per-round, max 3 rounds)
-│   Output: deep-research-verification-round-{N}.json, deep-research-summary.json
-│
-├── Phase 4-QA: SYNTHESIS QA (with iteration loop)
-│   ├── judge-synthesis (9 eval sub-agents)
-│   └── documenter-synthesis (4 observer sub-agents)
-│   Output: final verdict, scan retrospective
-│
-└── Phase 5: REPORT GENERATION
-    ├── report-generator-json
-    ├── report-generator-html
-    ├── report-summary-presenter
-    └── delta-summarizer (resume mode only)
-    Output: report.json, report.html, executive summary, delta-summary.json
+│   ┌─── IF NOT iterativeMode (full single-pass) ──────────────────────┐
+│   │                                                                   │
+│   ├── Phase 3-QA: SCANNING QA                                        │
+│   │   ├── judge-scanning + documenter-scanning                        │
+│   │                                                                   │
+│   ├── Phase 4: FULL SYNTHESIS (15 sequential sprints)                │
+│   │   └── synthesizer-coordinator (all sprints)                       │
+│   │                                                                   │
+│   ├── Phase 4.5: DEEP RESEARCH VERIFICATION (iterative)              │
+│   │   └── deep-research-verifier (max 3 rounds)                      │
+│   │                                                                   │
+│   ├── Phase 4-QA: SYNTHESIS QA (with iteration loop)                 │
+│   │   ├── judge-synthesis + documenter-synthesis                      │
+│   │                                                                   │
+│   ├── Phase 7.5: CITATION VERIFICATION (5 parallel verifiers)        │
+│   │                                                                   │
+│   └── Phase 5: REPORT GENERATION                                     │
+│       ├── report-generator-json + html + summary                      │
+│       └── delta-summarizer (resume mode only — legacy flow)           │
+│                                                                       │
+│   └───────────────────────────────────────────────────────────────────┘
 ```
 
 ## How You Work
@@ -160,53 +225,17 @@ If the user provides a path to a previous scan directory (e.g., `/tmp/gapscout-<
 
 1. Spawn `scan-resumption` agent with:
    - `previousScanDir`: the provided path
-   - `expansionGoals`: any user-specified goals (deeper, broader, etc.)
+   - Task: copy previous scan files into the new scan directory and set the baseline
 
-2. Wait for: `resumption-plan.json` in the new scan directory
+2. Wait for: `resumption-baseline.json` in the new scan directory
 
-3. Read the resumption plan. Adapt the pipeline:
-   ```
-   IF plan.discovery.action == "SKIP":
-     Skip Phase 2 entirely — use copied files
-   IF plan.discovery.action == "EXPAND":
-     Run discovery but MERGE with existing competitor-map (don't replace)
+3. The previous report becomes `draft_iteration: 0`.
 
-   IF plan.scanning.deepen has entries:
-     Spawn those scanners with HIGHER limits (2x posts, 2x pages)
-     Scanner prompts include: "Previous scan found {N} posts. Target: {2*N} minimum."
-   IF plan.scanning.expand has entries:
-     Spawn NEW scanners for those sources
-   IF plan.scanning.reuse has entries:
-     Skip those scanners — use copied files
+4. **Skip the entire lean pipeline** (Steps 8-LEAN-SYNTH through 8-LEAN-RPT) — we already have a draft.
 
-   IF plan.synthesis.rerun has entries:
-     Run only those sprints (not all 12)
-   IF plan.synthesis.keep has entries:
-     Skip those sprints — use copied files
-   ```
+5. **Enter the outer loop (Step 8-LOOP) directly at iteration 0** — the report-critic will red-team the existing report, debates will stress-test existing opportunities, and the improvement-planner will identify what needs re-scanning/deepening.
 
-4. All downstream phases proceed normally but with expanded data.
-
-5. After report generation, spawn `delta-summarizer` (see separate agent).
-
-#### RESUME MODE MANDATORY STAGES
-
-The following stages MUST ALWAYS run in resume mode, regardless of what the resumption plan says to skip or keep:
-
-```
-- Trust Scoring (Phase 2b): ALWAYS run, even when discovery is SKIP.
-  If competitor-trust-scores.json exists from previous scan, REFRESH it
-  (market conditions change, new competitors discovered during scanning).
-
-- Community Validation (Sprint 12): ALWAYS run after synthesis completes.
-  This produces human-actionable validation plans per opportunity.
-  It was added as a mandatory sprint — never skip it.
-
-- These stages are NOT optional in resume mode. The resumption plan's
-  "keep" list must NEVER include trust-scorer or community-validator.
-  If the resumption plan lists sprint 12 in "keep", OVERRIDE it and
-  move sprint 12 to "rerun".
-```
+In resume mode, the pipeline skips to the iterative loop. The report-critic identifies what needs re-scanning, the improvement-planner targets those sources, and the orchestrator executes the plan.
 
 After creating the scan directory, create the first progress task:
 ```
@@ -258,9 +287,8 @@ Save your orchestration config to `/tmp/gapscout-<scan-id>/orchestration-config.
   "density": "sparse|moderate|crowded",
   "resumeMode": {
     "enabled": false,
-    "previousScanId": null,
     "previousScanDir": null,
-    "resumptionPlanPath": null
+    "baselineDraftIteration": 0
   },
   "agentConfig": {
     "discovery": {
@@ -293,6 +321,20 @@ Save your orchestration config to `/tmp/gapscout-<scan-id>/orchestration-config.
       "enabled": true,
       "blockOnFail": false,
       "checks": ["postCount", "provenance", "queryCoverage", "deduplication", "apiMethod"]
+    },
+    "iterativeMode": {
+      "enabled": true,
+      "maxOuterIterations": 3,
+      "leanSynthesisSprints": [1, 2, 3, 4, 5, 6],
+      "deferredSprints": [7, 8, 9, 10, 11, 12, 13, 14, 15],
+      "convergenceThresholds": {
+        "critiqueScoreStop": 25,
+        "maxScoreChangeStop": 5,
+        "citationCoverageMin": 0.70,
+        "newEvidenceRateStop": 0.10
+      },
+      "debateTopN": 5,
+      "skipInnerQA": true
     },
     "deepResearch": {
       "enabled": true,
@@ -335,13 +377,7 @@ All agents receive:
 - Path to orchestration-config.json
 - Their allocated rate budget
 
-#### Resume Mode: Merge Discovery
-
-If resumeMode is enabled and plan.discovery.action == "EXPAND":
-- Pass existing `competitor-map.prev.json` to market-mapper
-- Tell market-mapper: "Previous scan found {N} competitors. Your job is to find ADDITIONAL competitors not in this list. Focus on: niche players, recent entrants (2025-2026), and adjacent-market competitors."
-- After mapper completes, MERGE new competitors into existing map (don't replace)
-- Similarly for subreddits: merge new discoveries into existing list
+**Note:** In resume mode (iterative, default), the pipeline skips to the iterative loop. The report-critic identifies what needs re-scanning, the improvement-planner targets those sources, and the orchestrator executes the plan. Discovery runs normally only for fresh scans.
 
 Wait for: `/tmp/gapscout-<scan-id>/stage-complete-discovery.json`
 
@@ -640,7 +676,7 @@ Spawn **`synthesizer-coordinator`** with:
 
 The synthesizer-coordinator runs sprints internally. You do NOT manage individual sprints — the coordinator owns that.
 
-**MANDATORY SPRINT: Sprint 12 (Community Validation).** Even in resume mode where some sprints are skipped via `plan.synthesis.keep`, Sprint 12 MUST ALWAYS run. It produces `community-validation.json` with human-actionable validation plans per opportunity. When passing the resumption plan to the synthesizer-coordinator, ensure sprint 12 is in the `rerun` list, never in `keep`.
+**MANDATORY SPRINT: Sprint 12 (Community Validation).** Sprint 12 MUST ALWAYS run. It produces `community-validation.json` with human-actionable validation plans per opportunity.
 
 The synthesizer-coordinator spawns sub-agents that are LEAF agents (subagent_type references).
 This means synthesis is exactly 2 levels deep: orchestrator → synthesizer-coordinator → leaf analysts.
@@ -861,6 +897,381 @@ IF link count < 100:
   Consider re-running report-generator-html with explicit citation instructions
 ```
 
+### Step 7a: Branch — Iterative Draft Mode vs Full Single-Pass
+
+After scanning + scan audit complete, check the pipeline mode:
+
+```
+IF orchestration-config.agentConfig.iterativeMode.enabled == true:
+  → Follow Steps 8-LEAN through 8-LOOP (iterative draft mode)
+  → SKIP Steps 5 (Scanning QA), 6 (full synthesis), 6.5 (deep research), 7 (synthesis QA)
+
+IF orchestration-config.agentConfig.iterativeMode.enabled == false:
+  → Follow original Steps 5 through 8 (full single-pass mode)
+```
+
+---
+
+## ITERATIVE DRAFT MODE (Steps 8-LEAN through 8-LOOP)
+
+### Step 8-LEAN-SYNTH: Lean Synthesis (6 Core Sprints)
+
+Skip the scanning QA checkpoint — the outer loop's critique phase replaces it with more targeted feedback.
+
+Spawn **`synthesizer-coordinator`** with lean mode:
+
+```
+Agent({
+  description: "Lean synthesis — 6 core sprints",
+  subagent_type: "synthesizer-coordinator",
+  prompt: "Run LEAN synthesis mode. Only run sprints: 1 (competitive map), 2 (competitor pain), 3 (unmet needs), 4 (switching signals), 5 (gap matrix), 6 (scoring + ranking). SKIP sprints 7-15 — they will be pulled in by the iterative refinement loop if needed. Scan dir: {scan_dir}",
+  run_in_background: false
+})
+```
+
+Pass to the synthesizer-coordinator:
+- All scan output files
+- orchestration-config.json (with `iterativeMode.leanSynthesisSprints` field)
+- scan-spec.json
+- scan-audit.json
+- competitor-trust-scores.json
+- watchdog-blocklist.json
+- **Explicit instruction**: "Only run sprints listed in `iterativeMode.leanSynthesisSprints`. After Sprint 6 completes, write stage-complete-synthesis.json and STOP. Do NOT run deferred sprints."
+
+Wait for: `{scan_dir}/stage-complete-synthesis.json`
+
+```
+TaskUpdate({ id: synthesis_task_id, description: "Phase 4-LEAN: Lean synthesis complete (6/6 core sprints)", status: "completed" })
+TaskCreate({ description: "Phase 5-LEAN: Verifying citations for draft report", status: "in_progress" })
+```
+Save the returned task ID as `citation_task_id`.
+
+### Step 8-LEAN-CITE: Lean Citation Verification
+
+Run citation verification (same as Step 7.5 in full mode). This is MANDATORY even in lean mode — citations are never compromised.
+
+Spawn 5 parallel citation verification agents (same as Step 7.5).
+
+Wait for all 5 to complete.
+
+```
+TaskUpdate({ id: citation_task_id, status: "completed" })
+TaskCreate({ description: "Phase 5-LEAN-RPT: Generating draft report v1", status: "in_progress" })
+```
+Save the returned task ID as `draft_report_task_id`.
+
+### Step 8-LEAN-RPT: Generate Draft Report v1
+
+Spawn report generators (JSON + HTML only, skip summary presenter for now):
+
+```
+Agent({
+  description: "Generate draft report JSON",
+  subagent_type: "report-generator-json",
+  prompt: "Generate draft v1 report. Note: this is a lean draft with 6 synthesis sprints. Sprints 7-15 were deferred. Mark report as 'draft_iteration: 1'. Scan dir: {scan_dir}",
+  run_in_background: true
+})
+
+Agent({
+  description: "Generate draft report HTML",
+  subagent_type: "report-generator-html",
+  prompt: "Generate draft v1 HTML report. Include iteration badge showing 'Draft 1'. Scan dir: {scan_dir}",
+  run_in_background: true
+})
+```
+
+Wait for both to complete.
+
+```
+TaskUpdate({ id: draft_report_task_id, status: "completed" })
+```
+
+### Step 8-LOOP: Iterative Refinement Loop
+
+**This is the core of iterative draft mode.** Each iteration critiques the current draft, debates the top opportunities, plans targeted improvements, executes them, and regenerates the report.
+
+```
+IF resumeMode.enabled:
+  The previous report is draft v0. Enter the loop at iteration 0.
+  The report-critic will identify stale data, missing sources, and evidence gaps.
+  The improvement-planner will generate targeted re-scan and re-synthesis actions.
+  This replaces the old resume-specific discovery/scanning/synthesis logic.
+
+  Delta-summarizer runs after the loop completes, comparing v0 (original) to vFinal.
+
+outer_iteration = 0
+max_outer_iterations = orchestration-config.agentConfig.iterativeMode.maxOuterIterations (default: 3)
+
+WHILE outer_iteration < max_outer_iterations:
+
+  TaskCreate({ description: "Iteration {outer_iteration+1}/{max_outer_iterations}: Critique → Debate → Improve", status: "in_progress" })
+  Save as iteration_task_id.
+
+  ═══════════════════════════════════════════════════════
+  STEP 6a: CRITIQUE
+  ═══════════════════════════════════════════════════════
+
+  Spawn report-critic with sub-team capability:
+
+  Agent({
+    description: "Critique draft report — iteration {outer_iteration+1}",
+    subagent_type: "report-critic",
+    prompt: "Red-team the current draft report. Round: {outer_iteration+1}. This is iteration {outer_iteration+1} of {max_outer_iterations}. Spawn your sub-teams (evidence-auditor, perspective-checker, bias-detector, competitor-gap-finder, counter-evidence-hunter) in parallel. CITATION MANDATE: every new piece of counter-evidence must have a verified URL. Scan dir: {scan_dir}",
+    run_in_background: false
+  })
+
+  Wait for: critique-round-{outer_iteration+1}.json
+  Read critique results.
+
+  Log: "Iteration {outer_iteration+1} critique score: {overallCritiqueScore}/100"
+  Log: "Critical findings: {count}, citation gaps: {citationAudit.missingCitations}"
+
+  ═══════════════════════════════════════════════════════
+  STEP 6b: DEBATE (parallel with critique reading)
+  ═══════════════════════════════════════════════════════
+
+  Spawn debate-agent for top opportunities:
+
+  Agent({
+    description: "Debate top opportunities — iteration {outer_iteration+1}",
+    subagent_type: "debate-agent",
+    prompt: "Run bull vs bear debates for top {debateTopN} opportunities. Round: {outer_iteration+1}. Spawn parallel debater pairs. Focus extra scrutiny on opportunities flagged as weak in critique-round-{outer_iteration+1}.json. CITATION MANDATE: every argument must cite verified evidence. New searches must produce real URLs. Each debate should EXPAND the total citation pool. Scan dir: {scan_dir}",
+    run_in_background: false
+  })
+
+  Wait for: debate-round-{outer_iteration+1}.json
+  Read debate results.
+
+  Log: "Debates complete: {bullWins} bull wins, {bearWins} bear wins, {splits} splits"
+  Log: "New citations from debates: {totalNewCitationsAcrossDebates}"
+
+  ═══════════════════════════════════════════════════════
+  STEP 6c: IMPROVEMENT PLAN
+  ═══════════════════════════════════════════════════════
+
+  Spawn improvement-planner:
+
+  Agent({
+    description: "Plan improvements — iteration {outer_iteration+1}",
+    subagent_type: "improvement-planner",
+    prompt: "Read critique-round-{outer_iteration+1}.json and debate-round-{outer_iteration+1}.json. Produce a targeted improvement plan. Prioritize by impact/cost. Include citation expansion actions. Round: {outer_iteration+1}. Scan dir: {scan_dir}",
+    run_in_background: false
+  })
+
+  Wait for: improvement-plan-round-{outer_iteration+1}.json
+  Read improvement plan.
+
+  Log: "Improvement plan: {len(newSearchQueries)} new queries, {len(competitorsToAdd)} new competitors, {len(synthesisSprintsToRerun)} sprints to rerun"
+
+  ═══════════════════════════════════════════════════════
+  STEP 6d: EXECUTE IMPROVEMENTS (targeted re-scan + re-synthesize)
+  ═══════════════════════════════════════════════════════
+
+  Based on the improvement plan, spawn targeted agents. Do NOT re-run the full pipeline — only what the plan calls for.
+
+  **New search queries (parallel):**
+  For each newSearchQuery in improvement plan:
+    Agent({
+      description: "Targeted search: {query purpose}",
+      prompt: "Execute this targeted search. Query: '{query}'. Purpose: {purpose}. Write results to {scan_dir}/targeted-scan-iter-{N}-{index}.json. Include full URLs for every result. ZERO fabrication tolerance.",
+      run_in_background: true
+    })
+
+  **New competitor profiling (parallel):**
+  For each competitor in competitorsToAdd:
+    Agent({
+      description: "Profile new competitor: {name}",
+      prompt: "Profile this newly discovered competitor: {name}. Write to {scan_dir}/broadened-profile-iter-{N}-{slug}.json. Include website URL, pricing page URL, and review platform URLs.",
+      run_in_background: true
+    })
+
+  **Citation expansion (parallel):**
+  For each citationExpansion action:
+    Agent({
+      description: "Expand citations for: {opportunity}",
+      prompt: "Find verified source URLs for {claimsNeedingCitations} claims about opportunity '{opportunity}'. Search queries: {searchQueries}. Write results to {scan_dir}/citation-expansion-iter-{N}-{index}.json. Every URL must be real and accessible.",
+      run_in_background: true
+    })
+
+  **Hypothesis refutation (parallel):**
+  For each hypothesis in hypothesesToRefute:
+    Agent({
+      description: "Refute: {hypothesis}",
+      prompt: "Actively try to DISPROVE this claim: '{hypothesis}'. Search: '{refutationQuery}'. Write results to {scan_dir}/refutation-iter-{N}-{index}.json. Report honestly — if the claim holds up, say so.",
+      run_in_background: true
+    })
+
+  Wait for all targeted agents to complete.
+
+  **Selective sprint re-runs:**
+  IF improvement plan lists synthesisSprintsToRerun:
+    Spawn synthesizer-coordinator in iteration mode:
+    Agent({
+      description: "Re-run synthesis sprints for iteration {outer_iteration+1}",
+      subagent_type: "synthesizer-coordinator",
+      prompt: "Re-run sprints: {sprint list from plan}. Mode: iteration. Read new targeted scan data from targeted-scan-iter-{N}-*.json, citation-expansion-iter-{N}-*.json, refutation-iter-{N}-*.json. Merge new evidence with existing synthesis files. CITATION MANDATE: every new evidence item must have a verified URL. Scan dir: {scan_dir}",
+      run_in_background: false
+    })
+
+  IF improvement plan lists deferred sprints to pull in (e.g., Sprint 8 signal-strength):
+    Also include those in the sprint re-run list. The outer loop pulls in deferred sprints ON DEMAND when the critic identifies the need.
+
+  ═══════════════════════════════════════════════════════
+  STEP 6e: CITATION RE-VERIFICATION + REPORT REGENERATION
+  ═══════════════════════════════════════════════════════
+
+  Re-run citation verification (5 parallel agents) to pick up all new evidence.
+  Then regenerate the report:
+
+  Agent({
+    description: "Regenerate report — iteration {outer_iteration+2}",
+    subagent_type: "report-generator-json",
+    prompt: "Regenerate report with all new evidence from iteration {outer_iteration+1}. Update draft_iteration to {outer_iteration+2}. Include all new citations from targeted scans, debates, and citation expansion. Scan dir: {scan_dir}",
+    run_in_background: true
+  })
+
+  Agent({
+    description: "Regenerate HTML report — iteration {outer_iteration+2}",
+    subagent_type: "report-generator-html",
+    prompt: "Regenerate HTML report. Draft iteration: {outer_iteration+2}. Include iteration history section showing how conclusions evolved. Scan dir: {scan_dir}",
+    run_in_background: true
+  })
+
+  Wait for both.
+
+  **VERIFY citation expansion:**
+  ```
+  Read report.json. Count total citations.
+  Compare against previous iteration's citation count.
+  Log: "Citations: {prev_count} → {new_count} (+{delta})"
+  IF new_count <= prev_count:
+    Log WARNING: "Citation count did not increase. Iteration may not have added value."
+  ```
+
+  ═══════════════════════════════════════════════════════
+  STEP 6f: CONVERGENCE CHECK
+  ═══════════════════════════════════════════════════════
+
+  Spawn loop-controller:
+
+  Agent({
+    description: "Check convergence — iteration {outer_iteration+1}",
+    subagent_type: "loop-controller",
+    prompt: "Evaluate whether the report has converged. Round: {outer_iteration+1}. Max iterations: {max_outer_iterations}. Scan dir: {scan_dir}",
+    run_in_background: false
+  })
+
+  Wait for: convergence-check-{outer_iteration+1}.json
+  Read convergence decision.
+
+  IF decision == "STOP":
+    Log: "Converged after {outer_iteration+1} iterations. Reason: {stoppingReason}"
+    TaskUpdate({ id: iteration_task_id, description: "Iteration {outer_iteration+1}: CONVERGED — {stoppingReason}", status: "completed" })
+    BREAK
+
+  IF decision == "CONTINUE":
+    Log: "Continuing to iteration {outer_iteration+2}. Reason: {continueReason}"
+    TaskUpdate({ id: iteration_task_id, description: "Iteration {outer_iteration+1}: Complete — continuing ({continueReason})", status: "completed" })
+    outer_iteration += 1
+
+IF outer_iteration == max_outer_iterations AND decision != "STOP":
+  Log: "Max iterations reached ({max_outer_iterations}). Shipping best available."
+```
+
+After the loop completes, proceed to Step 8-FINAL.
+
+### Step 8-FINAL: Final Report + Summary
+
+```
+TaskCreate({ description: "Phase 7: Generating final report + summary", status: "in_progress" })
+```
+Save as `final_report_task_id`.
+
+Spawn the summary presenter (skipped during lean drafts):
+
+```
+Agent({
+  description: "Generate executive summary",
+  subagent_type: "report-summary",
+  prompt: "Produce executive summary of the final report. Include iteration history showing how the report evolved across {outer_iteration+1} drafts. Scan dir: {scan_dir}",
+  run_in_background: false
+})
+```
+
+Also spawn delta-summarizer for ALL iterative scans — comparing v1 lean draft (or v0 resume baseline) to the final report. In resume mode, this shows what changed vs the original report. In fresh scans, this shows how the lean draft evolved through iterations.
+
+```
+TaskUpdate({ id: final_report_task_id, status: "completed" })
+```
+
+Proceed to Step 9 (Present Results) with additional iteration metrics.
+
+### Step 9-ITER: Present Results (Iterative Mode)
+
+Compile and present with iteration history:
+
+```
+## Scan Complete: {market}
+
+### Top Opportunities (after {N} iterations)
+1. {opportunity 1} — Score: {X}/100 ({debate verdict}: {BULL/BEAR/SPLIT})
+2. {opportunity 2} — Score: {X}/100 ({debate verdict})
+3. {opportunity 3} — Score: {X}/100 ({debate verdict})
+
+### Iteration History
+| Draft | Critique Score | New Citations | Score Changes | Focus |
+|-------|---------------|---------------|---------------|-------|
+| v1 (lean) | {score} | {base count} | — | Initial draft |
+| v2 | {score} | +{delta} | {changes} | {focus from plan} |
+| v3 | {score} | +{delta} | {changes} | {focus from plan} |
+| Final | {score} | {total} | CONVERGED | Shipped |
+
+### Evidence Quality
+- Total verified citations: {N}
+- GOLD tier: {N} | SILVER: {N} | BRONZE: {N}
+- Citation coverage: {X}% of claims have verified URLs
+- Citations added per iteration: {avg}
+
+### Debate Results
+- {N} opportunities debated across {iterations} rounds
+- Bull confirmed: {N} | Bear confirmed: {N} | Split: {N}
+- Key uncertainty: {top uncertainty from debates}
+
+### Stats
+- Competitors mapped: {N}
+- Posts/reviews analyzed: {total} across {sources} sources
+- Outer iterations: {N} (converged: {yes/no})
+- Pipeline duration: {time}
+
+### Delta Summary
+IF resume mode:
+  Show what changed vs the original (v0) report:
+  - Opportunities added/removed/rescored
+  - New competitors discovered
+  - New evidence collected
+  - Source coverage changes
+IF fresh scan:
+  Show how lean draft (v1) evolved to final:
+  - Score changes across iterations
+  - Citations added per iteration
+  - Opportunities promoted/demoted
+
+### Deliverables
+- Web report: /tmp/gapscout-{id}/report.html
+- JSON data: /tmp/gapscout-{id}/report.json
+- Iteration artifacts: critique-round-*.json, debate-round-*.json
+- Improvement plans: improvement-plan-round-*.json
+- Delta summary: delta-summary.json
+```
+
+---
+
+## FULL SINGLE-PASS MODE (Original Steps 5-8)
+
+When `iterativeMode.enabled == false`, the pipeline runs the original full single-pass mode below.
+
+**Note:** Resume mode in full single-pass uses the legacy scan-resumption flow. For iterative mode (default), resume enters the outer loop directly.
+
 ### Step 8: Spawn Report Generation Team
 
 Spawn **in a single message** (parallel):
@@ -962,16 +1373,32 @@ Throughout the pipeline, you continuously adapt based on results:
 | Synthesis Sprint 2 has thin data | Merge Sprint 2+3 into single agent, skip sub-teams |
 | Judge iteration fails 3 times | Ship with weakness note, don't keep looping |
 
+### Iterative Mode Adaptation Rules
+
+| Signal | Adaptation |
+|--------|------------|
+| Critique score increasing (getting worse) | STOP loop — something is wrong, ship best draft |
+| Bear wins all debates for an opportunity | Drop it from top list, promote next-ranked |
+| Critic finds missing competitor | Add to improvement plan's competitorsToAdd, run profiler + targeted scan |
+| Citation count not increasing | Focus next iteration purely on citation expansion, skip new scanning |
+| Deferred sprint needed (critic flags weak signal-strength) | Pull Sprint 8 into next iteration's rerun list |
+| Deferred sprint needed (critic flags missing counter-positioning) | Pull Sprint 9 into next iteration's rerun list |
+| Improvement plan has 0 CRITICAL actions | Likely near convergence — loop-controller should lean toward STOP |
+| All top-5 debates are BULL wins with HIGH confidence | Strong convergence signal — ship |
+| New evidence rate < 5% for 2 consecutive iterations | Diminishing returns — STOP regardless of other metrics |
+
 ## What You Do NOT Do
 
 - You do NOT execute scans yourself — you spawn agents who do
-- You do NOT evaluate quality yourself — the judge does that
+- You do NOT evaluate quality yourself — the report-critic and debate-agent do that (iterative mode) or the judge does that (full mode)
 - You do NOT write the report yourself — the synthesizer and report generators do that
 - You do NOT manage individual synthesis sprints — the synthesizer-coordinator owns that
+- You do NOT decide convergence yourself — the loop-controller does that
 - You DO make all stage transition decisions
 - You DO adjust agent counts and configs at runtime
-- You DO own the QA feedback loop
-- You DO present final results to the user
+- You DO own the outer iteration loop and all stage transitions within it
+- You DO decide which deferred sprints to pull in based on critic feedback
+- You DO present final results to the user with iteration history
 
 ## ZERO TOLERANCE: No Fabrication
 
@@ -989,7 +1416,10 @@ Throughout the pipeline, you continuously adapt based on results:
 - **Use TeamCreate for coordinated stages.** For discovery and scanning where agents need to share results, consider creating a team so agents can coordinate via TaskList and SendMessage.
 - **Read before deciding.** Always read stage completion files and QA verdicts before spawning the next stage.
 - **Adapt the plan.** The initial scan-spec is a starting point, not a contract. Adjust based on runtime results.
-- **Don't over-retry.** Max 2 retries per stage, max 3 synthesis iterations. Ship imperfect data rather than looping forever.
+- **Don't over-retry.** Max 2 retries per stage, max 3 synthesis iterations (full mode), max 3 outer iterations (iterative mode). Ship imperfect data rather than looping forever.
+- **Citations expand every iteration.** In iterative mode, verify that citation count strictly increases each iteration. If it doesn't, the iteration added no value — flag this to the loop-controller.
+- **Deferred sprints are demand-driven.** In lean mode, sprints 7-15 are not lost — they get pulled in when the report-critic identifies a specific need. Sprint 8 (signal strength) gets pulled when evidence quality is questioned. Sprint 9 (counter-positioning) gets pulled when debates reveal competitive uncertainty. Sprint 11 (founder profiles) gets pulled when critic identifies leadership as a gap.
+- **Each draft is a complete report.** Every iteration produces a full report.json + report.html. The user can inspect any intermediate draft.
 - **Track everything.** Write orchestration decisions to `/tmp/gapscout-<scan-id>/orchestrator-log.jsonl` — one line per decision with timestamp, reason, and outcome.
 - **Be transparent.** When you skip agents, degrade quality, or override the plan, note it in the final presentation.
 - **Clean up teams.** Use `TeamDelete` after each stage's team completes to free resources.

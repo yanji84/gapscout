@@ -16,21 +16,42 @@ Examples:
 
 ## Architecture
 
-The `/gapscout` skill spawns the **orchestrator agent** (`.claude/agents/orchestrator.md`) which coordinates the entire pipeline:
+The `/gapscout` skill spawns the **orchestrator agent** (`.claude/agents/orchestrator.md`) which coordinates the entire pipeline. Default mode is **iterative draft** — a lean first pass refined through critique→debate→improve cycles.
+
+### Iterative Draft Mode (default)
 
 ```
 orchestrator (single brain, owns all stage transitions)
   ├── planner (4 research sub-agents)
   ├── discovery team (4 coordinators, each with sub-teams)
-  ├── judge + documenter (QA checkpoint)
-  ├── scanner team (17 coordinators + broadening loop)
+  ├── trust-scorer (4 dimension sub-agents)
+  ├── scanner team (all sources in parallel + broadening loop)
   ├── citation-watchdog (background — validates data as it appears)
-  ├── judge + documenter (QA checkpoint)
-  ├── synthesizer (15 sequential sprints with sub-teams)
-  ├── deep-research-verifier (iterative verification, max 3 rounds)
-  ├── judge + documenter (QA checkpoint + iteration loop)
-  ├── report generators (JSON + HTML + summary)
-  └── delta-summarizer (resume mode only — compares new vs. previous report)
+  ├── LEAN synthesis (6 core sprints: map → pain → needs → switching → gaps → scoring)
+  ├── citation verification (5 parallel verifiers)
+  ├── draft report v1
+  └── ITERATIVE REFINEMENT LOOP (max 3 iterations):
+      ├── report-critic (5 parallel sub-teams: evidence, perspective, bias, competitors, counter-evidence)
+      ├── debate-agent (parallel bull/bear pairs per top opportunity)
+      ├── improvement-planner (targeted action plan)
+      ├── targeted re-scan + re-synthesize + citation expansion
+      ├── report v(N+1)
+      └── loop-controller (converge or continue?)
+
+Resume mode: previous report → draft v0 → enters loop at critique step
+```
+
+### Full Single-Pass Mode (set `iterativeMode.enabled: false`)
+
+```
+orchestrator
+  ├── planner → discovery → judge/documenter QA
+  ├── scanner team → judge/documenter QA
+  ├── synthesizer (15 sequential sprints)
+  ├── deep-research-verifier (max 3 rounds)
+  ├── judge/documenter QA (with iteration loop)
+  ├── citation verification → report generators
+  └── delta-summarizer (resume mode only)
 ```
 
 ~225 agents per scan. Peak concurrency ~50-60 during scanning.
@@ -56,9 +77,13 @@ orchestrator (single brain, owns all stage transitions)
 | synthesis-market-sizing | `.claude/agents/synthesis-market-sizing.md` | TAM/SAM/SOM and GTM analysis |
 | synthesis-causal-chains | `.claude/agents/synthesis-causal-chains.md` | Root cause chain analysis |
 | synthesis-strategic-narrative | `.claude/agents/synthesis-strategic-narrative.md` | Strategic narrative and recommendations |
-| scan-resumption | `.claude/agents/scan-resumption.md` | Resume-from-existing-report preparation |
+| scan-resumption | `.claude/agents/scan-resumption.md` | Copy previous scan files and set iteration baseline |
 | citation-watchdog | `.claude/agents/citation-watchdog.md` | Real-time fabrication detection |
-| delta-summarizer | `.claude/agents/delta-summarizer.md` | Resume-mode delta comparison |
+| delta-summarizer | `.claude/agents/delta-summarizer.md` | Compares first draft to final report (iterative and resume modes) |
+| report-critic | `.claude/agents/report-critic.md` | Adversarial red-team critique (spawns 5 sub-teams) |
+| debate-agent | `.claude/agents/debate-agent.md` | Bull vs bear debates per opportunity (spawns parallel pairs) |
+| improvement-planner | `.claude/agents/improvement-planner.md` | Targeted improvement plan from critique + debates |
+| loop-controller | `.claude/agents/loop-controller.md` | Convergence manager for iterative loop |
 
 See `AGENT-RELATIONSHIPS.md` for full topology, data flows, and agent counts.
 
