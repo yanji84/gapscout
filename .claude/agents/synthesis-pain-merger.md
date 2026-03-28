@@ -33,6 +33,39 @@ Merge and deduplicate pain themes across all three source groups:
 5. **WTP signal extraction** — collect all willingness-to-pay signals per competitor
 6. **Validate** — every pain theme in the output must have at least 1 citation URL
 
+### Trust-Weighted and Recency-Weighted Pain Analysis
+
+When merging pain themes across sources:
+
+1. **Per-post trust weighting**: If the source scan files include engagement data (score, num_comments, upvote_ratio), compute a trust weight:
+   - `trustWeight = min(1.0, (log10(max(1, score)) * 0.4 + log10(max(1, num_comments)) * 0.3 + specificity * 0.3))`
+   - Where `specificity` = 1.0 if post has specific details (dollar amounts, names, numbers), 0.6 if general complaint, 0.3 if vague
+   - Apply trustWeight when counting frequency: `weightedFrequency = sum(trustWeight for each post)`
+
+2. **Recency weighting**: Apply decay based on post age:
+   - `recencyWeight = max(0.3, 1.0 - (ageInDays / 730))`
+   - Posts < 30 days: ~1.0x
+   - Posts ~365 days: ~0.5x
+   - Posts > 730 days: 0.3x (floor)
+
+3. **Combined weight**: `combinedWeight = trustWeight * recencyWeight`
+   - Use combinedWeight for frequency counting and severity classification
+   - A pain theme with 5 high-trust recent posts outranks one with 20 low-trust old posts
+
+4. **Output additions** per pain theme:
+   ```json
+   "weightedFrequency": N,
+   "avgTrustScore": N,
+   "avgRecencyDays": N,
+   "trendDirection": "accelerating|stable|declining",
+   "highTrustEvidenceCount": N
+   ```
+
+5. **Severity reclassification**: After applying weights:
+   - URGENT: weightedFrequency > 30 AND cross-source >= 3 AND trendDirection != "declining"
+   - ACTIVE: weightedFrequency > 10 OR (cross-source >= 2 AND avgTrustScore > 60)
+   - SURFACE: everything else
+
 ## Output
 
 Write to: `/tmp/gapscout-<scan-id>/synthesis-2-competitor-pain.json`

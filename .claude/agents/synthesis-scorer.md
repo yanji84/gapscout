@@ -52,6 +52,49 @@ Compute composite opportunity scores for each gap classified YES or PARTIAL in S
    - NEEDS EVIDENCE (40-59) — promising but needs more validation
    - TOO WEAK (<40) — insufficient evidence
 
+### Enhanced Scoring (v2)
+
+In addition to the base 5 dimensions, compute these advanced scores:
+
+6. **Recency-weighted pain** (0-20): Weight evidence by age:
+   - Posts < 30 days old: 1.0x weight
+   - Posts 30-90 days: 0.85x weight
+   - Posts 90-180 days: 0.7x weight
+   - Posts 180-365 days: 0.5x weight
+   - Posts > 365 days: 0.3x weight
+   - Score = recency-weighted frequency mapped to 0-20 scale
+   - Add `recencyWeightedPain` alongside raw `painEvidence`
+
+7. **Trust-weighted evidence** (0-20): Weight evidence by per-post trust score:
+   - If synthesis-8-signal-strength.json exists, use the per-evidence `compositeScore` as trust weight
+   - High-trust evidence (score 75+): 1.0x weight
+   - Medium-trust evidence (score 50-74): 0.7x weight
+   - Low-trust evidence (score 25-49): 0.4x weight
+   - Unverified evidence (score <25): 0.1x weight
+   - Score = trust-weighted frequency mapped to 0-20 scale
+   - Add `trustWeightedEvidence` field
+
+8. **Trend velocity** (0-20): Is the pain accelerating or decelerating?
+   - Compare mention frequency in last 90 days vs. prior 90 days
+   - Accelerating (2x+ growth): 20pts
+   - Growing (1.2-2x): 15pts
+   - Stable: 10pts
+   - Declining: 5pts
+   - New (all recent): 18pts (emerging pain)
+   - Add `trendVelocity` field with direction and ratio
+
+### Enhanced Composite Score
+
+```
+enhancedScore = (
+  pain + recencyWeightedPain + trustWeightedEvidence +
+  WTP*2 + competition + switching*2 + breadth + trendVelocity
+) / 11 * 100 / 20
+```
+
+Output BOTH `compositeScore` (original formula) and `enhancedScore` (new formula).
+Add `scoringVersion: "2.0"` to output.
+
 ## Output
 
 Write to: `/tmp/gapscout-<scan-id>/s6-scores.json`
@@ -60,19 +103,25 @@ Write to: `/tmp/gapscout-<scan-id>/s6-scores.json`
 {
   "agentName": "synthesis-scorer",
   "completedAt": "<ISO timestamp>",
+  "scoringVersion": "2.0",
   "scoringFormula": "pain + WTP*2 + competition + switching*2 + breadth / 7, normalized to 0-100",
+  "enhancedScoringFormula": "(pain + recencyWeightedPain + trustWeightedEvidence + WTP*2 + competition + switching*2 + breadth + trendVelocity) / 11 * 100 / 20",
   "opportunities": [
     {
       "gap": "<gap description>",
       "gapClassification": "<YES|PARTIAL>",
       "scores": {
-        "painEvidence": { "raw": <0-20>, "rationale": "<brief>" },
-        "wtpSignals": { "raw": <0-20>, "weight": 2, "rationale": "<brief>" },
-        "competitionWeakness": { "raw": <0-20>, "rationale": "<brief>" },
-        "switchingEvidence": { "raw": <0-20>, "weight": 2, "rationale": "<brief>" },
-        "sourceBreadth": { "raw": <0-20>, "rationale": "<brief>" }
+        "painEvidence": { "raw": "<0-20>", "rationale": "<brief>" },
+        "wtpSignals": { "raw": "<0-20>", "weight": 2, "rationale": "<brief>" },
+        "competitionWeakness": { "raw": "<0-20>", "rationale": "<brief>" },
+        "switchingEvidence": { "raw": "<0-20>", "weight": 2, "rationale": "<brief>" },
+        "sourceBreadth": { "raw": "<0-20>", "rationale": "<brief>" },
+        "recencyWeightedPain": { "raw": "<0-20>", "rationale": "<brief>", "avgAge": "<days>", "recentRatio": "<% from last 90d>" },
+        "trustWeightedEvidence": { "raw": "<0-20>", "rationale": "<brief>", "avgTrustScore": "<0-100>", "highTrustCount": "<N>" },
+        "trendVelocity": { "raw": "<0-20>", "direction": "accelerating|growing|stable|declining|new", "ratio": "<N>x" }
       },
-      "compositeScore": <0-100>,
+      "compositeScore": "<0-100 (original formula)>",
+      "enhancedScore": "<0-100 (v2 formula with recency + trust + trend)>",
       "verdict": "<VALIDATED|NEEDS_EVIDENCE|TOO_WEAK>"
     }
   ]
@@ -86,3 +135,4 @@ Write to: `/tmp/gapscout-<scan-id>/s6-scores.json`
 - Apply the scoring formula consistently — do not adjust scores subjectively
 - WTP and switching are weighted 2x because they indicate real market signal
 - If input files are missing, report error — do not hallucinate data
+- Compute BOTH compositeScore (original v1 formula) and enhancedScore (v2 formula) for every opportunity

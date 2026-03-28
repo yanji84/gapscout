@@ -101,6 +101,19 @@ Read these files from the scan directory:
      --scan-dir /tmp/gapscout-<scan-id>
    ```
 
+### Deep Mode Parameters
+
+If deep mode is active:
+- Main scan: `--limit 50 --max-pages 20` (1000 posts max)
+- Competitor scans: `--limit 30 --max-pages 10` per competitor
+- Pain theme queries: `--limit 20 --max-pages 5` per theme
+- **Comment depth analysis**: For threads with 50+ comments:
+  - Extract the full comment tree (not just top-level)
+  - Identify sub-threads where users debate solutions
+  - Extract "Show HN" and "Ask HN" threads specifically about the market
+  - Weight comments from accounts with high karma (>10K) at 1.5x
+- **Temporal trend detection**: Group posts by quarter and detect acceleration/deceleration of pain themes
+
 6. Deduplicate results by HN story ID or URL.
 
 7. RELEVANCE FILTER — before classifying, check each post for market relevance:

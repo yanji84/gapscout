@@ -1,0 +1,111 @@
+{
+  "agentName": "synthesis-scorer-merger",
+  "completedAt": "2026-03-28T10:00:00Z",
+  "opportunities": [
+    {
+      "gap": "Automated bulk listing management",
+      "gapClassification": "YES",
+      "scores": {
+        "painEvidence": { "raw": 18, "rationale": "57 mentions across 4 sources" },
+        "wtpSignals": { "raw": 16, "weight": 2, "rationale": "3 users mention paying $50-100/mo" },
+        "competitionWeakness": { "raw": 15, "rationale": "No competitor offers bulk tools" },
+        "switchingEvidence": { "raw": 14, "weight": 2, "rationale": "Users switching from X to Y citing this" },
+        "sourceBreadth": { "raw": 15, "rationale": "Reddit, HN, Trustpilot, G2" }
+      },
+      "compositeScore": 78,
+      "verdict": "VALIDATED",
+      "ideaSketch": {
+        "targetPersona": "Power sellers managing 100+ listings",
+        "valueProp": "One-click bulk edit, relist, and price adjust across all listings",
+        "competitiveMoat": "Deep API integration + ML-powered pricing",
+        "wtpJustification": "Users already paying $30/mo for inferior spreadsheet workarounds"
+      },
+      "evidence": [
+        {
+          "quote": "I spend 3 hours every day manually updating my 200 listings one by one",
+          "url": "https://reddit.com/r/flipping/comments/abc123/bulk_listing_pain",
+          "source": "reddit",
+          "citeKey": "RD-abc123"
+        },
+        {
+          "quote": "Would happily pay $100/month for proper bulk management",
+          "url": "https://reddit.com/r/ecommerce/comments/def456/willing_to_pay",
+          "source": "reddit",
+          "citeKey": "RD-def456"
+        },
+        {
+          "quote": "The API is there but nobody has built a decent tool on top of it",
+          "url": "https://news.ycombinator.com/item?id=39012345",
+          "source": "hackernews",
+          "citeKey": "HN-39012345"
+        }
+      ]
+    },
+    {
+      "gap": "Real-time price tracking and alerts",
+      "gapClassification": "PARTIAL",
+      "scores": {
+        "painEvidence": { "raw": 14, "rationale": "28 mentions across 3 sources" },
+        "wtpSignals": { "raw": 12, "weight": 2, "rationale": "Indirect WTP from tool subscription data" },
+        "competitionWeakness": { "raw": 10, "rationale": "2 competitors offer basic tracking" },
+        "switchingEvidence": { "raw": 10, "weight": 2, "rationale": "Some switching mentions" },
+        "sourceBreadth": { "raw": 10, "rationale": "Reddit, HN, Trustpilot" }
+      },
+      "compositeScore": 62,
+      "verdict": "VALIDATED",
+      "ideaSketch": {
+        "targetPersona": "Casual resellers tracking 10-50 items",
+        "valueProp": "Instant price drop alerts with buy recommendations",
+        "competitiveMoat": "Historical price database + prediction model",
+        "wtpJustification": "Users subscribe to $10/mo trackers for other categories"
+      },
+      "evidence": [
+        {
+          "quote": "I check prices manually 5 times a day, there must be a better way",
+          "url": "https://reddit.com/r/flipping/comments/ghi789/price_checking",
+          "source": "reddit",
+          "citeKey": "RD-ghi789"
+        },
+        {
+          "quote": "CamelCamelCamel exists for Amazon but nothing for this market",
+          "url": "https://news.ycombinator.com/item?id=39054321",
+          "source": "hackernews",
+          "citeKey": "HN-39054321"
+        }
+      ]
+    },
+    {
+      "gap": "Cross-platform inventory sync",
+      "gapClassification": "YES",
+      "scores": {
+        "painEvidence": { "raw": 16, "rationale": "42 mentions across 3 sources" },
+        "wtpSignals": { "raw": 14, "weight": 2, "rationale": "Multiple users mention budget for tools" },
+        "competitionWeakness": { "raw": 12, "rationale": "Existing tools are buggy and slow" },
+        "switchingEvidence": { "raw": 8, "weight": 2, "rationale": "Some switching from manual methods" },
+        "sourceBreadth": { "raw": 12, "rationale": "Reddit, Trustpilot, G2, forums" }
+      },
+      "compositeScore": 65,
+      "verdict": "VALIDATED",
+      "ideaSketch": {
+        "targetPersona": "Multi-platform sellers (eBay + Mercari + Poshmark)",
+        "valueProp": "Automatic inventory deduction across all platforms when item sells",
+        "competitiveMoat": "Real-time webhook integrations vs polling",
+        "wtpJustification": "Users currently losing money on double-sells"
+      },
+      "evidence": [
+        {
+          "quote": "I sold the same item on eBay and Mercari simultaneously, had to refund one buyer",
+          "url": "https://reddit.com/r/flipping/comments/jkl012/double_sell_nightmare",
+          "source": "reddit",
+          "citeKey": "RD-jkl012"
+        },
+        {
+          "quote": "Crosslist syncs but it's so slow items stay listed for hours after selling",
+          "url": "https://www.trustpilot.com/review/crosslist.com/abc123",
+          "source": "trustpilot",
+          "citeKey": "TP-abc123"
+        }
+      ]
+    }
+  ]
+}

@@ -29,7 +29,8 @@
     "gapscout": "./scripts/cli.mjs"
   },
   "scripts": {
-    "test": "echo \"No tests yet\"",
+    "test": "node --test scripts/__tests__/pipeline-features.test.mjs scripts/__tests__/pipeline-expansion.test.mjs",
+    "test:all": "node --test scripts/__tests__/*.test.mjs",
     "discover": "node scripts/cli.mjs api discover",
     "scan": "node scripts/cli.mjs api scan",
     "deep-dive": "node scripts/cli.mjs api deep-dive",

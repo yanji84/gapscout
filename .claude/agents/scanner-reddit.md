@@ -86,6 +86,21 @@ Read these files from the scan directory:
      --scan-dir /tmp/gapscout-<scan-id>
    ```
 
+### Deep Mode Parameters (when orchestration-config indicates deep scanning)
+
+If the orchestration-config or prompt indicates "deep" mode:
+- Main subreddit scan: `--days 730 --limit 100 --max-pages 40` (4000 posts max, 2yr lookback)
+- Fallback broad search: `--limit 50 --max-pages 20` (1000 posts max)
+- Pain theme queries: `--limit 40 --max-pages 10` (400 posts per query)
+- **Comment thread analysis**: For posts with 50+ comments, extract the top 20 comment threads and analyze reply chains for:
+  - Agreement/disagreement patterns (do replies confirm the pain or push back?)
+  - Workaround sharing (users posting solutions = validated pain)
+  - Emotional escalation (frustration building through thread = urgent pain)
+  - Expert opinions (users with domain expertise weighing in)
+- **Second-pass focused scanning**: After initial scan, identify the 5 highest-signal subreddits and run a focused deep scan on each:
+  - `--limit 100 --max-pages 30` per subreddit
+  - Focus queries on top 3 pain themes found in first pass
+
 4. For each pain query from scanning-queries.json that represents a high-priority theme, run targeted searches:
    ```bash
    node scripts/cli.mjs api scan \

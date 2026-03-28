@@ -69,6 +69,14 @@ Use TaskCreate/TaskUpdate to surface broadening progress to the user:
    c. Update the competitor map:
       - Merge new competitors into `/tmp/gapscout-<scan-id>/competitor-map-broadened.json`
 
+### Deep Mode Broadening
+
+In deep mode:
+- maxBroadeningRounds: 4 (up from 2)
+- Profile ALL new competitors (not just high-signal ones)
+- Run scans on new competitors using at least 3 sources (not just websearch)
+- After each broadening round, re-run subreddit-discoverer for new competitors' communities
+
 5. After all broadening rounds complete (or budget exhausted), write completion data.
 
    ```

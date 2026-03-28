@@ -70,6 +70,10 @@ This gives users a live checklist of pipeline progress without requiring them to
 ```
 You (orchestrator)
 │
+├── Phase 0.5: SCAN RESUMPTION (resume mode only)
+│   └── scan-resumption
+│   Output: resumption-plan.json
+│
 ├── Phase 1: PLANNING
 │   └── planner (4 research sub-agents)
 │       Output: scan-spec.json
@@ -106,7 +110,7 @@ You (orchestrator)
 │   └── documenter-scanning (4 observer sub-agents)
 │   Output: judge verdict, issues log
 │
-├── Phase 4: SYNTHESIS (11 sequential sprints)
+├── Phase 4: SYNTHESIS (12 sequential sprints)
 │   └── synthesizer-coordinator
 │       ├── Sprint 1: 3 sub-agents (competitive map)
 │       ├── Sprint 2: 3 sub-agents (competitor pain)
@@ -118,8 +122,13 @@ You (orchestrator)
 │       ├── Sprint 8: 1 agent (signal strength scoring)
 │       ├── Sprint 9: 1 agent (counter-positioning)
 │       ├── Sprint 10: 1 agent (consolidation forecast)
-│       └── Sprint 11: 1 agent (founder profiles)
-│   Output: 11 synthesis files + report
+│       ├── Sprint 11: 1 agent (founder profiles)
+│       └── Sprint 12: 1 agent (community validation)
+│   Output: 12 synthesis files + report
+│
+├── Phase 4.5: DEEP RESEARCH VERIFICATION (iterative)
+│   └── deep-research-verifier (per-round, max 3 rounds)
+│   Output: deep-research-verification-round-{N}.json, deep-research-summary.json
 │
 ├── Phase 4-QA: SYNTHESIS QA (with iteration loop)
 │   ├── judge-synthesis (9 eval sub-agents)
@@ -129,8 +138,9 @@ You (orchestrator)
 └── Phase 5: REPORT GENERATION
     ├── report-generator-json
     ├── report-generator-html
-    └── report-summary-presenter
-    Output: report.json, report.html, executive summary
+    ├── report-summary-presenter
+    └── delta-summarizer (resume mode only)
+    Output: report.json, report.html, executive summary, delta-summary.json
 ```
 
 ## How You Work
@@ -143,6 +153,41 @@ Create the scan directory:
 ```bash
 mkdir -p /tmp/gapscout-<scan-id>/
 ```
+
+#### Resume Mode Detection
+
+If the user provides a path to a previous scan directory (e.g., `/tmp/gapscout-<old-id>/` or `/root/gapscout/data/scans/<old-id>/`), enter **RESUME MODE**:
+
+1. Spawn `scan-resumption` agent with:
+   - `previousScanDir`: the provided path
+   - `expansionGoals`: any user-specified goals (deeper, broader, etc.)
+
+2. Wait for: `resumption-plan.json` in the new scan directory
+
+3. Read the resumption plan. Adapt the pipeline:
+   ```
+   IF plan.discovery.action == "SKIP":
+     Skip Phase 2 entirely — use copied files
+   IF plan.discovery.action == "EXPAND":
+     Run discovery but MERGE with existing competitor-map (don't replace)
+
+   IF plan.scanning.deepen has entries:
+     Spawn those scanners with HIGHER limits (2x posts, 2x pages)
+     Scanner prompts include: "Previous scan found {N} posts. Target: {2*N} minimum."
+   IF plan.scanning.expand has entries:
+     Spawn NEW scanners for those sources
+   IF plan.scanning.reuse has entries:
+     Skip those scanners — use copied files
+
+   IF plan.synthesis.rerun has entries:
+     Run only those sprints (not all 12)
+   IF plan.synthesis.keep has entries:
+     Skip those sprints — use copied files
+   ```
+
+4. All downstream phases proceed normally but with expanded data.
+
+5. After report generation, spawn `delta-summarizer` (see separate agent).
 
 After creating the scan directory, create the first progress task:
 ```
@@ -192,6 +237,12 @@ Save your orchestration config to `/tmp/gapscout-<scan-id>/orchestration-config.
   "scanId": "<id>",
   "market": "<market>",
   "density": "sparse|moderate|crowded",
+  "resumeMode": {
+    "enabled": false,
+    "previousScanId": null,
+    "previousScanDir": null,
+    "resumptionPlanPath": null
+  },
   "agentConfig": {
     "discovery": {
       "profilerBatchSize": 5,
@@ -223,6 +274,13 @@ Save your orchestration config to `/tmp/gapscout-<scan-id>/orchestration-config.
       "enabled": true,
       "blockOnFail": false,
       "checks": ["postCount", "provenance", "queryCoverage", "deduplication", "apiMethod"]
+    },
+    "deepResearch": {
+      "enabled": true,
+      "maxRounds": 2,
+      "topNOpportunities": 5,
+      "convergenceThreshold": 5,
+      "maxSearchesPerOpportunity": 10
     }
   },
   "rateBudget": {
@@ -257,6 +315,14 @@ All agents receive:
 - Path to scan-spec.json
 - Path to orchestration-config.json
 - Their allocated rate budget
+
+#### Resume Mode: Merge Discovery
+
+If resumeMode is enabled and plan.discovery.action == "EXPAND":
+- Pass existing `competitor-map.prev.json` to market-mapper
+- Tell market-mapper: "Previous scan found {N} competitors. Your job is to find ADDITIONAL competitors not in this list. Focus on: niche players, recent entrants (2025-2026), and adjacent-market competitors."
+- After mapper completes, MERGE new competitors into existing map (don't replace)
+- Similarly for subreddits: merge new discoveries into existing list
 
 Wait for: `/tmp/gapscout-<scan-id>/stage-complete-discovery.json`
 
@@ -533,7 +599,7 @@ TaskUpdate({ id: scanning_qa_task_id, description: "Phase 3-QA: Re-scanning fail
 After scanning QA verdict is resolved, mark complete and start synthesis:
 ```
 TaskUpdate({ id: scanning_qa_task_id, status: "completed" })
-TaskCreate({ description: "Phase 4: Synthesizing insights (11 sprints)", status: "in_progress" })
+TaskCreate({ description: "Phase 4: Synthesizing insights (15 sprints)", status: "in_progress" })
 ```
 Save the returned task ID as `synthesis_task_id`.
 
@@ -579,9 +645,84 @@ IF intermediate files missing but final synthesis-N file exists:
   - Accept results (don't block pipeline) but flag in QA
 ```
 
-After reading and verifying synthesis results, mark synthesis complete and start synthesis QA:
+After reading and verifying synthesis results, mark synthesis as sprints-complete and start deep research verification:
 ```
-TaskUpdate({ id: synthesis_task_id, status: "completed" })
+TaskUpdate({ id: synthesis_task_id, description: "Phase 4: Synthesis sprints complete — starting verification", status: "in_progress" })
+```
+
+### Step 6.5: Deep Research Verification Loop
+
+After synthesis completes (all 15 sprints done), run iterative verification on top opportunities before proceeding to synthesis QA.
+
+```
+verification_round = 0
+max_verification_rounds = orchestration-config.agentConfig.deepResearch.maxRounds (default: 2)
+
+IF orchestration-config.agentConfig.deepResearch.enabled == false:
+  Skip verification loop entirely
+  Log: "Deep research verification disabled in config"
+  GOTO Step 7
+
+WHILE verification_round < max_verification_rounds:
+  Spawn deep-research-verifier with:
+    - synthesis-6-opportunities.json
+    - Round number: verification_round + 1
+    - Previous round results (if verification_round > 0)
+    - Rate budget: remaining from scanning allocation
+
+  Agent({
+    description: "Deep research verification round {verification_round + 1}",
+    subagent_type: "deep-research-verifier",
+    prompt: "Verify top opportunities. Round: {verification_round + 1}. Scan dir: {scan_dir}",
+    run_in_background: false
+  })
+
+  Wait for: deep-research-verification-round-{verification_round+1}.json
+  Read results.
+
+  IF convergenceMetrics.converged == true:
+    Log: "Verification converged after {verification_round+1} rounds"
+    BREAK
+
+  IF any opportunity INVALIDATED:
+    Log: "Opportunity '{gap}' invalidated — will re-rank"
+    # Re-ranking happens in the final report generation
+
+  verification_round += 1
+
+# After verification loop completes:
+# Merge verification results into a summary file
+Write deep-research-summary.json with:
+  - Final adjusted scores per opportunity
+  - Total rounds run
+  - Convergence status
+  - All new evidence collected across rounds
+  - List of invalidated opportunities (if any)
+
+The deep-research-summary.json schema:
+{
+  "totalRounds": N,
+  "converged": true/false,
+  "convergenceRound": N or null,
+  "adjustedOpportunities": [
+    {
+      "gap": "<name>",
+      "originalScore": N,
+      "finalAdjustedScore": N,
+      "totalScoreChange": N,
+      "finalVerdict": "STRENGTHENED|UNCHANGED|WEAKENED|INVALIDATED",
+      "finalConfidence": "HIGH|MEDIUM|LOW",
+      "allNewEvidence": [...]
+    }
+  ],
+  "invalidatedOpportunities": ["<gap names>"],
+  "totalNewEvidence": N
+}
+```
+
+After verification loop completes, update the synthesis task:
+```
+TaskUpdate({ id: synthesis_task_id, description: "Phase 4: Synthesis + verification complete ({N} verification rounds)", status: "completed" })
 TaskCreate({ description: "Phase 4-QA: Evaluating synthesis quality", status: "in_progress" })
 ```
 Save the returned task ID as `synthesis_qa_task_id`.
@@ -639,7 +780,15 @@ Spawn **in a single message** (parallel):
 2. **`report-generator-html`** — Generates report.html
 3. **`report-summary-presenter`** — Produces executive summary
 
-Wait for all 3 to complete.
+All report generators receive:
+- All synthesis files
+- `deep-research-summary.json` — verification results (if deep research was enabled and ran)
+- `deep-research-verification-round-{N}.json` — per-round detail files (for evidence drill-down)
+- `community-validation.json` — community validation suggestions (from Sprint 12)
+
+4. **`delta-summarizer`** (subagent_type: delta-summarizer) — ONLY if resumeMode is enabled. Compares new vs. previous report.
+
+Wait for all report generators to complete (and delta-summarizer if spawned).
 
 After all report generators complete, mark the final task as done:
 ```
@@ -677,6 +826,31 @@ Compile and present:
 
 ### Data Quality Notes
 {any degraded sources, skipped agents, or unresolved QA issues}
+```
+
+### Delta Summary (Resume Mode Only)
+
+If resumeMode was enabled, read delta-summary.json and include in presentation:
+
+```
+## What Changed (vs. previous scan)
+
+### Opportunities
+{for each changed opportunity}
+- {gap}: {previousScore} → {newScore} ({scoreChange}) — {summary}
+
+### New Discoveries
+- {N} new competitors found
+- {N} new pain themes identified
+- {N} new evidence items collected
+
+### Evidence Quality
+- {N} claims upgraded to GOLD tier
+- {N} claims invalidated
+
+### Source Coverage
+{for each changed source}
+- {source}: {previous} → {new} posts (+{change})
 ```
 
 ## Runtime Adaptation Rules

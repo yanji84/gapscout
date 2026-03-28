@@ -28,9 +28,16 @@ Read these files from `/tmp/gapscout-<scan-id>/`:
 - `synthesis-9-counter-positioning.json` — incumbent response analysis and moat assessments
 - `synthesis-10-consolidation-forecast.json` — M&A predictions and market shape forecast
 - `synthesis-11-founder-profiles.json` — founder/leadership profiles and patterns
+- `synthesis-13-market-sizing.json` — TAM/SAM/SOM + GTM (if exists)
+- `synthesis-14-causal-chains.json` — root cause analysis (if exists)
+- `synthesis-15-strategic-narrative.json` — strategic narrative (if exists)
 - `competitor-trust-scores.json` — competitor trust/legitimacy scores (if exists)
 - `scan-audit.json` — scan data integrity audit results (if exists)
 - `judge-synthesis-COMPLETE.json` — QA evaluation results
+- `deep-research-summary.json` — deep research verification results (if exists)
+- `deep-research-verification-round-*.json` — per-round verification detail (if exists)
+- `community-validation.json` — community validation suggestions per opportunity (if exists)
+- `delta-summary.json` — delta comparison with previous scan (if exists, resume mode only)
 
 ## Task
 
@@ -60,7 +67,65 @@ Compile all synthesis outputs into a single structured report:
    - Impact on competitive gap analysis (which opportunities were affected by trust-adjusted competition counting)
    - Flag any competitor in the competitive map whose tier was downgraded due to trust scoring
 15. **Scan audit results** — from scan-audit.json (if exists): include overall verdict, per-source verdicts, post count discrepancies, provenance failures, and recommendations
-16. **Data quality** — QA scores and notes
+16. **Deep research verification** — from deep-research-summary.json (if exists):
+    - Verification rounds completed and convergence status
+    - Per-opportunity verification verdicts (STRENGTHENED/UNCHANGED/WEAKENED/INVALIDATED)
+    - Adjusted scores vs original scores
+    - Total new evidence collected
+    - Invalidated opportunities (removed from rankings)
+    - Update executiveSummary.topOpportunities to use adjusted scores when available
+17. **Community validation** — from community-validation.json (if exists):
+    - Per-opportunity community recommendations with platform, name, URL, and relevance scores
+    - Validation plans with survey questions, engagement templates, and red flags
+    - Cross-cutting communities that cover multiple opportunities
+18. **Market sizing** — from Sprint 13 (if synthesis-13-market-sizing.json exists): TAM/SAM/SOM per opportunity, pricing strategy, GTM recommendations
+19. **Causal chains** — from Sprint 14 (if synthesis-14-causal-chains.json exists): root cause analysis for top pain themes
+20. **Strategic narrative** — from Sprint 15 (if synthesis-15-strategic-narrative.json exists): market story, opportunity playbooks, contrarian insights, BUILD/WATCH/AVOID recommendations
+21. **Data quality** — QA scores and notes
+
+## Inline Citations (Bibliography System)
+
+Build a research-paper style citation system throughout the report:
+
+1. **Collect all citations** from synthesis files into a deduplicated numbered bibliography. Every evidence entry with a URL becomes a citation. Assign sequential IDs starting from 1.
+
+2. **Add a top-level `citations` array** (the bibliography):
+```json
+"citations": [
+  {
+    "id": 1,
+    "url": "https://reddit.com/r/.../...",
+    "source": "reddit",
+    "sourceType": "user-complaint|wtp-signal|feature-request|market-discussion|competitor-review",
+    "title": "Thread or page title",
+    "date": "2026-01-15",
+    "quote": "Exact quote used as evidence",
+    "retrievedAt": "<ISO timestamp>",
+    "context": "Brief description of what this citation supports"
+  }
+]
+```
+
+3. **Inject `citationIds` arrays** into every evidence-bearing field throughout the report:
+   - Pain themes: `"citationIds": [1, 3, 7]`
+   - Opportunities: `"citationIds": [2, 5, 8]`
+   - Switching signals: `"citationIds": [4, 9]`
+   - Unmet needs: `"citationIds": [6, 10]`
+   - Executive summary claims: `"citationIds": [1, 2, 3]`
+
+4. **Use inline [N] notation** in human-readable evidence strings:
+   - `"evidence": "Users report 2-3 week response times [1][3][7]"`
+
+5. **Add `citationStats`** to report metadata:
+```json
+"citationStats": {
+  "total": N,
+  "bySource": { "reddit": N, "hackernews": N, "trustpilot": N, ... },
+  "goldTierCitations": N
+}
+```
+
+6. **Deduplication**: If the same URL appears in multiple synthesis files, it gets ONE citation ID. Map all references to that single ID.
 
 ## Output
 
@@ -68,14 +133,14 @@ Write to: `/tmp/gapscout-<scan-id>/report.json`
 
 ```json
 {
-  "reportVersion": "2.0",
+  "reportVersion": "3.0",
   "generatedAt": "<ISO timestamp>",
   "scanId": "<scan-id>",
   "market": "<market name>",
   "executiveSummary": {
     "marketOverview": "<1-2 sentences>",
     "topOpportunities": [
-      { "rank": 1, "gap": "<name>", "score": <N>, "verdict": "<verdict>" }
+      { "rank": 1, "gap": "<name>", "score": <N>, "verdict": "<verdict>", "citationIds": [1, 2, 3] }
     ],
     "keyFinding": "<most surprising insight>",
     "totalCompetitors": <N>,
@@ -93,6 +158,54 @@ Write to: `/tmp/gapscout-<scan-id>/report.json`
   "counterPositioning": { },
   "consolidationForecast": { },
   "founderProfiles": { },
+  "marketSizing": { },
+  "causalChains": { },
+  "strategicNarrative": { },
+  "citations": [
+    { "id": 1, "url": "<url>", "source": "<source>", "sourceType": "<type>", "quote": "<quote>", "date": "<date>", "context": "<context>" }
+  ],
+  "citationStats": {
+    "total": "<N>",
+    "bySource": { "reddit": "<N>", "hackernews": "<N>" },
+    "goldTierCitations": "<N>"
+  },
+  "communityValidation": {
+    "opportunities": [
+      {
+        "gap": "<name>",
+        "communities": [
+          { "platform": "<reddit|discord|hn|forum>", "name": "<name>", "url": "<url>", "relevance": "<1-5>", "activity": "<1-5>", "whyRelevant": "<reason>" }
+        ],
+        "validationPlan": { "surveyQuestion": "<question>", "engagementTemplate": "<template>", "whatToLookFor": [], "redFlags": [] }
+      }
+    ],
+    "crossCuttingCommunities": []
+  },
+  "deepResearchVerification": {
+    "roundsCompleted": N,
+    "converged": true/false,
+    "adjustedOpportunities": [
+      {
+        "gap": "<name>",
+        "originalScore": N,
+        "finalAdjustedScore": N,
+        "totalScoreChange": N,
+        "finalVerdict": "STRENGTHENED|UNCHANGED|WEAKENED|INVALIDATED",
+        "finalConfidence": "HIGH|MEDIUM|LOW",
+        "newEvidenceCount": N,
+        "verificationSummary": "<1-2 sentences>"
+      }
+    ],
+    "invalidatedOpportunities": ["<gap names that were removed>"],
+    "totalNewEvidence": N
+  },
+  "deltaSummary": {
+    "previousScanId": "<id>",
+    "narrativeSummary": "<2-3 paragraphs>",
+    "opportunityDelta": [],
+    "competitorDelta": {},
+    "stats": {}
+  },
   "dataQuality": {
     "qaVerdict": "<PASS|MARGINAL|FAIL>",
     "compositeScore": <N>,

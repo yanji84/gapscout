@@ -66,6 +66,58 @@ Score every evidence item on a 0-100 credibility scale and assign confidence tie
      - 30-49: Ambiguous signal, multiple interpretations
      - 0-29: Pure sentiment with no actionable direction
 
+### Per-Post Trust Score
+
+Every individual evidence post/review/comment gets a trust score (0-100) computed from:
+
+1. **Account credibility** (25%):
+   - Reddit: karma > 10K = 90, 1K-10K = 70, 100-1K = 50, <100 = 30
+   - HN: karma > 5K = 90, 1K-5K = 70, 100-1K = 50, <100 = 30
+   - Trustpilot: verified purchase = 90, unverified = 50
+   - If account data unavailable: 40 (default)
+
+2. **Content quality** (25%):
+   - Specific details (names, numbers, dates) = 90
+   - Personal experience described = 70
+   - General opinion with some detail = 50
+   - Vague one-liner = 20
+
+3. **Engagement validation** (20%):
+   - High engagement (50+ upvotes/replies) = 90
+   - Medium (10-49) = 70
+   - Low (1-9) = 50
+   - Zero = 30
+
+4. **Recency** (15%):
+   - Last 30 days = 100
+   - 30-90 days = 85
+   - 90-180 days = 70
+   - 180-365 days = 50
+   - > 365 days = 30
+
+5. **Corroboration** (15%):
+   - Same claim in 3+ other posts = 90
+   - Same claim in 1-2 other posts = 70
+   - Unique claim = 40
+
+Output `postTrustScore` (0-100) for every evidence item. This score is then used by:
+- Sprint 6 (scorer) for trust-weighted evidence dimension
+- Sprint 8 (signal strength) for overall theme confidence
+- Report generation for trust-weighted citation display
+
+### Recency Decay Function
+
+Apply recency decay to all evidence scoring:
+```
+recencyMultiplier = max(0.3, 1.0 - (ageInDays / 730))
+```
+- 0 days old: 1.0x
+- 365 days old: 0.5x
+- 730 days old: 0.3x (floor)
+
+Evidence scores are multiplied by recencyMultiplier before aggregation.
+Add `recencyMultiplier` and `ageInDays` to each evidence item output.
+
 2. **Assign confidence tiers to each pain theme and opportunity:**
    - **GOLD** (composite avg >= 75, evidence from 3+ independent source types): High-confidence, multi-validated signal
    - **SILVER** (composite avg 50-74, evidence from 2+ independent source types): Moderate confidence, corroborated
@@ -130,6 +182,9 @@ Write to: `/tmp/gapscout-<scan-id>/synthesis-8-signal-strength.json`
             "actionability": <0-100>
           },
           "compositeScore": <0-100>,
+          "postTrustScore": <0-100>,
+          "recencyMultiplier": <0.3-1.0>,
+          "ageInDays": <N>,
           "rationale": "<why this score>"
         }
       ]

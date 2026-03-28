@@ -26,6 +26,12 @@ Produce a single `scan-spec.json` file saved to `/tmp/gapscout-<scan-id>/scan-sp
 
   "discoverySpec": {
     "audienceSegments": ["SMB", "mid-market", "enterprise", "freelancers"],
+    "_audienceSegmentGuidance": {
+      "deepMode": "Generate 2x more audience segments for deep mode",
+      "adjacentMarket": "Include adjacent-market segments (e.g., for 'language learning': education technology, travel apps, cultural exchange)",
+      "jobRole": "Include job-role segments (e.g., product managers, CTOs, procurement leads)",
+      "lifecycle": "Include lifecycle segments (e.g., evaluating, onboarding, power user, churning)"
+    },
     "competitorTargetRange": { "min": 15, "max": 60 },
     "queryBudget": 50,
     "profilingDepth": "full|light",
@@ -44,6 +50,18 @@ Produce a single `scan-spec.json` file saved to `/tmp/gapscout-<scan-id>/scan-sp
 
   "scanningSpec": {
     "depth": "regular|deep",
+    "_depthDocumentation": {
+      "regular": "Default mode — balanced coverage within standard rate budgets",
+      "deep": "Activated by resume/expansion runs or explicit user request. Parameters below.",
+      "deepModeOverrides": {
+        "categoryA": { "postsPerCompetitor": 150, "totalPostTarget": 15000 },
+        "categoryB": { "postsPerSource": 1500, "totalPostTarget": 10000 },
+        "timeframe": "730d",
+        "broadeningPolicy": { "maxNewCompetitors": 40, "maxBroadeningRounds": 4 },
+        "enabledAdditionalSources": ["linkedin-posts", "youtube-comments", "stackoverflow", "github-discussions"],
+        "queryBudget": 150
+      }
+    },
     "categoryA": {
       "reviewSources": ["g2", "capterra", "trustpilot", "appstore"],
       "reviewFocus": "1-3 star",
@@ -52,6 +70,18 @@ Produce a single `scan-spec.json` file saved to `/tmp/gapscout-<scan-id>/scan-sp
     },
     "categoryB": {
       "sources": ["reddit", "hackernews", "websearch", "google-autocomplete", "producthunt"],
+      "additionalSources": [
+        "linkedin-posts",
+        "youtube-comments",
+        "bluesky",
+        "stackoverflow",
+        "github-discussions",
+        "indie-hackers",
+        "discord-answeroverflow",
+        "quora",
+        "medium-comments",
+        "dev-to"
+      ],
       "postsPerSource": 500,
       "totalPostTarget": 3000
     },

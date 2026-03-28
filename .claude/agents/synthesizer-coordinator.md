@@ -22,7 +22,7 @@ Instruct every sprint sub-agent with this rule. A synthesis with 5 real citation
 
 Create a task for each sprint as it begins, and update it to completed when that sprint's READY file is written. This gives the user real-time visibility into which synthesis sprint is currently running.
 
-- When starting a sprint: `TaskCreate({ description: "Synthesis Sprint N/11: <name>", status: "in_progress" })`
+- When starting a sprint: `TaskCreate({ description: "Synthesis Sprint N/15: <name>", status: "in_progress" })`
 - When the sprint's READY file is confirmed: `TaskUpdate({ id: <task-id>, status: "completed" })`
 - In iteration mode: create a single task describing which sprints are being re-run
 
@@ -66,7 +66,7 @@ This applies to Sprints 1, 2, 5, 6, 9, 10, and 11 — all sprints that discuss c
 
 After verifying readiness, create the first sprint task:
 ```
-TaskCreate({ description: "Synthesis Sprint 1/11: Competitive Map Assembly", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 1/15: Competitive Map Assembly", status: "in_progress" })
 ```
 
 ### Sprint 1: Competitive Map Assembly
@@ -105,7 +105,7 @@ Spawn **3 sub-agents in parallel** (in a single message):
 After synthesis-1-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint1-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 2/11: Competitor Pain Analysis", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 2/15: Competitor Pain Analysis", status: "in_progress" })
 ```
 
 ### Sprint 2: Competitor Pain Analysis
@@ -152,7 +152,7 @@ Signal completion: write synthesis-2-READY.txt
 After synthesis-2-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint2-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 3/11: Unmet Needs Discovery", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 3/15: Unmet Needs Discovery", status: "in_progress" })
 ```
 
 ### Sprint 3: Unmet Needs Discovery
@@ -203,7 +203,7 @@ Signal completion: write synthesis-3-READY.txt
 After synthesis-3-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint3-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 4/11: Switching Signal Analysis", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 4/15: Switching Signal Analysis", status: "in_progress" })
 ```
 
 ### Sprint 4: Switching Signal Analysis
@@ -224,7 +224,7 @@ Signal completion: write synthesis-4-READY.txt
 After synthesis-4-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint4-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 5/11: Gap Matrix Construction", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 5/15: Gap Matrix Construction", status: "in_progress" })
 ```
 
 ### Sprint 5: Gap Matrix Construction
@@ -267,7 +267,7 @@ Signal completion: write synthesis-5-READY.txt
 After synthesis-5-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint5-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 6/11: Opportunity Scoring", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 6/15: Opportunity Scoring", status: "in_progress" })
 ```
 
 ### Sprint 6: Opportunity Scoring + Idea Sketches
@@ -308,7 +308,7 @@ Signal completion: write synthesis-6-READY.txt
 After synthesis-6-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint6-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 7/11: False-Negative Rescue", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 7/15: False-Negative Rescue", status: "in_progress" })
 ```
 
 ### Sprint 7: False-Negative Rescue
@@ -339,7 +339,7 @@ Signal completion: write synthesis-7-READY.txt
 After synthesis-7-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint7-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 8/11: Signal Strength Scoring", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 8/15: Signal Strength Scoring", status: "in_progress" })
 ```
 
 ### Sprint 8: Signal Strength Scoring
@@ -360,7 +360,7 @@ Signal completion: write synthesis-8-READY.txt
 After synthesis-8-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint8-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 9/11: Counter-Positioning Analysis", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 9/15: Counter-Positioning Analysis", status: "in_progress" })
 ```
 
 ### Sprint 9: Counter-Positioning Analysis
@@ -379,7 +379,7 @@ Signal completion: write synthesis-9-READY.txt
 After synthesis-9-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint9-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 10/11: Market Consolidation Forecast", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 10/15: Market Consolidation Forecast", status: "in_progress" })
 ```
 
 ### Sprint 10: Market Consolidation Forecast
@@ -402,7 +402,7 @@ Signal completion: write synthesis-10-READY.txt
 After synthesis-10-READY.txt is confirmed:
 ```
 TaskUpdate({ id: <sprint10-task>, status: "completed" })
-TaskCreate({ description: "Synthesis Sprint 11/11: Founder & Leadership Profiles", status: "in_progress" })
+TaskCreate({ description: "Synthesis Sprint 11/15: Founder & Leadership Profiles", status: "in_progress" })
 ```
 
 ### Sprint 11: Founder & Leadership Profiles
@@ -425,9 +425,86 @@ After synthesis-11-READY.txt is confirmed:
 TaskUpdate({ id: <sprint11-task>, status: "completed" })
 ```
 
+### Sprint 12: Community Validation Planning
+
+After Sprint 11 READY. Spawn **1 sub-agent**:
+
+```
+TaskCreate({ description: "Synthesis Sprint 12/15: Community Validation Planning", status: "in_progress" })
+```
+
+Agent `community-validator` (subagent_type: community-validator):
+Read: synthesis-6-opportunities.json, subreddits.json, scan-spec.json, synthesis-1-competitive-map.json, synthesis-4-switching.json, deep-research-summary.json (if exists)
+Produce: /tmp/gapscout-<scan-id>/community-validation.json
+  - Per-opportunity community recommendations (3-5 verified communities each)
+  - Validation plans with survey questions, engagement templates, and red flags
+  - Cross-cutting communities that span multiple opportunities
+Signal completion: write community-validation-READY.txt
+
+**Contract**: Done when top 5 opportunities each have at least 3 verified community recommendations.
+
+After community-validation-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint12-task>, status: "completed" })
+```
+
+### Sprint 13: Market Sizing & Go-to-Market
+
+After Sprint 12 READY. Spawn **1 sub-agent**:
+
+```
+TaskCreate({ description: "Synthesis Sprint 13/15: Market Sizing & GTM", status: "in_progress" })
+```
+
+Agent `market-sizing` (subagent_type: synthesis-market-sizing):
+Read: synthesis-6-opportunities.json, synthesis-1-competitive-map.json, synthesis-11-founder-profiles.json, synthesis-4-switching.json, competitor-profiles.json, deep-research-summary.json
+Produce: synthesis-13-market-sizing.json
+Signal completion: write synthesis-13-READY.txt
+
+**Contract**: Done when each VALIDATED opportunity has TAM/SAM/SOM estimates with confidence levels and a GTM playbook.
+
+After synthesis-13-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint13-task>, status: "completed" })
+TaskCreate({ description: "Synthesis Sprint 14/15: Causal Chain Analysis", status: "in_progress" })
+```
+
+### Sprint 14: Causal Chain Analysis
+
+After Sprint 13 READY. Spawn **1 sub-agent**:
+
+Agent `causal-chains` (subagent_type: synthesis-causal-chains):
+Read: synthesis-2-competitor-pain.json, synthesis-6-opportunities.json, synthesis-9-counter-positioning.json, synthesis-11-founder-profiles.json
+Produce: synthesis-14-causal-chains.json
+Signal completion: write synthesis-14-READY.txt
+
+**Contract**: Done when top 5 pain themes each have a root cause chain with structural forces and change catalysts.
+
+After synthesis-14-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint14-task>, status: "completed" })
+TaskCreate({ description: "Synthesis Sprint 15/15: Strategic Narrative", status: "in_progress" })
+```
+
+### Sprint 15: Strategic Narrative Synthesis
+
+After Sprint 14 READY. Spawn **1 sub-agent**:
+
+Agent `strategic-narrative` (subagent_type: synthesis-strategic-narrative):
+Read: ALL synthesis files (sprints 1-14)
+Produce: synthesis-15-strategic-narrative.json
+Signal completion: write synthesis-15-READY.txt
+
+**Contract**: Done when market story arc, opportunity playbooks, BUILD/WATCH/AVOID recommendations, and decision framework are complete.
+
+After synthesis-15-READY.txt is confirmed:
+```
+TaskUpdate({ id: <sprint15-task>, status: "completed" })
+```
+
 ### Post-Synthesis: Report Generation
 
-After Sprint 11 READY:
+After Sprint 15 READY (or Sprint 12 READY if sprints 13-15 are skipped):
 
 1. Generate JSON report:
    ```bash
@@ -444,7 +521,7 @@ After Sprint 11 READY:
    /tmp/gapscout-<scan-id>/stage-complete-synthesis.json
    {
      "stage": "synthesis",
-     "sprints": 11,
+     "sprints": 15,
      "completedAt": "<ISO>",
      "reportPath": "/tmp/gapscout-<scan-id>/report.json",
      "htmlReportPath": "/tmp/gapscout-<scan-id>/report.html"
@@ -470,7 +547,7 @@ Update this task to completed when all re-run sprints finish and updated synthes
 
 Example:
 ```
-Round 1: Sprints 1-11 → Judge: MARGINAL (citation grounding 5/10 in Sprint 2)
+Round 1: Sprints 1-15 → Judge: MARGINAL (citation grounding 5/10 in Sprint 2)
 Round 2: Re-run Sprint 2 only → Sprint 2 reads judge feedback + improves citations
          Re-run Sprints 5-6 (depend on Sprint 2) → recalculate with new data
 Round 3: Judge: PASS

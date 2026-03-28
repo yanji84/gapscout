@@ -1,0 +1,100 @@
+{
+  "agentName": "delta-summarizer",
+  "completedAt": "2026-03-28T14:00:00Z",
+  "previousScanId": "d586fc87-6ef2-4536-b0e2-5d2a22334e13",
+  "newScanId": "test-expanded-001",
+  "narrativeSummary": "The expanded scan significantly deepened evidence for the top opportunity. Adding App Store and LinkedIn sources brought 340 new evidence items, confirming the speaking practice gap is the market's most urgent unmet need. Two new competitors were discovered (SpeakWell AI, VoiceMentor) that partially address the gap but have poor reviews. The #1 opportunity score increased from 89 to 93 due to additional WTP evidence from LinkedIn decision-maker posts. The #3 opportunity (Ethical Billing) was STRENGTHENED with 45 new Trustpilot complaints about dark patterns.",
+  "competitorDelta": {
+    "added": [
+      { "name": "SpeakWell AI", "tier": "niche", "source": "LinkedIn + Product Hunt" },
+      { "name": "VoiceMentor", "tier": "niche", "source": "App Store reviews" }
+    ],
+    "removed": [],
+    "reclassified": [
+      { "name": "Speak", "from": "challenger", "to": "leader" }
+    ],
+    "totalPrevious": 57,
+    "totalNew": 59
+  },
+  "opportunityDelta": [
+    {
+      "gap": "AI Conversation Tutor with Accurate Pronunciation",
+      "previousScore": 89,
+      "newScore": 93,
+      "scoreChange": "+4",
+      "previousRank": 1,
+      "newRank": 1,
+      "rankChange": "0",
+      "previousVerdict": "VALIDATED",
+      "newVerdict": "VALIDATED",
+      "verdictChanged": false,
+      "newEvidenceCount": 87,
+      "summary": "Strengthened by LinkedIn WTP signals from language school CTOs and 45 new App Store complaints about broken speaking practice"
+    },
+    {
+      "gap": "Intermediate-to-Advanced Platform (B1-C1)",
+      "previousScore": 77,
+      "newScore": 74,
+      "scoreChange": "-3",
+      "previousRank": 2,
+      "newRank": 3,
+      "rankChange": "-1",
+      "previousVerdict": "VALIDATED",
+      "newVerdict": "VALIDATED",
+      "verdictChanged": false,
+      "newEvidenceCount": 23,
+      "summary": "Slightly weakened as new competitor LingQ expanded intermediate content offering in March 2026"
+    },
+    {
+      "gap": "Ethically-Priced with Transparent Billing",
+      "previousScore": 78,
+      "newScore": 82,
+      "scoreChange": "+4",
+      "previousRank": 3,
+      "newRank": 2,
+      "rankChange": "+1",
+      "previousVerdict": "VALIDATED",
+      "newVerdict": "VALIDATED",
+      "verdictChanged": false,
+      "newEvidenceCount": 45,
+      "summary": "Strengthened by 45 new Trustpilot complaints about Duolingo and Babbel billing dark patterns"
+    }
+  ],
+  "newFindings": {
+    "painThemes": [
+      { "theme": "AI hallucination in language corrections", "severity": "HIGH", "source": "App Store reviews + Reddit" }
+    ],
+    "switchingSignals": [
+      { "signal": "Enterprise buyers switching from Babbel to custom AI solutions", "source": "LinkedIn" }
+    ],
+    "unmetNeeds": [
+      { "need": "Offline-first language learning for travelers", "source": "App Store + Reddit" }
+    ]
+  },
+  "evidenceStrengthChanges": {
+    "upgraded": [
+      { "claim": "Speaking practice gap affects 60%+ of intermediate learners", "from": "SILVER", "to": "GOLD" }
+    ],
+    "newGold": 3,
+    "invalidated": 1
+  },
+  "sourceCoverageDelta": {
+    "newSources": ["appstore", "linkedin-posts"],
+    "postCountChanges": [
+      { "source": "reddit", "previous": 47, "new": 215, "change": "+168" },
+      { "source": "hackernews", "previous": 67, "new": 152, "change": "+85" },
+      { "source": "trustpilot", "previous": 190, "new": 280, "change": "+90" },
+      { "source": "appstore", "previous": 0, "new": 340, "change": "+340" },
+      { "source": "linkedin-posts", "previous": 0, "new": 45, "change": "+45" }
+    ]
+  },
+  "stats": {
+    "totalNewEvidence": 728,
+    "totalNewCompetitors": 2,
+    "opportunitiesChanged": 3,
+    "scoreIncreases": 2,
+    "scoreDecreases": 1,
+    "newValidated": 0,
+    "newInvalidated": 0
+  }
+}

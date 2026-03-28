@@ -40,6 +40,16 @@ Map the switching landscape — who is leaving what, where they're going, and wh
    - Which competitors are NET gainers?
    - Are there "switching dead ends" (people leave X but no good Y exists)?
 
+### Trust-Weighted Switching Analysis
+
+Weight switching signals by evidence quality:
+- Verified purchase reviews mentioning switching: trustWeight = 1.0
+- Reddit posts with specific competitor names and reasons: trustWeight = 0.8
+- Vague "I'm thinking of switching" posts: trustWeight = 0.4
+- Apply recencyWeight (same formula)
+- Output `weightedSwitchingVolume` per migration pair
+- A switching signal from a verified Trustpilot review < 30 days old is worth more than a year-old vague Reddit post
+
 ## Output
 
 Write to: `/tmp/gapscout-<scan-id>/synthesis-4-switching.json`

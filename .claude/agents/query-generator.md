@@ -192,15 +192,93 @@ Prompt:
 
 ---
 
+### Deep Mode Query Expansion
+
+In deep mode, generate 2 ADDITIONAL query categories by spawning 2 more sub-agents:
+
+**Agent 5: "query-workflow-process"**
+
+Prompt:
+> You are a query generation agent for GapScout. Your focus: workflow and process queries — how people actually use tools.
+>
+> Read the scan-spec at `{scan_spec_path}` and competitor map at `{competitor_map_path}`.
+>
+> Generate search queries designed to surface usability pain beyond feature gaps. Generate queries like:
+> - "[competitor] daily workflow"
+> - "[market] automation setup"
+> - "[competitor] integration with [other tool]"
+> - "[competitor] onboarding experience"
+> - "[market] workflow efficiency"
+> - "how to use [competitor] with [common integration]"
+>
+> Purpose: Discover usability pain beyond feature gaps.
+>
+> Tag each query with: `type: "workflow-process"`, `targetSource: "websearch|reddit"`.
+>
+> Write to `{scan_dir}/queries-workflow-process.json` as:
+> ```json
+> {
+>   "queryType": "workflow-process",
+>   "queries": [
+>     { "query": "...", "type": "workflow-process", "competitor": "Name", "targetSource": "websearch" }
+>   ],
+>   "totalQueries": N,
+>   "timestamp": "ISO"
+> }
+> ```
+> Output only the JSON file, no commentary.
+
+---
+
+**Agent 6: "query-pricing-value"**
+
+Prompt:
+> You are a query generation agent for GapScout. Your focus: pricing and value queries — willingness-to-pay signals.
+>
+> Read the scan-spec at `{scan_spec_path}` and competitor map at `{competitor_map_path}`.
+>
+> Generate search queries designed to surface direct WTP evidence and price sensitivity. Generate queries like:
+> - "[competitor] pricing too expensive"
+> - "[market] budget alternative"
+> - "[competitor] free tier limitations"
+> - "[competitor] enterprise pricing"
+> - "[market] cost comparison"
+> - "is [competitor] worth the price"
+> - "[competitor] pricing change"
+>
+> Purpose: Direct WTP evidence and price sensitivity mapping.
+>
+> Tag each query with: `type: "pricing-value"`, `targetSource: "websearch|reddit"`.
+>
+> Write to `{scan_dir}/queries-pricing-value.json` as:
+> ```json
+> {
+>   "queryType": "pricing-value",
+>   "queries": [
+>     { "query": "...", "type": "pricing-value", "competitor": "Name", "targetSource": "websearch" }
+>   ],
+>   "totalQueries": N,
+>   "timestamp": "ISO"
+> }
+> ```
+> Output only the JSON file, no commentary.
+
+---
+
+Query budget in deep mode: 150 (3x the regular 50).
+Prioritization remains: competitor-complaints > switching-signals > market-pain > feature-requests > workflow-process > pricing-value
+
 ## Merge Protocol
 
 After spawning all 4 sub-agents, wait for all to complete. Then:
 
-1. **Verify** that all 4 intermediate files exist:
+1. **Verify** that all intermediate files exist:
    - `{scan_dir}/queries-competitor-complaints.json`
    - `{scan_dir}/queries-market-pain.json`
    - `{scan_dir}/queries-switching-signals.json`
    - `{scan_dir}/queries-feature-requests.json`
+   - (Deep mode only) `{scan_dir}/queries-workflow-process.json`
+   - (Deep mode only) `{scan_dir}/queries-pricing-value.json`
 
    If any file is missing, log a warning and proceed with available files.
 
@@ -213,7 +291,7 @@ After spawning all 4 sub-agents, wait for all to complete. Then:
 
 4. **Validate** against query budget:
    - Check total queries against `discoverySpec.queryBudget` from scan-spec
-   - If over budget, prioritize: competitor-complaints > switching-signals > market-pain > feature-requests
+   - If over budget, prioritize: competitor-complaints > switching-signals > market-pain > feature-requests > workflow-process > pricing-value
    - Trim lowest-priority queries to fit within budget
 
 5. **Organize** queries by target source:

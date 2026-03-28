@@ -68,6 +68,32 @@ Read these files from the scan directory:
    - Queries: "switched from <competitor>", "migrating from <competitor>", "alternative to <competitor>", "<competitor> shutdown"
    - Budget: ~30% of websearch rate budget
 
+### Expanded Source Scanning (Deep Mode)
+
+In deep mode, spawn 2 ADDITIONAL sub-agents beyond the existing 3:
+
+4. **websearch-linkedin** — LinkedIn posts and articles:
+   - Queries: site:linkedin.com "{market} problems", site:linkedin.com "{competitor} alternative"
+   - Focus: Executive/decision-maker perspectives, enterprise pain points
+   - Budget: ~15% of websearch rate budget
+
+5. **websearch-youtube** — YouTube comment analysis:
+   - Queries: site:youtube.com "{competitor} review", site:youtube.com "{market} comparison"
+   - Focus: Video review comments, tutorial frustration comments
+   - Budget: ~15% of websearch rate budget
+
+Reduce existing sub-agent budgets to 23% each (from 30-40%) to accommodate.
+
+### Additional Site-Specific Scanning
+
+For each additional source in scan-spec.additionalSources, spawn a websearch sub-agent with site: queries:
+- `site:stackoverflow.com "{market} {pain keyword}"`
+- `site:github.com/discussions "{competitor} issue"`
+- `site:dev.to "{market} frustration"`
+- `site:indiehackers.com "{market}"`
+- `site:quora.com "{competitor} alternative"`
+- `site:medium.com "{market} problems"`
+
 3. Spawn all sub-agents **in a single message** (parallel). Each sub-agent receives:
    - Its query set
    - The scan directory path
@@ -80,6 +106,8 @@ Read these files from the scan directory:
    - `/tmp/gapscout-<scan-id>/scan-websearch-namepros.json`
    - `/tmp/gapscout-<scan-id>/scan-websearch-broad.json`
    - `/tmp/gapscout-<scan-id>/scan-websearch-switching.json`
+   - (Deep mode only) `/tmp/gapscout-<scan-id>/scan-websearch-linkedin.json`
+   - (Deep mode only) `/tmp/gapscout-<scan-id>/scan-websearch-youtube.json`
 
 5. Read all sub-agent files. Do NOT merge them — each stays as its own artifact. But verify:
    - Each file has valid JSON

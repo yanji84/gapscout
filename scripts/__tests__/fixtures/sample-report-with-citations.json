@@ -1,0 +1,203 @@
+{
+  "reportVersion": "3.0",
+  "generatedAt": "2026-03-28T12:00:00Z",
+  "scanId": "test-scan-001",
+  "market": "Online Reselling Tools",
+  "executiveSummary": {
+    "marketOverview": "The online reselling tools market has 15 active competitors with significant gaps in bulk management and cross-platform sync.",
+    "topOpportunities": [
+      { "rank": 1, "gap": "Automated bulk listing management", "score": 78, "verdict": "VALIDATED", "citationIds": [1, 2, 3] },
+      { "rank": 2, "gap": "Cross-platform inventory sync", "score": 65, "verdict": "VALIDATED", "citationIds": [6, 7] },
+      { "rank": 3, "gap": "Real-time price tracking and alerts", "score": 62, "verdict": "VALIDATED", "citationIds": [4, 5] }
+    ],
+    "keyFinding": "Power sellers spend 3+ hours daily on manual tasks that could be automated [1]",
+    "totalCompetitors": 15,
+    "totalGapsIdentified": 8,
+    "validatedOpportunities": 3
+  },
+  "citations": [
+    {
+      "id": 1,
+      "url": "https://reddit.com/r/flipping/comments/abc123/bulk_listing_pain",
+      "source": "reddit",
+      "sourceType": "user-complaint",
+      "title": "Bulk listing pain discussion",
+      "date": "2026-01-15",
+      "quote": "I spend 3 hours every day manually updating my 200 listings one by one",
+      "retrievedAt": "2026-03-28T09:00:00Z",
+      "context": "Pain point about manual listing management"
+    },
+    {
+      "id": 2,
+      "url": "https://reddit.com/r/ecommerce/comments/def456/willing_to_pay",
+      "source": "reddit",
+      "sourceType": "wtp-signal",
+      "title": "Willing to pay for bulk tools",
+      "date": "2026-02-01",
+      "quote": "Would happily pay $100/month for proper bulk management",
+      "retrievedAt": "2026-03-28T09:00:00Z",
+      "context": "WTP signal for bulk listing management"
+    },
+    {
+      "id": 3,
+      "url": "https://news.ycombinator.com/item?id=39012345",
+      "source": "hackernews",
+      "sourceType": "market-discussion",
+      "title": "API-first approach to marketplace tools",
+      "date": "2026-01-20",
+      "quote": "The API is there but nobody has built a decent tool on top of it",
+      "retrievedAt": "2026-03-28T09:00:00Z",
+      "context": "HN discussion about marketplace API gaps"
+    },
+    {
+      "id": 4,
+      "url": "https://reddit.com/r/flipping/comments/ghi789/price_checking",
+      "source": "reddit",
+      "sourceType": "user-complaint",
+      "title": "Manual price checking frustration",
+      "date": "2026-02-10",
+      "quote": "I check prices manually 5 times a day, there must be a better way",
+      "retrievedAt": "2026-03-28T09:00:00Z",
+      "context": "Pain point about lack of price tracking"
+    },
+    {
+      "id": 5,
+      "url": "https://news.ycombinator.com/item?id=39054321",
+      "source": "hackernews",
+      "sourceType": "feature-request",
+      "title": "CamelCamelCamel for other markets",
+      "date": "2026-02-15",
+      "quote": "CamelCamelCamel exists for Amazon but nothing for this market",
+      "retrievedAt": "2026-03-28T09:00:00Z",
+      "context": "Unmet need for price tracking in reselling"
+    },
+    {
+      "id": 6,
+      "url": "https://reddit.com/r/flipping/comments/jkl012/double_sell_nightmare",
+      "source": "reddit",
+      "sourceType": "user-complaint",
+      "title": "Double-sell nightmare thread",
+      "date": "2026-03-01",
+      "quote": "I sold the same item on eBay and Mercari simultaneously, had to refund one buyer",
+      "retrievedAt": "2026-03-28T09:00:00Z",
+      "context": "Pain point about cross-platform inventory sync"
+    },
+    {
+      "id": 7,
+      "url": "https://www.trustpilot.com/review/crosslist.com/abc123",
+      "source": "trustpilot",
+      "sourceType": "competitor-review",
+      "title": "Crosslist sync too slow",
+      "date": "2026-03-05",
+      "quote": "Crosslist syncs but it's so slow items stay listed for hours after selling",
+      "retrievedAt": "2026-03-28T09:00:00Z",
+      "context": "Competitor weakness in cross-platform sync"
+    }
+  ],
+  "citationStats": {
+    "total": 7,
+    "bySource": { "reddit": 4, "hackernews": 2, "trustpilot": 1 },
+    "goldTierCitations": 3
+  },
+  "painAnalysis": {
+    "painThemes": [
+      {
+        "theme": "Manual repetitive listing work",
+        "severity": "critical",
+        "competitors": ["eBay", "Mercari", "Poshmark"],
+        "evidence": "Users report 3+ hours daily on manual updates [1][2]",
+        "citationIds": [1, 2]
+      },
+      {
+        "theme": "No real-time price intelligence",
+        "severity": "high",
+        "competitors": ["eBay", "StockX"],
+        "evidence": "Manual price checking 5x daily, no CamelCamelCamel equivalent [4][5]",
+        "citationIds": [4, 5]
+      },
+      {
+        "theme": "Cross-platform sync failures",
+        "severity": "high",
+        "competitors": ["Crosslist", "List Perfectly"],
+        "evidence": "Double-sells causing refunds, slow sync times [6][7]",
+        "citationIds": [6, 7]
+      }
+    ]
+  },
+  "opportunities": [
+    {
+      "rank": 1,
+      "gap": "Automated bulk listing management",
+      "compositeScore": 78,
+      "verdict": "VALIDATED",
+      "citationIds": [1, 2, 3],
+      "ideaSketch": {
+        "targetPersona": "Power sellers managing 100+ listings",
+        "valueProp": "One-click bulk edit, relist, and price adjust",
+        "competitiveMoat": "Deep API integration + ML-powered pricing",
+        "wtpJustification": "Users already paying $30/mo for spreadsheet workarounds [2]"
+      }
+    }
+  ],
+  "deepResearchVerification": {
+    "roundsCompleted": 2,
+    "converged": true,
+    "adjustedOpportunities": [
+      {
+        "gap": "Automated bulk listing management",
+        "originalScore": 78,
+        "adjustedScore": 82,
+        "verificationVerdict": "STRENGTHENED",
+        "scoreChange": 4,
+        "newEvidence": [
+          {
+            "query": "bulk listing management marketplace seller tools",
+            "source": "https://reddit.com/r/eBaySellers/comments/xyz/bulk_tools",
+            "finding": "Additional 15 users requesting bulk tools in r/eBaySellers",
+            "impact": "confirms",
+            "quote": "Desperately need bulk relisting, would pay good money for it"
+          }
+        ],
+        "confidenceLevel": "HIGH"
+      }
+    ]
+  },
+  "communityValidation": {
+    "opportunities": [
+      {
+        "gap": "Automated bulk listing management",
+        "communities": [
+          {
+            "platform": "reddit",
+            "name": "r/Flipping",
+            "url": "https://reddit.com/r/Flipping",
+            "subscribers": "450K",
+            "relevance": 5,
+            "activity": 5,
+            "accessibility": 5,
+            "signalQuality": 4,
+            "compositeScore": 4.75,
+            "whyRelevant": "Primary community for resellers, frequent bulk listing discussions",
+            "recentThreads": [
+              {
+                "title": "Anyone else spending hours on manual listings?",
+                "url": "https://reddit.com/r/Flipping/comments/abc123",
+                "date": "2026-03-15",
+                "comments": 45
+              }
+            ],
+            "engagementTip": "Post in the weekly Flip of the Week thread"
+          }
+        ],
+        "validationPlan": {
+          "surveyQuestion": "If you could automate one thing about your listing workflow, what would it be?",
+          "engagementTemplate": "Hey r/Flipping, I'm researching tools for bulk listing management...",
+          "whatToLookFor": ["Upvotes > 10", "Comments sharing personal workflow pain"],
+          "redFlags": ["Feature already exists in competitor X"],
+          "estimatedTimeToValidate": "1-2 weeks",
+          "minimumResponses": 15
+        }
+      }
+    ]
+  }
+}

@@ -41,6 +41,15 @@ Produce a concise executive summary suitable for the orchestrator to present dir
    - If any top-3 opportunity's competitive assessment was materially changed by trust scoring, note it in the opportunity description
    - Add a `trustInsight` field with the most impactful trust finding
 7. **Next steps**: What the user should investigate further
+9. **Strategic verdict**: If synthesis-15-strategic-narrative.json exists (via report.json's strategicNarrative), include BUILD/WATCH/AVOID recommendations
+10. **Contrarian insight**: The most non-obvious finding from the strategic narrative
+11. **Kill shot test**: The fastest way to validate opportunity #1 (from strategic narrative's killShotTest)
+   - Include the top community validation recommendation from report.json's `communityValidation` section (if exists)
+   - For the #1 opportunity, include the specific community name and URL, plus the suggested survey question
+   - Example: "Validate 'Bulk listing management' opportunity in r/Flipping (450K members) — ask: 'If you could automate one thing about your listing workflow, what would it be?'"
+8. **Citation stats**: Summary of evidence quality
+   - Total citations collected and bibliography source breakdown
+   - If report.json has `citationStats`, include it
 
 ## Output
 
@@ -77,9 +86,27 @@ Write to: `/tmp/gapscout-<scan-id>/report-summary.json`
   },
   "nextSteps": [
     "<recommended action 1>",
-    "<recommended action 2>",
+    "<recommended action 2 — include top community validation suggestion>",
     "<recommended action 3>"
-  ]
+  ],
+  "strategicVerdict": {
+    "buildNow": [{ "opportunity": "<name>", "reason": "<1 sentence>" }],
+    "watchAndWait": [{ "opportunity": "<name>", "reason": "<1 sentence>" }],
+    "avoid": [{ "opportunity": "<name>", "reason": "<1 sentence>" }]
+  },
+  "contrarianInsight": "<the single most surprising finding that challenges conventional wisdom>",
+  "killShotTest": "<the quickest experiment to validate the #1 opportunity>",
+  "citationStats": {
+    "total": "<N>",
+    "bySource": { "reddit": "<N>", "hackernews": "<N>" },
+    "goldTierCitations": "<N>"
+  },
+  "topCommunityValidation": {
+    "opportunity": "<top opportunity name>",
+    "community": "<community name>",
+    "url": "<community URL>",
+    "surveyQuestion": "<suggested validation question>"
+  }
 }
 ```
 
